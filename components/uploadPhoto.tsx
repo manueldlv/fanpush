@@ -4,9 +4,11 @@ import { supabase } from "@/lib/supabase"
 
 export default function UploadPhoto() {
 
-  const upload = async (e) => {
+  const upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
-    const file = e.target.files[0]
+    const file = e.target.files?.[0]
+
+    if (!file) return
 
     const fileName = Date.now() + "-" + file.name
 

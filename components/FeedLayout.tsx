@@ -2,20 +2,85 @@
 
 import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
 import { usePostsStore } from "@/lib/store";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PostModal from "@/components/PostModal";
 
 export default function FeedLayout() {
   const posts = usePostsStore((state) => state.posts);
   const [activeIndex, setActiveIndex] = useState<Record<string, number>>({});
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
+  const [menuPostId, setMenuPostId] = useState<string | null>(null);
 
   const openPost = posts.find((post) => post.id === selectedPost) ?? null;
+  const menuPost = posts.find((post) => post.id === menuPostId) ?? null;
+
+  useEffect(() => {
+    if (!menuPostId) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuPostId(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [menuPostId]);
 
   return (
-    <section className="flex h-full w-full max-w-[630px] flex-col gap-6 overflow-y-auto pr-2">
+    <section className="flex w-full max-w-[630px] flex-col gap-6 pr-2">
       {openPost ? (
         <PostModal post={openPost} onClose={() => setSelectedPost(null)} />
+      ) : null}
+      {menuPost ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 px-6 py-10">
+          <button
+            type="button"
+            onClick={() => setMenuPostId(null)}
+            className="absolute inset-0 h-full w-full cursor-default"
+            aria-label="Cerrar menu"
+          />
+          <div className="relative w-full max-w-[520px] overflow-hidden rounded-[18px] bg-white shadow-xl">
+            <button
+              type="button"
+              onClick={() => setMenuPostId(null)}
+              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+            >
+              Denunciar
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuPostId(null)}
+              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+            >
+              Dejar de seguir
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuPostId(null)}
+              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+            >
+              Añadir a favoritos
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuPostId(null)}
+              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+            >
+              Ir a la publicación
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuPostId(null)}
+              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+            >
+              Información sobre esta cuenta
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuPostId(null)}
+              className="w-full py-4 text-center text-sm font-medium text-zinc-900"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
       ) : null}
       {posts.map((post) => (
         <article
@@ -51,6 +116,7 @@ export default function FeedLayout() {
               </button>
               <button
                 type="button"
+                onClick={() => setMenuPostId(post.id)}
                 className="rounded-[5px] p-2 text-zinc-500 hover:bg-zinc-100"
                 aria-label="Mas opciones"
               >

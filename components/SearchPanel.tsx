@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 
 const results = [
@@ -49,6 +50,16 @@ type SearchPanelProps = {
 export default function SearchPanel({ open, onClose }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open) {
@@ -77,6 +88,16 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
     );
   }, [query]);
 
+  const handleSelect = (item: (typeof results)[number]) => {
+    const params = new URLSearchParams({
+      user: item.name,
+      full: item.fullName,
+      avatar: item.avatar,
+    });
+    router.push(`/perfil?${params.toString()}`);
+    onClose();
+  };
+
   return (
     <>
       {open ? (
@@ -88,7 +109,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
         />
       ) : null}
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen w-[420px] border-r border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
+        className={`fixed left-0 top-16 z-50 h-[calc(100vh-4rem)] w-[420px] border-r border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -139,7 +160,12 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
             ) : (
               <div className="space-y-4">
                 {filtered.map((item) => (
-                  <div key={item.id} className="flex items-center gap-4">
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelect(item)}
+                    className="flex w-full cursor-pointer items-center gap-4 rounded-[5px] p-2 text-left transition hover:bg-zinc-100"
+                  >
                     <img
                       src={item.avatar}
                       alt={item.name}
@@ -153,7 +179,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
                         {item.fullName} · {item.detail}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

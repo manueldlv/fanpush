@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "../styles/globals.css";
+import TopBar from "@/components/TopBar";
 
 const inter = Inter({
   variable: "--font-primary",
@@ -25,7 +26,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${jetBrainsMono.variable} antialiased`}>
-        {children}
+        <TopBar />
+        <div className="pt-16">{children}</div>
       </body>
     </html>
   );

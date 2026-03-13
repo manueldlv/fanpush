@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Bookmark,
   Grid,
@@ -18,6 +19,12 @@ export default function PerfilPage() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const posts = usePostsStore((state) => state.posts);
   const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
+  const searchParams = useSearchParams();
+  const profileName = searchParams.get("user") ?? "creativestudio";
+  const profileFullName = searchParams.get("full") ?? "Creative Studio";
+  const profileAvatar =
+    searchParams.get("avatar") ??
+    "https://picsum.photos/seed/creative-profile/120/120";
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -46,19 +53,19 @@ export default function PerfilPage() {
             <div className="flex flex-wrap items-center justify-between gap-6">
               <div className="flex items-center gap-6">
                 <img
-                  src="https://picsum.photos/seed/creative-profile/120/120"
-                  alt="creativestudio"
+                  src={profileAvatar}
+                  alt={profileName}
                   className="h-24 w-24 rounded-full object-cover"
                 />
                 <div>
                   <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-semibold">creativestudio</h1>
+                    <h1 className="text-2xl font-semibold">{profileName}</h1>
                     <span className="inline-flex h-5 w-5 items-center justify-center rounded-[5px] bg-sky-500 text-[10px] font-bold text-white">
                       ✓
                     </span>
                   </div>
                   <div className="mt-2 text-sm font-semibold">
-                    Creative Studio
+                    {profileFullName}
                   </div>
                 </div>
               </div>

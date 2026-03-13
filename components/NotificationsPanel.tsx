@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { X } from "lucide-react";
 
 type NotificationsPanelProps = {
@@ -241,6 +242,15 @@ const notifications = [
 ];
 
 export default function NotificationsPanel({ open, onClose }: NotificationsPanelProps) {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
   return (
     <>
       {open ? (
@@ -252,7 +262,7 @@ export default function NotificationsPanel({ open, onClose }: NotificationsPanel
         />
       ) : null}
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen w-[420px] border-r border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
+        className={`fixed left-0 top-16 z-50 h-[calc(100vh-4rem)] w-[420px] border-r border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >

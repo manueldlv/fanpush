@@ -13,7 +13,7 @@ export default function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       
       <SidebarLeft
         searchOpen={searchOpen}
@@ -38,8 +38,8 @@ export default function Home() {
         onClose={() => setNotificationsOpen(false)}
       />
 
-      <div className="flex h-full pl-60">
-        <div className="mx-auto flex h-full w-full max-w-[1200px] gap-8 px-6 py-8">
+      <div className="flex min-h-screen pl-60">
+        <div className="mx-auto flex w-full max-w-[1200px] gap-8 px-6 py-8">
           <FeedLayout />
           <SidebarRight />
         </div>

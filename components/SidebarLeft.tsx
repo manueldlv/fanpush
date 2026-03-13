@@ -4,6 +4,7 @@ import {
   Compass,
   Home,
   LogOut,
+  DollarSign,
   Search,
   Settings,
   ShoppingBag,
@@ -25,18 +26,9 @@ export default function SidebarLeft({
   notificationsOpen,
 }: SidebarLeftProps) {
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-60 border-r border-zinc-200 bg-white/95 px-4 py-6 backdrop-blur">
+    <aside className="fixed left-0 top-16 z-40 h-[calc(100vh-4rem)] w-60 border-r border-zinc-200 bg-white/95 px-4 py-6 backdrop-blur">
       <div className="flex h-full flex-col">
-        <div className="px-2">
-          <div className="text-xl font-semibold tracking-tight text-zinc-900">
-            Fanpush
-          </div>
-          <div className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-400">
-            Social
-          </div>
-        </div>
-
-        <nav className="mt-8 flex flex-1 flex-col gap-1">
+        <nav className="mt-2 flex flex-1 flex-col gap-1">
           <Link
             href="/"
             className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
@@ -96,6 +88,13 @@ export default function SidebarLeft({
           >
             <ShoppingBag className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
             <span>Mis compras</span>
+          </Link>
+          <Link
+            href="/ventas"
+            className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+          >
+            <DollarSign className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+            <span>Mis ventas</span>
           </Link>
           <div className="py-2" />
           <Link

@@ -70,8 +70,8 @@ export default function ExplorarPage() {
         onClose={() => setNotificationsOpen(false)}
       />
 
-      <div className="flex h-full pl-60">
-        <div className="mx-auto flex h-full w-full max-w-[1280px] flex-col gap-6 px-6 py-8">
+      <div className="flex h-full md:pl-60">
+        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1280px] md:px-6 md:py-8">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-semibold">Explorar</h1>

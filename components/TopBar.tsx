@@ -195,12 +195,12 @@ export default function TopBar() {
   return (
     <header className="fixed left-0 top-0 z-50 h-16 w-full border-b border-zinc-200 bg-white">
       <div className="h-full">
-        <div className="flex h-full w-full items-center justify-between px-6">
+        <div className="flex h-full w-full items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-10">
             <Link href="/" className="text-xl font-semibold text-zinc-900">
               FanPush
             </Link>
-            <nav className="flex items-center gap-6 text-sm font-semibold text-zinc-500">
+            <nav className="hidden items-center gap-6 text-sm font-semibold text-zinc-500 sm:flex">
               <Link href="/" className="text-zinc-900">
                 Feed
               </Link>
@@ -222,7 +222,7 @@ export default function TopBar() {
                   }}
                   onFocus={() => setSearchOpen(true)}
                   placeholder="Buscar"
-                  className="w-[240px] bg-transparent text-sm text-zinc-800 outline-none"
+                  className="w-28 bg-transparent text-sm text-zinc-800 outline-none sm:w-40 md:w-[240px]"
                 />
                 {query ? (
                   <button

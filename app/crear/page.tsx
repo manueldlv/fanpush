@@ -109,8 +109,8 @@ export default function CrearPage() {
         onClose={() => setNotificationsOpen(false)}
       />
 
-      <div className="flex h-full pl-60">
-        <div className="mx-auto flex h-full w-full max-w-[720px] flex-col gap-8 px-6 py-10">
+      <div className="flex h-full md:pl-60">
+        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[720px] md:gap-8 md:px-6 md:py-10">
           {step === 1 ? (
             <div className="space-y-8">
               <div>

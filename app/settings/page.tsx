@@ -37,8 +37,8 @@ export default function SettingsPage() {
         onClose={() => setNotificationsOpen(false)}
       />
 
-      <div className="flex h-full pl-60">
-        <div className="mx-auto flex h-full w-full max-w-[1200px] gap-8 px-6 py-8">
+      <div className="flex h-full md:pl-60">
+        <div className="mx-auto flex h-full w-full max-w-none gap-6 px-4 py-6 md:max-w-[1200px] md:gap-8 md:px-6 md:py-8">
           <aside className="w-[280px] shrink-0">
             <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
               <div className="text-lg font-semibold">Configuración</div>

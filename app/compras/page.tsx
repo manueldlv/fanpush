@@ -61,8 +61,8 @@ export default function ComprasPage() {
         onClose={() => setNotificationsOpen(false)}
       />
 
-      <div className="flex h-full pl-60">
-        <div className="mx-auto flex h-full w-full max-w-[1100px] flex-col gap-8 px-6 py-8">
+      <div className="flex h-full md:pl-60">
+        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1100px] md:gap-8 md:px-6 md:py-8">
           <div>
             <h1 className="text-2xl font-semibold">Mis compras</h1>
             <p className="text-sm text-zinc-500">

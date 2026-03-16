@@ -27,7 +27,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} ${jetBrainsMono.variable} antialiased`}>
         <TopBar />
-        <div className="pt-16">{children}</div>
+        <div className="pb-16 pt-16 md:pb-0">{children}</div>
       </body>
     </html>
   );

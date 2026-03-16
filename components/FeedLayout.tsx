@@ -24,7 +24,7 @@ export default function FeedLayout() {
   }, [menuPostId]);
 
   return (
-    <section className="flex w-full max-w-[630px] flex-col gap-6 pr-2">
+    <section className="flex w-full max-w-none flex-col gap-6 md:max-w-[630px] md:pr-2">
       {openPost ? (
         <PostModal post={openPost} onClose={() => setSelectedPost(null)} />
       ) : null}

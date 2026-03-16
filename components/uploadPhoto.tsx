@@ -1,6 +1,6 @@
 "use client"
 
-import { supabase } from "@/lib/supabase"
+import { getSupabaseClient } from "@/lib/supabase"
 
 export default function UploadPhoto() {
 
@@ -12,6 +12,11 @@ export default function UploadPhoto() {
 
     const fileName = Date.now() + "-" + file.name
 
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      console.error("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.")
+      return
+    }
     const { data, error } = await supabase.storage
       .from("imagenes")
       .upload(fileName, file)

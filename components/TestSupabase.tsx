@@ -1,14 +1,19 @@
 "use client"
 
 import { useEffect } from "react"
-import { supabase } from "@/lib/supabase"
+import { getSupabaseClient } from "@/lib/supabase"
 
 export default function TestSupabase() {
 
   useEffect(() => {
     async function test() {
 
-      const { data, error } = await supabase
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      console.error("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.")
+      return
+    }
+    const { data, error } = await supabase
         .from("posts")
         .select("*")
 

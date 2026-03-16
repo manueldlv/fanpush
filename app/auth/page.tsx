@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseClient } from "@/lib/supabase";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -50,6 +50,12 @@ export default function AuthPage() {
 
     setSubmitting(true);
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        setError("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.");
+        return;
+      }
+
       if (mode === "register") {
         const normalizedEmail = normalizeEmail(email);
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -85,6 +91,11 @@ export default function AuthPage() {
   const handleResend = async () => {
     setError(null);
     setSuccess(null);
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setError("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.");
+      return;
+    }
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) {
       setError("Ingresa tu correo para reenviar la confirmación.");

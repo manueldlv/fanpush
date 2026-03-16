@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { getSupabaseClient } from "@/lib/supabase"
 
 export default function Auth() {
 
@@ -9,6 +9,11 @@ export default function Auth() {
   const [password, setPassword] = useState("")
 
   const signUp = async () => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      alert("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.")
+      return
+    }
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -19,6 +24,11 @@ export default function Auth() {
   }
 
   const signIn = async () => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      alert("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.")
+      return
+    }
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,

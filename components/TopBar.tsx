@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, Search } from "lucide-react";
 
@@ -125,6 +125,7 @@ const notifications = [
 ];
 
 export default function TopBar() {
+  const pathname = usePathname();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -186,6 +187,10 @@ export default function TopBar() {
     setSearchOpen(false);
     setQuery("");
   };
+
+  if (pathname?.startsWith("/auth")) {
+    return null;
+  }
 
   return (
     <header className="fixed left-0 top-0 z-50 h-16 w-full border-b border-zinc-200 bg-white">

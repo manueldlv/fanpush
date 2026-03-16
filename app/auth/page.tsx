@@ -1,9 +1,109 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const router = useRouter();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
+
+  const normalizeEmail = (value: string) => {
+    const compact = value.replace(/\s+/g, "").toLowerCase();
+    if (!compact) return "";
+    if (/^[^\s@]+@[^\s@]+$/.test(compact)) {
+      return `${compact}.com`;
+    }
+    return compact;
+  };
+
+  const validate = () => {
+    if (mode === "register" && fullName.trim().length < 2) {
+      return "El nombre completo es obligatorio.";
+    }
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return "El correo es obligatorio.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return "El correo no es válido.";
+    }
+    if (password.length < 6) {
+      return "La contraseña debe tener al menos 6 caracteres.";
+    }
+    return null;
+  };
+
+  const handleSubmit = async () => {
+    setError(null);
+    setSuccess(null);
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      if (mode === "register") {
+        const normalizedEmail = normalizeEmail(email);
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: normalizedEmail,
+          password,
+          options: {
+            data: { full_name: fullName.trim() },
+          },
+        });
+
+        if (signUpError) throw signUpError;
+
+        setSuccess(
+          "Cuenta creada. Revisa tu correo para confirmar si es necesario.",
+        );
+        setMode("login");
+      } else {
+        const normalizedEmail = normalizeEmail(email);
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
+        if (signInError) throw signInError;
+        router.push("/");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ocurrió un error.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError(null);
+    setSuccess(null);
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      setError("Ingresa tu correo para reenviar la confirmación.");
+      return;
+    }
+    setResendLoading(true);
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: "signup",
+        email: normalizedEmail,
+      });
+      if (resendError) throw resendError;
+      setSuccess("Correo de confirmación reenviado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ocurrió un error.");
+    } finally {
+      setResendLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -43,30 +143,72 @@ export default function AuthPage() {
 
           <div className="mt-6 space-y-4">
             {mode === "register" ? (
+              <div className="space-y-1">
+                <input
+                  type="text"
+                  placeholder="Nombre completo"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  className="w-full rounded-[5px] border border-zinc-200 px-3 py-2 text-sm"
+                />
+              </div>
+            ) : null}
+            <div className="space-y-1">
               <input
-                type="text"
-                placeholder="Nombre completo"
+                type="email"
+                placeholder="Correo"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 className="w-full rounded-[5px] border border-zinc-200 px-3 py-2 text-sm"
               />
-            ) : null}
-            <input
-              type="email"
-              placeholder="Correo"
-              className="w-full rounded-[5px] border border-zinc-200 px-3 py-2 text-sm"
-            />
-            <input
-              type="password"
-              placeholder="Contraseña"
-              className="w-full rounded-[5px] border border-zinc-200 px-3 py-2 text-sm"
-            />
+            </div>
+            <div className="space-y-1">
+              <input
+                type="password"
+                placeholder="Contraseña"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-[5px] border border-zinc-200 px-3 py-2 text-sm"
+              />
+            </div>
           </div>
+
+          {error ? (
+            <div className="mt-4 rounded-[5px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+              {error}
+            </div>
+          ) : null}
+          {success ? (
+            <div className="mt-4 rounded-[5px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+              {success}
+            </div>
+          ) : null}
 
           <button
             type="button"
-            className="mt-6 w-full rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="mt-6 w-full rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {mode === "login" ? "Entrar" : "Crear cuenta"}
+            {submitting
+              ? "Procesando..."
+              : mode === "login"
+                ? "Entrar"
+                : "Crear cuenta"}
           </button>
+
+          {mode === "login" ? (
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendLoading}
+              className="mt-3 w-full rounded-[5px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {resendLoading
+                ? "Reenviando..."
+                : "Reenviar confirmación de email"}
+            </button>
+          ) : null}
 
           <div className="mt-4 text-center text-xs text-zinc-500">
             Al continuar aceptas los terminos y condiciones.

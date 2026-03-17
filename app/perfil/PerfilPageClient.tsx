@@ -179,7 +179,7 @@ export default function PerfilPage() {
             const media =
               album.album_posts?.map((item) => item.post) ?? [];
             const mediaWithUrls = await Promise.all(
-              media.map(async (item) => ({
+              media.map(async (item: any) => ({
                 url: await resolveMediaUrl(item?.media_url ?? ""),
                 kind: item?.media_type === "video" ? "video" : "image",
                 locked: item?.is_locked ?? false,

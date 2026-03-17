@@ -9,7 +9,7 @@ type PostModalProps = {
   onClose: () => void;
   currentUserId?: string | null;
   onDelete?: (postId: string) => void | Promise<void>;
-  onPurchase?: (postId: string) => void | Promise<void>;
+  onPurchase?: (postId: string) => void | boolean | Promise<void | boolean>;
 };
 
 export default function PostModal({

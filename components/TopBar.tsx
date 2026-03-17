@@ -239,7 +239,7 @@ export default function TopBar() {
     const params = new URLSearchParams({
       user: item.name,
       full: item.fullName,
-      avatar: item.avatar,
+      avatar: item.avatar ?? "",
     });
     router.push(`/perfil?${params.toString()}`);
     setSearchOpen(false);

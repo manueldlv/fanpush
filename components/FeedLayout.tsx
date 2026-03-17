@@ -2,10 +2,52 @@
 
 import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
 import { usePostsStore } from "@/lib/store";
+import type { Post } from "@/lib/store";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
 import { getSupabaseClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+
+type AlbumMediaPost = {
+  id: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  is_locked: boolean | null;
+  likes_count: number | null;
+};
+
+type AlbumPostRow = {
+  post: AlbumMediaPost | AlbumMediaPost[] | null;
+};
+
+type AlbumUser = {
+  username: string | null;
+  avatar_url: string | null;
+};
+
+type AlbumLinkPost = {
+  media_url: string | null;
+};
+
+type AlbumLinkRow = {
+  post_id: string;
+  post: AlbumLinkPost | AlbumLinkPost[] | null;
+};
+
+const normalizeAlbumMedia = (
+  albumPosts: AlbumPostRow[] | null | undefined,
+): AlbumMediaPost[] =>
+  (albumPosts ?? []).flatMap((item) => {
+    if (!item?.post) return [];
+    return Array.isArray(item.post) ? item.post : [item.post];
+  });
+
+const normalizeSingleRelation = <T,>(
+  value: T | T[] | null | undefined,
+): T | null => {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+};
 
 export default function FeedLayout() {
   const posts = usePostsStore((state) => state.posts);
@@ -84,42 +126,45 @@ export default function FeedLayout() {
           return publicUrl.publicUrl;
         };
 
-        const mapped =
+        const mapped: Post[] =
           (await Promise.all(
             (data ?? []).map(async (post) => {
-              const media =
-                post.album_posts?.map((item) => item.post) ?? [];
-              const mediaWithUrls = await Promise.all(
+              const media = normalizeAlbumMedia(
+                post.album_posts as AlbumPostRow[] | null | undefined,
+              );
+              const albumUser = normalizeSingleRelation(
+                post.users as AlbumUser | AlbumUser[] | null | undefined,
+              );
+              const mediaWithUrls: Post["media"] = await Promise.all(
                 media.map(async (item) => ({
                   url: await resolveMediaUrl(item?.media_url ?? ""),
                   kind: item?.media_type === "video" ? "video" : "image",
                   locked: item?.is_locked ?? false,
                 })),
               );
-              const mediaPostIds = media.map((item) => item?.id ?? "");
+              const mediaPostIds = media.map((item) => item.id ?? "");
               const avatarUrl = await resolveAvatarUrl(
-                post.users?.avatar_url ?? "",
+                albumUser?.avatar_url ?? "",
               );
               return {
                 id: post.id,
                 userId: post.user_id,
                 mediaPostIds,
-                author: post.users?.username ?? "usuario",
+                author: albumUser?.username ?? "usuario",
                 verified: false,
                 time: formatTime(post.created_at),
                 suggestion: "Sugerencia para ti",
                 caption: post.description ?? "",
-                likes:
-                  post.album_posts?.reduce(
-                    (sum, item) => sum + (item.post?.likes_count ?? 0),
-                    0,
-                  ) ?? 0,
+                likes: media.reduce(
+                  (sum, item) => sum + (item.likes_count ?? 0),
+                  0,
+                ),
                 avatar:
                   avatarUrl ||
                   "https://picsum.photos/seed/default-avatar/64/64",
                 price: post.price ?? 0,
                 media: mediaWithUrls,
-              };
+              } satisfies Post;
             }),
           )) ?? [];
 
@@ -147,7 +192,7 @@ export default function FeedLayout() {
           setPosts((prev) =>
             prev.map((post) => ({
               ...post,
-              media: post.media.map((item, index) => {
+              media: post.media.map((item, index): Post["media"][number] => {
                 const postId = post.mediaPostIds[index];
                 const unlocked =
                   post.userId === userId || purchased.has(postId);
@@ -193,7 +238,7 @@ export default function FeedLayout() {
       setPosts((prev) =>
         prev.map((post) => ({
           ...post,
-          media: post.media.map((item, index) => {
+          media: post.media.map((item, index): Post["media"][number] => {
             const postId = post.mediaPostIds[index];
             const unlocked =
               post.userId === currentUserId || purchased.has(postId);
@@ -358,9 +403,10 @@ export default function FeedLayout() {
         .select("post_id, post:posts(media_url)")
         .eq("album_id", albumId);
       if (linksError) throw linksError;
-      const postIds = (links ?? []).map((row) => row.post_id);
-      const mediaPaths = (links ?? [])
-        .map((row) => row.post?.media_url)
+      const normalizedLinks = (links ?? []) as AlbumLinkRow[];
+      const postIds = normalizedLinks.map((row) => row.post_id);
+      const mediaPaths = normalizedLinks
+        .map((row) => normalizeSingleRelation(row.post)?.media_url)
         .filter(Boolean) as string[];
 
       const { error: albumPostsError } = await supabase

@@ -113,8 +113,7 @@ export default function VentasPage() {
           const current = grouped.get(groupKey);
           const count =
             albumCountMap.get(albumId) ??
-            (post?.media_type ? 1 : 0) ??
-            1;
+            (post?.media_type ? 1 : 0);
           const type =
             count > 1 ? "Album" : post?.media_type === "video" ? "Video" : "Foto";
           const base: SaleItem = current ?? {

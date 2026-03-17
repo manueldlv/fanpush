@@ -89,7 +89,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
     const params = new URLSearchParams({
       user: item.name,
       full: item.fullName,
-      avatar: item.avatar,
+      avatar: item.avatar ?? "",
     });
     router.push(`/perfil?${params.toString()}`);
     onClose();

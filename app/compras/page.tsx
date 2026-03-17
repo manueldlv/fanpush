@@ -116,8 +116,8 @@ export default function ComprasPage() {
               url: resolveCover(item?.post?.media_url ?? item?.media_url ?? null),
               kind:
                 (item?.post?.media_type ?? item?.media_type) === "video"
-                  ? "video"
-                  : "image",
+                  ? ("video" as const)
+                  : ("image" as const),
             }))
             .filter((item) => item.url);
           const current = albumEntries.get(albumId);
@@ -140,7 +140,7 @@ export default function ComprasPage() {
                 : [
                     {
                       url: fallbackCover,
-                      kind: "image",
+                      kind: "image" as const,
                     },
                   ],
             status: row.status ?? "Desbloqueado",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, MoreHorizontal, X } from "lucide-react";
+import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
 import type { Post } from "@/lib/store";
 
 type PostModalProps = {
@@ -24,6 +24,7 @@ export default function PostModal({
   const [purchased, setPurchased] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [showPurchaseToast, setShowPurchaseToast] = useState(false);
+  const [showUnlockedChip, setShowUnlockedChip] = useState(false);
   const lockedCount = post.media.filter((m) => m.locked).length;
   const current = post.media[index];
   const isOwner =
@@ -33,6 +34,9 @@ export default function PostModal({
     : post.media;
   const unlockedLockedCount = unlockedMedia.filter((m) => m.locked).length;
   const unlockedCurrent = unlockedMedia[index];
+  const hasPaidContent = lockedCount > 0;
+  const showUnlockedStatus =
+    !isOwner && hasPaidContent && unlockedLockedCount === 0;
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -48,12 +52,14 @@ export default function PostModal({
     setPurchased(false);
     setPurchaseLoading(false);
     setShowPurchaseToast(false);
+    setShowUnlockedChip(false);
   }, [post.id]);
 
   useEffect(() => {
     if (!showPurchaseToast) return;
     const timeout = window.setTimeout(() => {
       setShowPurchaseToast(false);
+      setShowUnlockedChip(true);
     }, 2000);
     return () => window.clearTimeout(timeout);
   }, [showPurchaseToast]);
@@ -130,6 +136,22 @@ export default function PostModal({
               <span className="inline-flex items-center gap-2">
                 <Lock className="h-3 w-3" />
                 {unlockedLockedCount} locked
+              </span>
+            </div>
+          ) : null}
+          {showUnlockedChip && unlockedLockedCount === 0 ? (
+            <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-emerald-500/90 px-3 py-1 text-xs font-semibold text-white">
+              <span className="inline-flex items-center gap-2">
+                <Unlock className="h-3 w-3" />
+                Comprado
+              </span>
+            </div>
+          ) : null}
+          {showUnlockedStatus && !showUnlockedChip ? (
+            <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-emerald-500/90 px-3 py-1 text-xs font-semibold text-white">
+              <span className="inline-flex items-center gap-2">
+                <Unlock className="h-3 w-3" />
+                Comprado
               </span>
             </div>
           ) : null}
@@ -277,11 +299,7 @@ export default function PostModal({
                 </div>
               )}
             </div>
-          ) : (
-            <div className="text-sm text-zinc-500">
-              {purchased ? "Compra realizada." : "Sin contenido bloqueado."}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

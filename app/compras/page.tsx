@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Image as ImageIcon, Lock } from "lucide-react";
+import { Download, Image as ImageIcon, Lock, X } from "lucide-react";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -15,6 +17,7 @@ type PurchaseItem = {
   price: number;
   cover: string;
   covers: string[];
+  media: { url: string; kind: "image" | "video" }[];
   status: string;
 };
 
@@ -23,6 +26,9 @@ export default function ComprasPage() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [items, setItems] = useState<PurchaseItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
+  const [openIndex, setOpenIndex] = useState(0);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
       const supabase = getSupabaseClient();
@@ -100,9 +106,20 @@ export default function ComprasPage() {
           const albumId = post?.album_posts?.[0]?.album_id ?? row.post_id;
           const album = albumMap.get(albumId);
           const albumCovers = (album?.album_posts ?? [])
-            .map((item) => item.post?.media_url ?? "")
+            .map((item: any) =>
+              (item?.post?.media_url ?? item?.media_url ?? "") as string,
+            )
             .filter(Boolean)
             .map((value) => resolveCover(value));
+          const albumMedia = (album?.album_posts ?? [])
+            .map((item: any) => ({
+              url: resolveCover(item?.post?.media_url ?? item?.media_url ?? null),
+              kind:
+                (item?.post?.media_type ?? item?.media_type) === "video"
+                  ? "video"
+                  : "image",
+            }))
+            .filter((item) => item.url);
           const current = albumEntries.get(albumId);
           const date = new Date(row.created_at).toLocaleDateString("es-AR", {
             day: "2-digit",
@@ -117,6 +134,15 @@ export default function ComprasPage() {
             price: album?.price ? Number(album.price) : 0,
             cover: albumCovers[0] ?? fallbackCover,
             covers: albumCovers.length > 0 ? albumCovers : [fallbackCover],
+            media:
+              albumMedia.length > 0
+                ? albumMedia
+                : [
+                    {
+                      url: fallbackCover,
+                      kind: "image",
+                    },
+                  ],
             status: row.status ?? "Desbloqueado",
           };
 
@@ -152,6 +178,32 @@ export default function ComprasPage() {
     };
   }, [load]);
 
+  const handleDownload = async (purchase: PurchaseItem) => {
+    if (downloadingId) return;
+    setDownloadingId(purchase.id);
+    try {
+      const zip = new JSZip();
+      const files = purchase.media.length > 0 ? purchase.media : purchase.covers.map((url) => ({ url, kind: "image" as const }));
+      await Promise.all(
+        files.map(async (item, index) => {
+          const response = await fetch(item.url);
+          const blob = await response.blob();
+          const ext = item.kind === "video" ? "mp4" : "jpg";
+          zip.file(
+            `fanpush-${purchase.id}-${index + 1}.${ext}`,
+            blob,
+          );
+        }),
+      );
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `fanpush-${purchase.id}.zip`);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
       <SidebarLeft
@@ -172,6 +224,72 @@ export default function ComprasPage() {
         open={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
       />
+      {openPurchase ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6">
+          <div
+            className="absolute inset-0 h-full w-full"
+            onClick={() => setOpenPurchase(null)}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            onClick={() => setOpenPurchase(null)}
+            className="absolute right-6 top-6 rounded-[5px] bg-white/90 p-2"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="relative z-10 flex w-full max-w-[900px] overflow-hidden rounded-[5px] bg-black">
+            <div className="relative h-[520px] w-full bg-black">
+              {openPurchase.media[openIndex]?.kind === "video" ? (
+                <video
+                  src={openPurchase.media[openIndex]?.url}
+                  className="h-full w-full object-contain"
+                  controls
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={openPurchase.media[openIndex]?.url}
+                  alt={openPurchase.title}
+                  className="h-full w-full object-contain"
+                />
+              )}
+              {openPurchase.media.length > 1 ? (
+                <>
+                  <div className="absolute inset-y-0 left-0 z-20 flex items-center pl-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenIndex((prev) =>
+                          (prev - 1 + openPurchase.media.length) %
+                          openPurchase.media.length,
+                        )
+                      }
+                      className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
+                    >
+                      ‹
+                    </button>
+                  </div>
+                  <div className="absolute inset-y-0 right-0 z-20 flex items-center pr-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenIndex((prev) =>
+                          (prev + 1) % openPurchase.media.length,
+                        )
+                      }
+                      className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
+                    >
+                      ›
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1100px] md:gap-8 md:px-6 md:py-8">
@@ -243,18 +361,25 @@ export default function ComprasPage() {
                   </div>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                  <a
-                    href={purchase.cover}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenPurchase(purchase);
+                      setOpenIndex(0);
+                    }}
                     className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
                   >
                     <ImageIcon className="h-4 w-4" />
                     Ver foto
-                  </a>
-                  <button className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(purchase)}
+                    className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={downloadingId === purchase.id}
+                  >
                     <Download className="h-4 w-4" />
-                    Descargar
+                    {downloadingId === purchase.id ? "Descargando..." : "Descargar"}
                   </button>
                 </div>
               </div>

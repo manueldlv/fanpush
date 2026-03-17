@@ -5,10 +5,12 @@ import { usePostsStore } from "@/lib/store";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
 import { getSupabaseClient } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 export default function FeedLayout() {
   const posts = usePostsStore((state) => state.posts);
   const setPosts = usePostsStore((state) => state.setPosts);
+  const router = useRouter();
   const [activeIndex, setActiveIndex] = useState<Record<string, number>>({});
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
@@ -521,14 +523,37 @@ export default function FeedLayout() {
         >
           <div className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-3">
-              <img
-                src={post.avatar}
-                alt={post.author}
-                className="h-10 w-10 rounded-full object-cover"
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  if (post.author) params.set("user", post.author);
+                  if (post.avatar) params.set("avatar", post.avatar);
+                  router.push(`/perfil?${params.toString()}`);
+                }}
+                className="h-10 w-10 overflow-hidden rounded-full"
+                aria-label={`Ver perfil de ${post.author}`}
+              >
+                <img
+                  src={post.avatar}
+                  alt={post.author}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+              </button>
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                  <span>{post.author}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      if (post.author) params.set("user", post.author);
+                      if (post.avatar) params.set("avatar", post.avatar);
+                      router.push(`/perfil?${params.toString()}`);
+                    }}
+                    className="hover:underline"
+                  >
+                    {post.author}
+                  </button>
                   {post.verified ? (
                     <span className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-sky-500 text-[10px] font-bold text-white">
                       ✓
@@ -627,15 +652,6 @@ export default function FeedLayout() {
                             Comprar
                           </button>
                         ) : null}
-                      </div>
-                    </div>
-                  ) : post.userId !== currentUserId &&
-                    post.mediaPostIds.some((id) => purchasedPostIds.has(id)) ? (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="rounded-[5px] bg-white/95 px-6 py-4 text-center shadow-md">
-                        <div className="text-sm font-semibold text-zinc-900">
-                          Comprado
-                        </div>
                       </div>
                     </div>
                   ) : null}

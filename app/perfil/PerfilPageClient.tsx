@@ -17,11 +17,13 @@ export default function PerfilPage() {
   const [openPost, setOpenPost] = useState<Post | null>(null);
   const [earnings, setEarnings] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [viewedUserId, setViewedUserId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     posts: 0,
     followers: 0,
     following: 0,
   });
+  const [isFollowing, setIsFollowing] = useState(false);
   const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -54,6 +56,7 @@ export default function PerfilPage() {
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
       if (!userId) return;
+      setViewedUserId(userId);
 
       const { data: userRow } = await supabase
         .from("users")
@@ -314,6 +317,18 @@ export default function PerfilPage() {
         following: followingCount ?? 0,
       });
 
+      if (authData?.user?.id && userId && authData.user.id !== userId) {
+        const { data: followRow } = await supabase
+          .from("follows")
+          .select("id")
+          .eq("follower_id", authData.user.id)
+          .eq("following_id", userId)
+          .maybeSingle();
+        setIsFollowing(Boolean(followRow));
+      } else {
+        setIsFollowing(false);
+      }
+
       const { data: ownedPosts } = await supabase
         .from("posts")
         .select("id")
@@ -411,6 +426,39 @@ export default function PerfilPage() {
     } catch (err) {
       console.error(err);
       setOpenPost(post);
+    }
+  };
+
+  const toggleFollow = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !currentUserId || !viewedUserId) return;
+    if (currentUserId === viewedUserId) return;
+
+    if (isFollowing) {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", currentUserId)
+        .eq("following_id", viewedUserId);
+      if (!error) {
+        setIsFollowing(false);
+        setStats((prev) => ({
+          ...prev,
+          followers: Math.max(prev.followers - 1, 0),
+        }));
+      }
+    } else {
+      const { error } = await supabase.from("follows").insert({
+        follower_id: currentUserId,
+        following_id: viewedUserId,
+      });
+      if (!error) {
+        setIsFollowing(true);
+        setStats((prev) => ({
+          ...prev,
+          followers: prev.followers + 1,
+        }));
+      }
     }
   };
 
@@ -589,12 +637,26 @@ export default function PerfilPage() {
               </div>
 
               <div className="flex flex-col gap-3 md:w-[320px]">
-                <button
-                  onClick={() => router.push("/settings")}
-                  className="rounded-[12px] bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900"
-                >
-                  Editar perfil
-                </button>
+                {currentUserId && viewedUserId && currentUserId !== viewedUserId ? (
+                  <button
+                    type="button"
+                    onClick={toggleFollow}
+                    className={`rounded-[12px] px-4 py-3 text-sm font-semibold ${
+                      isFollowing
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "bg-zinc-900 text-white"
+                    }`}
+                  >
+                    {isFollowing ? "Siguiendo" : "Seguir"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => router.push("/settings")}
+                    className="rounded-[12px] bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900"
+                  >
+                    Editar perfil
+                  </button>
+                )}
               </div>
             </div>
           </div>

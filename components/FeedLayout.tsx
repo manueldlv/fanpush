@@ -2,17 +2,209 @@
 
 import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
 import { usePostsStore } from "@/lib/store";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
+import { getSupabaseClient } from "@/lib/supabase";
 
 export default function FeedLayout() {
   const posts = usePostsStore((state) => state.posts);
+  const setPosts = usePostsStore((state) => state.setPosts);
   const [activeIndex, setActiveIndex] = useState<Record<string, number>>({});
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
+  const [purchasedPostIds, setPurchasedPostIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [loading, setLoading] = useState(false);
 
   const openPost = posts.find((post) => post.id === selectedPost) ?? null;
   const menuPost = posts.find((post) => post.id === menuPostId) ?? null;
+
+  const formatTime = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Ahora";
+    const diffMinutes = Math.floor((Date.now() - date.getTime()) / 60000);
+    if (diffMinutes < 60) return `${diffMinutes} min`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} h`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} d`;
+  };
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const load = async () => {
+      setLoading(true);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData?.session?.user?.id ?? null;
+        setCurrentUserId(userId);
+
+        const { data: followRows } = userId
+          ? await supabase
+              .from("follows")
+              .select("following_id")
+              .eq("follower_id", userId)
+          : { data: [] };
+        setFollowingIds(
+          new Set((followRows ?? []).map((row) => row.following_id)),
+        );
+
+        const { data, error } = await supabase
+          .from("albums")
+          .select(
+            "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count))",
+          )
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+
+        const resolveMediaUrl = async (value: string | null) => {
+          if (!value) return "";
+          if (value.startsWith("http")) return value;
+          const { data: publicUrl } = supabase.storage
+            .from("Imagenes")
+            .getPublicUrl(value);
+          return publicUrl.publicUrl;
+        };
+
+        const resolveAvatarUrl = async (value: string | null) => {
+          if (!value) return "";
+          if (value.startsWith("http")) return value;
+          const { data: publicUrl } = supabase.storage
+            .from("Imagenes")
+            .getPublicUrl(value);
+          return publicUrl.publicUrl;
+        };
+
+        const mapped =
+          (await Promise.all(
+            (data ?? []).map(async (post) => {
+              const media =
+                post.album_posts?.map((item) => item.post) ?? [];
+              const mediaWithUrls = await Promise.all(
+                media.map(async (item) => ({
+                  url: await resolveMediaUrl(item?.media_url ?? ""),
+                  kind: item?.media_type === "video" ? "video" : "image",
+                  locked: item?.is_locked ?? false,
+                })),
+              );
+              const mediaPostIds = media.map((item) => item?.id ?? "");
+              const avatarUrl = await resolveAvatarUrl(
+                post.users?.avatar_url ?? "",
+              );
+              return {
+                id: post.id,
+                userId: post.user_id,
+                mediaPostIds,
+                author: post.users?.username ?? "usuario",
+                verified: false,
+                time: formatTime(post.created_at),
+                suggestion: "Sugerencia para ti",
+                caption: post.description ?? "",
+                likes:
+                  post.album_posts?.reduce(
+                    (sum, item) => sum + (item.post?.likes_count ?? 0),
+                    0,
+                  ) ?? 0,
+                avatar:
+                  avatarUrl ||
+                  "https://picsum.photos/seed/default-avatar/64/64",
+                price: post.price ?? 0,
+                media: mediaWithUrls,
+              };
+            }),
+          )) ?? [];
+
+        setPosts(mapped);
+
+        const allPostIds = mapped.flatMap((post) => post.mediaPostIds).filter(Boolean);
+        if (userId && allPostIds.length > 0) {
+          const { data: likesRows } = await supabase
+            .from("likes")
+            .select("post_id")
+            .eq("user_id", userId)
+            .in("post_id", allPostIds);
+          setLikedPostIds(new Set((likesRows ?? []).map((row) => row.post_id)));
+
+          const { data: purchaseRows } = await supabase
+            .from("purchases")
+            .select("post_id")
+            .eq("user_id", userId)
+            .in("post_id", allPostIds);
+          const purchased = new Set(
+            (purchaseRows ?? []).map((row) => row.post_id),
+          );
+          setPurchasedPostIds(purchased);
+
+          setPosts((prev) =>
+            prev.map((post) => ({
+              ...post,
+              media: post.media.map((item, index) => {
+                const postId = post.mediaPostIds[index];
+                const unlocked =
+                  post.userId === userId || purchased.has(postId);
+                return { ...item, locked: unlocked ? false : item.locked };
+              }),
+            })),
+          );
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+
+    const { data: subscription } = supabase.auth.onAuthStateChange(() => {
+      load();
+    });
+
+    return () => {
+      subscription?.subscription?.unsubscribe();
+    };
+  }, [setPosts]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const purchasesHandler = async () => {
+      if (!currentUserId) return;
+      const allPostIds = posts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+      if (allPostIds.length === 0) return;
+      const { data: purchaseRows } = await supabase
+        .from("purchases")
+        .select("post_id")
+        .eq("user_id", currentUserId)
+        .in("post_id", allPostIds);
+      const purchased = new Set(
+        (purchaseRows ?? []).map((row) => row.post_id),
+      );
+      setPurchasedPostIds(purchased);
+      setPosts((prev) =>
+        prev.map((post) => ({
+          ...post,
+          media: post.media.map((item, index) => {
+            const postId = post.mediaPostIds[index];
+            const unlocked =
+              post.userId === currentUserId || purchased.has(postId);
+            return { ...item, locked: unlocked ? false : item.locked };
+          }),
+        })),
+      );
+    };
+    window.addEventListener("purchases-updated", purchasesHandler);
+    return () => {
+      window.removeEventListener("purchases-updated", purchasesHandler);
+    };
+  }, [currentUserId, posts, setPosts]);
 
   useEffect(() => {
     if (!menuPostId) return;
@@ -23,10 +215,206 @@ export default function FeedLayout() {
     return () => window.removeEventListener("keydown", handler);
   }, [menuPostId]);
 
+  const toggleFollow = async (userId: string) => {
+    if (!currentUserId || userId === currentUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const isFollowing = followingIds.has(userId);
+
+    if (isFollowing) {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", currentUserId)
+        .eq("following_id", userId);
+      if (!error) {
+        setFollowingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(userId);
+          return next;
+        });
+      }
+    } else {
+      const { error } = await supabase.from("follows").insert({
+        follower_id: currentUserId,
+        following_id: userId,
+      });
+      if (!error) {
+        setFollowingIds((prev) => new Set(prev).add(userId));
+        await supabase.from("notifications").insert({
+          user_id: userId,
+          actor_id: currentUserId,
+          type: "follow",
+          entity_id: currentUserId,
+          message: "comenzó a seguirte.",
+          is_read: false,
+        });
+      }
+    }
+  };
+
+  const toggleLike = async (albumId: string) => {
+    if (!currentUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const post = posts.find((item) => item.id === albumId);
+    const postId = post?.mediaPostIds?.[0];
+    if (!postId) return;
+
+    const isLiked = likedPostIds.has(postId);
+    if (isLiked) {
+      const { error } = await supabase
+        .from("likes")
+        .delete()
+        .eq("user_id", currentUserId)
+        .eq("post_id", postId);
+      if (!error) {
+        setLikedPostIds((prev) => {
+          const next = new Set(prev);
+          next.delete(postId);
+          return next;
+        });
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === albumId ? { ...p, likes: Math.max(p.likes - 1, 0) } : p,
+          ),
+        );
+      }
+    } else {
+      const { error } = await supabase.from("likes").insert({
+        user_id: currentUserId,
+        post_id: postId,
+      });
+      if (!error) {
+        setLikedPostIds((prev) => new Set(prev).add(postId));
+        setPosts((prev) =>
+          prev.map((p) => (p.id === albumId ? { ...p, likes: p.likes + 1 } : p)),
+        );
+      }
+    }
+  };
+
+  const handlePurchase = async (albumId: string) => {
+    if (!currentUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const post = posts.find((item) => item.id === albumId);
+    if (!post) return;
+
+    const rows = post.mediaPostIds.map((postId, index) => ({
+      user_id: currentUserId,
+      post_id: postId,
+      payment_id: `sim-${Date.now()}`,
+      amount: index === 0 ? post.price ?? 0 : 0,
+      status: "approved",
+    }));
+    const { error } = await supabase.from("purchases").insert(rows);
+    if (error) {
+      console.error(error);
+      alert("No se pudo registrar la compra. Revisa permisos (RLS).");
+      return false;
+    }
+    if (!error) {
+      setPurchasedPostIds((prev) => {
+        const next = new Set(prev);
+        post.mediaPostIds.forEach((id) => next.add(id));
+        return next;
+      });
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === albumId
+            ? {
+                ...p,
+                media: p.media.map((item) => ({ ...item, locked: false })),
+              }
+            : p,
+        ),
+      );
+
+      if (post.userId !== currentUserId) {
+        await supabase.from("notifications").insert({
+          user_id: post.userId,
+          actor_id: currentUserId,
+          type: "purchase",
+          entity_id: albumId,
+          message: "compró tu publicación.",
+          is_read: false,
+        });
+      }
+      window.dispatchEvent(new Event("purchases-updated"));
+    }
+    return true;
+  };
+
+  const handleDelete = async (albumId: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !currentUserId) return;
+
+    try {
+      const { data: links, error: linksError } = await supabase
+        .from("album_posts")
+        .select("post_id, post:posts(media_url)")
+        .eq("album_id", albumId);
+      if (linksError) throw linksError;
+      const postIds = (links ?? []).map((row) => row.post_id);
+      const mediaPaths = (links ?? [])
+        .map((row) => row.post?.media_url)
+        .filter(Boolean) as string[];
+
+      const { error: albumPostsError } = await supabase
+        .from("album_posts")
+        .delete()
+        .eq("album_id", albumId);
+      if (albumPostsError) throw albumPostsError;
+
+      if (postIds.length > 0) {
+        const { error: postsError } = await supabase
+          .from("posts")
+          .delete()
+          .in("id", postIds)
+          .eq("user_id", currentUserId);
+        if (postsError) throw postsError;
+      }
+
+      if (mediaPaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from("Imagenes")
+          .remove(mediaPaths);
+        if (storageError) throw storageError;
+      }
+
+      const { error: albumsError } = await supabase
+        .from("albums")
+        .delete()
+        .eq("id", albumId)
+        .eq("user_id", currentUserId);
+      if (albumsError) throw albumsError;
+
+      setPosts((prev) => prev.filter((post) => post.id !== albumId));
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo eliminar la publicación. Revisa los permisos (RLS).");
+    } finally {
+      setMenuPostId(null);
+      setConfirmDeleteId(null);
+    }
+  };
+
   return (
     <section className="flex w-full max-w-none flex-col gap-6 md:max-w-[630px] md:pr-2">
+      {loading ? (
+        <div className="rounded-[5px] border border-zinc-200 bg-white px-4 py-6 text-sm text-zinc-500">
+          Cargando contenido...
+        </div>
+      ) : null}
       {openPost ? (
-        <PostModal post={openPost} onClose={() => setSelectedPost(null)} />
+        <PostModal
+          post={openPost}
+          onClose={() => setSelectedPost(null)}
+          currentUserId={currentUserId}
+          onDelete={handleDelete}
+          onPurchase={handlePurchase}
+        />
       ) : null}
       {menuPost ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 px-6 py-10">
@@ -51,6 +439,15 @@ export default function FeedLayout() {
             >
               Dejar de seguir
             </button>
+            {menuPost?.userId === currentUserId ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(menuPost.id)}
+                className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+              >
+                Eliminar publicacion
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setMenuPostId(null)}
@@ -76,6 +473,41 @@ export default function FeedLayout() {
               type="button"
               onClick={() => setMenuPostId(null)}
               className="w-full py-4 text-center text-sm font-medium text-zinc-900"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmDeleteId ? (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 px-6 py-10">
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteId(null)}
+            className="absolute inset-0 h-full w-full cursor-default"
+            aria-label="Cerrar confirmacion"
+          />
+          <div className="relative w-full max-w-[520px] overflow-hidden rounded-[18px] bg-white shadow-xl text-center">
+            <div className="px-6 py-6">
+              <div className="text-lg font-semibold text-zinc-900">
+                ¿Eliminar publicación?
+              </div>
+              <div className="mt-2 text-sm text-zinc-500">
+                ¿Seguro que quieres eliminar esta publicación?
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleDelete(confirmDeleteId)}
+              className="w-full border-t border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+            >
+              Eliminar
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteId(null)}
+              className="w-full border-t border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
             >
               Cancelar
             </button>
@@ -111,9 +543,18 @@ export default function FeedLayout() {
             </div>
 
             <div className="flex items-center gap-3">
-              <button className="text-sm font-semibold text-blue-600">
-                Seguir
-              </button>
+              {post.userId !== currentUserId ? (
+                <button
+                  className={`text-sm font-semibold ${
+                    followingIds.has(post.userId)
+                      ? "text-zinc-700"
+                      : "text-blue-600"
+                  }`}
+                  onClick={() => toggleFollow(post.userId)}
+                >
+                  {followingIds.has(post.userId) ? "Siguiendo" : "Seguir"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setMenuPostId(post.id)}
@@ -173,6 +614,27 @@ export default function FeedLayout() {
                         </div>
                         <div className="mt-3 rounded-[5px] bg-zinc-900 px-5 py-2 text-sm font-semibold text-white">
                           ${post.price?.toFixed(2) ?? "0.00"}
+                        </div>
+                        {post.userId !== currentUserId ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedPost(post.id);
+                            }}
+                            className="mt-3 w-full rounded-[5px] bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+                          >
+                            Comprar
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : post.userId !== currentUserId &&
+                    post.mediaPostIds.some((id) => purchasedPostIds.has(id)) ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="rounded-[5px] bg-white/95 px-6 py-4 text-center shadow-md">
+                        <div className="text-sm font-semibold text-zinc-900">
+                          Comprado
                         </div>
                       </div>
                     </div>
@@ -253,7 +715,10 @@ export default function FeedLayout() {
             </div>
             <div className="mt-3 flex items-center justify-between">
               <div className="flex items-center gap-4 text-zinc-700">
-                <button className="flex items-center gap-2">
+                <button
+                  className="flex items-center gap-2"
+                  onClick={() => toggleLike(post.id)}
+                >
                   <Heart className="h-5 w-5" />
                   <span className="text-xs">{post.likes}</span>
                 </button>

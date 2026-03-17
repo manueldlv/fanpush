@@ -18,7 +18,7 @@ export default function UploadPhoto() {
       return
     }
     const { data, error } = await supabase.storage
-      .from("imagenes")
+      .from("Imagenes")
       .upload(fileName, file)
 
     console.log(data, error)

@@ -11,6 +11,7 @@ import {
   SquarePlus,
   User,
 } from "lucide-react";
+import { getSupabaseClient } from "@/lib/supabase";
 
 type SidebarLeftProps = {
   onSearchClick: () => void;
@@ -109,11 +110,7 @@ export default function SidebarLeft({
               href="/perfil"
               className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
             >
-              <img
-                src="https://picsum.photos/seed/bebudlv/40/40"
-                alt="Perfil"
-                className="h-5 w-5 rounded-full object-cover"
-              />
+              <User className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
               <span>Perfil</span>
             </Link>
           </nav>
@@ -122,15 +119,22 @@ export default function SidebarLeft({
             Comparte fotos y conecta con tu comunidad.
           </div>
 
-          <div className="mt-auto pt-4">
-            <Link
-              href="/auth"
+        <div className="mt-auto pt-4">
+            <button
+              type="button"
+              onClick={async () => {
+                const supabase = getSupabaseClient();
+                if (supabase) {
+                  await supabase.auth.signOut();
+                }
+                window.location.assign("/auth");
+              }}
               className="group flex w-full items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
             >
               <LogOut className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
               <span>Cerrar sesion</span>
-            </Link>
-          </div>
+            </button>
+        </div>
         </div>
       </aside>
 

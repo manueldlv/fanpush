@@ -13,8 +13,8 @@ import {
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
-import { usePostsStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
+import { getSupabaseClient } from "@/lib/supabase";
 
 type UploadItem = {
   id: string;
@@ -27,7 +27,6 @@ type Monetization = "free" | "paid";
 
 export default function CrearPage() {
   const router = useRouter();
-  const addPost = usePostsStore((state) => state.addPost);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -35,22 +34,149 @@ export default function CrearPage() {
   const [previewIds, setPreviewIds] = useState<string[]>([]);
   const [monetization, setMonetization] = useState<Monetization>("free");
   const [price, setPrice] = useState("9.99");
+  const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Note: we keep object URLs so published posts can render in the feed/modal.
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files) return;
-    const incoming: UploadItem[] = Array.from(files).map((file) => {
-      const kind = file.type.startsWith("video") ? "video" : "image";
-      return {
-        id: `${file.name}-${file.size}-${file.lastModified}`,
-        file,
-        url: URL.createObjectURL(file),
-        kind,
+  const IMAGE_MAX_DIM = 2000;
+  const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+  const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+  const VIDEO_MAX_DURATION = 10 * 60;
+  const VIDEO_MAX_DIM = 1920;
+
+  const getImageSize = (file: File) =>
+    new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve({ width: img.width, height: img.height });
       };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("No se pudo leer la imagen."));
+      };
+      img.src = url;
     });
-    setItems((prev) => [...prev, ...incoming]);
-    setPreviewIds((prev) => [...prev, ...incoming.map((item) => item.id)]);
+
+  const getVideoMeta = (file: File) =>
+    new Promise<{ duration: number; width: number; height: number }>(
+      (resolve, reject) => {
+        const video = document.createElement("video");
+        const url = URL.createObjectURL(file);
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          const duration = Number.isFinite(video.duration) ? video.duration : 0;
+          const width = video.videoWidth || 0;
+          const height = video.videoHeight || 0;
+          URL.revokeObjectURL(url);
+          resolve({ duration, width, height });
+        };
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("No se pudo leer el video."));
+        };
+        video.src = url;
+      },
+    );
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files) return;
+    setError(null);
+    const entries = Array.from(files);
+    const results = await Promise.all(
+      entries.map(async (file) => {
+        const kind = file.type.startsWith("video") ? "video" : "image";
+        if (kind === "image") {
+          if (file.size > IMAGE_MAX_BYTES) {
+            return {
+              ok: false,
+              reason: `${file.name}: supera ${Math.round(
+                IMAGE_MAX_BYTES / 1024 / 1024,
+              )}MB.`,
+            };
+          }
+          try {
+            const { width, height } = await getImageSize(file);
+            if (Math.max(width, height) > IMAGE_MAX_DIM) {
+              return {
+                ok: false,
+                reason: `${file.name}: max ${IMAGE_MAX_DIM}px lado mayor.`,
+              };
+            }
+          } catch (err) {
+            return {
+              ok: false,
+              reason:
+                err instanceof Error
+                  ? `${file.name}: ${err.message}`
+                  : `${file.name}: archivo invalido.`,
+            };
+          }
+        }
+
+        if (kind === "video") {
+          if (file.size > VIDEO_MAX_BYTES) {
+            return {
+              ok: false,
+              reason: `${file.name}: supera ${Math.round(
+                VIDEO_MAX_BYTES / 1024 / 1024,
+              )}MB.`,
+            };
+          }
+          try {
+            const { duration, width, height } = await getVideoMeta(file);
+            if (duration > VIDEO_MAX_DURATION) {
+              return {
+                ok: false,
+                reason: `${file.name}: max 10 minutos.`,
+              };
+            }
+            if (Math.max(width, height) > VIDEO_MAX_DIM) {
+              return {
+                ok: false,
+                reason: `${file.name}: max ${VIDEO_MAX_DIM}px lado mayor.`,
+              };
+            }
+          } catch (err) {
+            return {
+              ok: false,
+              reason:
+                err instanceof Error
+                  ? `${file.name}: ${err.message}`
+                  : `${file.name}: archivo invalido.`,
+            };
+          }
+        }
+
+        return {
+          ok: true,
+          item: {
+            id: `${file.name}-${file.size}-${file.lastModified}`,
+            file,
+            url: URL.createObjectURL(file),
+            kind,
+          } as UploadItem,
+        };
+      }),
+    );
+
+    const accepted = results
+      .filter((result) => result.ok)
+      .map((result) => result.item) as UploadItem[];
+    const rejected = results
+      .filter((result) => !result.ok)
+      .map((result) => (result as { reason: string }).reason);
+
+    if (rejected.length > 0) {
+      setError(rejected.join(" "));
+    }
+
+    if (accepted.length > 0) {
+      setItems((prev) => [...prev, ...accepted]);
+      setPreviewIds((prev) => [...prev, ...accepted.map((item) => item.id)]);
+    }
   };
 
   const togglePreview = (id: string) => {
@@ -81,12 +207,89 @@ export default function CrearPage() {
     };
   }, [price]);
 
-  const buildMediaPayload = () => {
-    return items.map((item) => ({
-      url: item.url,
-      kind: item.kind,
-      locked: monetization === "paid" ? !previewIds.includes(item.id) : false,
-    }));
+  const handlePublish = async () => {
+    if (items.length === 0 || publishing) return;
+    setError(null);
+    setPublishing(true);
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setError("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.");
+      setPublishing(false);
+      return;
+    }
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const userId = authData?.user?.id;
+      if (!userId) {
+        setError("Necesitas iniciar sesion para publicar.");
+        setPublishing(false);
+        return;
+      }
+
+      const caption =
+        monetization === "paid"
+          ? "Nueva publicacion en venta."
+          : "Nueva publicacion.";
+
+      const { data: albumRows, error: albumError } = await supabase
+        .from("albums")
+        .insert({
+          user_id: userId,
+          title: "Nueva publicacion",
+          description: caption,
+          price: Number(price) || 0,
+          is_locked: monetization === "paid",
+        })
+        .select("id")
+        .single();
+      if (albumError) throw albumError;
+
+      const uploads = await Promise.all(
+        items.map(async (item) => {
+          const path = `posts/${userId}/${Date.now()}-${item.file.name}`;
+          const { error: uploadError } = await supabase.storage
+            .from("Imagenes")
+            .upload(path, item.file);
+          if (uploadError) throw uploadError;
+          return {
+            user_id: userId,
+            media_url: path,
+            media_type: item.kind,
+            is_locked:
+              monetization === "paid" ? !previewIds.includes(item.id) : false,
+            price: Number(price) || 0,
+            likes_count: 0,
+            comments_count: 0,
+          };
+        }),
+      );
+
+      const { data: postRows, error: insertError } = await supabase
+        .from("posts")
+        .insert(uploads)
+        .select("id");
+      if (insertError) throw insertError;
+
+      const albumPosts = (postRows ?? []).map((row) => ({
+        album_id: albumRows.id,
+        post_id: row.id,
+      }));
+      if (albumPosts.length > 0) {
+        const { error: linkError } = await supabase
+          .from("album_posts")
+          .insert(albumPosts);
+        if (linkError) throw linkError;
+      }
+
+      router.push("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ocurrió un error.");
+    } finally {
+      setPublishing(false);
+    }
   };
 
   return (
@@ -131,6 +334,12 @@ export default function CrearPage() {
                 <div className="text-sm text-zinc-500">
                   O haz clic en el boton de abajo
                 </div>
+                <div className="mt-3 text-xs text-zinc-500">
+                  Imagenes: max {IMAGE_MAX_DIM}px lado mayor, hasta{" "}
+                  {Math.round(IMAGE_MAX_BYTES / 1024 / 1024)}MB. Videos: max 10
+                  min, hasta {Math.round(VIDEO_MAX_BYTES / 1024 / 1024)}MB,
+                  {` ${VIDEO_MAX_DIM}px`} lado mayor.
+                </div>
                 <label className="mt-6 inline-flex cursor-pointer items-center justify-center rounded-[5px] border border-zinc-300 bg-white px-5 py-2 text-sm font-semibold text-zinc-700">
                   Seleccionar archivos
                   <input
@@ -142,6 +351,11 @@ export default function CrearPage() {
                   />
                 </label>
               </div>
+              {error ? (
+                <div className="rounded-[5px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {error}
+                </div>
+              ) : null}
 
               <div>
                 <div className="text-sm font-semibold">
@@ -407,6 +621,8 @@ export default function CrearPage() {
                     <div className="mt-2 flex items-center gap-2 rounded-[5px] border border-zinc-300 bg-white px-3 py-2 text-lg font-semibold text-zinc-900">
                       <span className="text-zinc-500">$</span>
                       <input
+                        type="number"
+                        inputMode="decimal"
                         value={price}
                         onChange={(event) => setPrice(event.target.value)}
                         className="w-full bg-transparent outline-none"
@@ -543,6 +759,16 @@ export default function CrearPage() {
               {monetization === "paid" ? (
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
                   <div className="text-sm font-semibold text-zinc-900">Precio</div>
+                  <div className="mt-3 flex items-center gap-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-900">
+                    <span className="text-zinc-500">$</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={price}
+                      onChange={(event) => setPrice(event.target.value)}
+                      className="w-full bg-transparent outline-none"
+                    />
+                  </div>
                   <div className="mt-2 flex items-center justify-between text-sm text-zinc-600">
                     <span>Precio de venta</span>
                     <span className="text-xl font-semibold">${payout.value}</span>
@@ -579,30 +805,22 @@ export default function CrearPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (items.length === 0) return;
-                      addPost({
-                        id: `post-${Date.now()}`,
-                        author: "bebudlv",
-                        verified: false,
-                        time: "Ahora",
-                        suggestion: "Sugerencia para ti",
-                        caption:
-                          monetization === "paid"
-                            ? "Nueva publicacion en venta."
-                            : "Nueva publicacion.",
-                        likes: 0,
-                        avatar: "https://picsum.photos/seed/bebudlv/64/64",
-                        price: Number(price) || 0,
-                        media: buildMediaPayload(),
-                      });
-                      router.push("/");
-                    }}
-                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white"
+                    onClick={handlePublish}
+                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                    disabled={publishing}
                   >
-                    {monetization === "free" ? "Publicar de una" : "Publicar"}
+                    {publishing
+                      ? "Publicando..."
+                      : monetization === "free"
+                        ? "Publicar de una"
+                        : "Publicar"}
                   </button>
                 </div>
+                {error ? (
+                  <div className="mt-4 rounded-[5px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                    {error}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

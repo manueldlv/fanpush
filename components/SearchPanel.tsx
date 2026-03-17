@@ -2,45 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getSupabaseClient } from "@/lib/supabase";
 import { Loader2, Search, X } from "lucide-react";
 
-const results = [
-  {
-    id: 1,
-    name: "willyska",
-    fullName: "Juan Matias Vega",
-    detail: "mevaf4 y 3 mas siguen esta cuenta",
-    avatar: "https://picsum.photos/seed/willyska/96/96",
-  },
-  {
-    id: 2,
-    name: "elcapowilly",
-    fullName: "El Capo Willy (N. Fernandez)",
-    detail: "1,1 mill. seguidores",
-    avatar: "https://picsum.photos/seed/elcapowilly/96/96",
-  },
-  {
-    id: 3,
-    name: "willybronca_",
-    fullName: "Willy Bronca",
-    detail: "133 mil seguidores",
-    avatar: "https://picsum.photos/seed/willybronca/96/96",
-  },
-  {
-    id: 4,
-    name: "willy_luna_tattoo",
-    fullName: "Willy Luna Tattoo",
-    detail: "ludmila42_ sigue a este usuario",
-    avatar: "https://picsum.photos/seed/willyluna/96/96",
-  },
-  {
-    id: 5,
-    name: "willyrockk",
-    fullName: "Willy Rock",
-    detail: "leleyelli_ y 6 mas siguen esta cuenta",
-    avatar: "https://picsum.photos/seed/willyrockk/96/96",
-  },
-];
+type SearchResult = {
+  id: string;
+  name: string;
+  fullName: string;
+  detail: string;
+  avatar: string | null;
+};
 
 type SearchPanelProps = {
   open: boolean;
@@ -50,6 +21,7 @@ type SearchPanelProps = {
 export default function SearchPanel({ open, onClose }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -69,26 +41,51 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
   }, [open]);
 
   useEffect(() => {
-    if (!query.trim()) {
+    const load = async () => {
+      if (!query.trim()) {
+        setResults([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
+      const { data } = await supabase
+        .from("users")
+        .select("id,username,avatar_url")
+        .ilike("username", `%${query.trim()}%`)
+        .limit(10);
+
+      const resolveAvatar = async (value: string | null) => {
+        if (!value) return null;
+        if (value.startsWith("http")) return value;
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(value);
+        return publicUrl.publicUrl;
+      };
+
+      const mapped = await Promise.all(
+        (data ?? []).map(async (row) => ({
+          id: row.id,
+          name: row.username ?? "usuario",
+          fullName: row.username ?? "",
+          detail: "Sugerencia para ti",
+          avatar: await resolveAvatar(row.avatar_url ?? null),
+        })),
+      );
+      setResults(mapped);
       setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const handle = setTimeout(() => setLoading(false), 450);
+    };
+
+    const handle = setTimeout(load, 300);
     return () => clearTimeout(handle);
   }, [query]);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return [];
-    const lower = query.toLowerCase();
-    return results.filter(
-      (item) =>
-        item.name.toLowerCase().includes(lower) ||
-        item.fullName.toLowerCase().includes(lower),
-    );
-  }, [query]);
-
-  const handleSelect = (item: (typeof results)[number]) => {
+  const handleSelect = (item: SearchResult) => {
     const params = new URLSearchParams({
       user: item.name,
       full: item.fullName,
@@ -159,18 +156,22 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
               </div>
             ) : (
               <div className="space-y-4">
-                {filtered.map((item) => (
+                {results.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => handleSelect(item)}
                     className="flex w-full cursor-pointer items-center gap-4 rounded-[5px] p-2 text-left transition hover:bg-zinc-100"
                   >
-                    <img
-                      src={item.avatar}
-                      alt={item.name}
-                      className="h-12 w-12 rounded-full object-cover"
-                    />
+                    {item.avatar ? (
+                      <img
+                        src={item.avatar}
+                        alt={item.name}
+                        className="h-12 w-12 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-12 w-12 rounded-full bg-zinc-100" />
+                    )}
                     <div>
                       <div className="text-sm font-semibold text-zinc-900">
                         {item.name}

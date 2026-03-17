@@ -3,147 +3,205 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Search } from "lucide-react";
+import { Bell, Search, User as UserIcon } from "lucide-react";
+import { getSupabaseClient } from "@/lib/supabase";
 
-const results = [
-  {
-    id: 1,
-    name: "willyska",
-    fullName: "Juan Matias Vega",
-    detail: "mevaf4 y 3 mas siguen esta cuenta",
-    avatar: "https://picsum.photos/seed/willyska/96/96",
-  },
-  {
-    id: 2,
-    name: "elcapowilly",
-    fullName: "El Capo Willy (N. Fernandez)",
-    detail: "1,1 mill. seguidores",
-    avatar: "https://picsum.photos/seed/elcapowilly/96/96",
-  },
-  {
-    id: 3,
-    name: "willybronca_",
-    fullName: "Willy Bronca",
-    detail: "133 mil seguidores",
-    avatar: "https://picsum.photos/seed/willybronca/96/96",
-  },
-  {
-    id: 4,
-    name: "willy_luna_tattoo",
-    fullName: "Willy Luna Tattoo",
-    detail: "ludmila42_ sigue a este usuario",
-    avatar: "https://picsum.photos/seed/willyluna/96/96",
-  },
-  {
-    id: 5,
-    name: "willyrockk",
-    fullName: "Willy Rock",
-    detail: "leleyelli_ y 6 mas siguen esta cuenta",
-    avatar: "https://picsum.photos/seed/willyrockk/96/96",
-  },
-];
+type SearchResult = {
+  id: string;
+  name: string;
+  fullName: string;
+  detail: string;
+  avatar: string | null;
+};
 
-const notifications = [
-  {
-    id: "month",
-    section: "Este mes",
-    items: [
-      {
-        id: "social-like",
-        avatar: "https://picsum.photos/seed/notif-like/64/64",
-        text: "maria.soria le gusto tu publicacion.",
-        date: "03 mar",
-      },
-    ],
-  },
-  {
-    id: "followers",
-    section: "Seguidores",
-    items: [
-      {
-        id: "follow",
-        avatar: "https://picsum.photos/seed/notif-follow/64/64",
-        text: "alejandro.v comenzó a seguirte.",
-        date: "02 mar",
-        action: "Seguir tambien",
-      },
-      {
-        id: "follow-multi",
-        avatar: "https://picsum.photos/seed/notif-follow-2/64/64",
-        text: "luli y otros 3 comenzaron a seguirte.",
-        date: "01 mar",
-        action: "Seguir tambien",
-      },
-      {
-        id: "follow-mentions",
-        avatar: "https://picsum.photos/seed/notif-follow-3/64/64",
-        text: "fede.cl activó notificaciones de tu perfil.",
-        date: "28 feb",
-      },
-    ],
-  },
-  {
-    id: "sales",
-    section: "Ventas",
-    items: [
-      {
-        id: "sale-1",
-        avatar: "https://picsum.photos/seed/notif-sale-1/64/64",
-        text: "roma.ux compró tu foto.",
-        date: "27 feb",
-        action: "Ver venta",
-      },
-      {
-        id: "sale-2",
-        avatar: "https://picsum.photos/seed/notif-sale-2/64/64",
-        text: "noah.d compró tu video.",
-        date: "26 feb",
-        action: "Ver venta",
-      },
-      {
-        id: "sale-3",
-        avatar: "https://picsum.photos/seed/notif-sale-3/64/64",
-        text: "lucas_m compró tu pack de contenido.",
-        date: "25 feb",
-        action: "Ver venta",
-      },
-    ],
-  },
-  {
-    id: "subs",
-    section: "Suscripciones",
-    items: [
-      {
-        id: "sub-1",
-        avatar: "https://picsum.photos/seed/notif-sub-1/64/64",
-        text: "jaz.min se suscribió a tu perfil.",
-        date: "23 feb",
-        action: "Ver suscripcion",
-      },
-    ],
-  },
-];
+type NotificationItem = {
+  id: string;
+  text: string;
+  date: string;
+  avatar: string | null;
+  action?: { label: string; href: string };
+};
 
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profile, setProfile] = useState<{
+    username: string | null;
+    avatarUrl: string | null;
+  }>({ username: null, avatarUrl: null });
+  const [balance, setBalance] = useState(0);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return [];
-    const lower = query.toLowerCase();
-    return results.filter(
-      (item) =>
-        item.name.toLowerCase().includes(lower) ||
-        item.fullName.toLowerCase().includes(lower),
-    );
+  useEffect(() => {
+    const load = async () => {
+      if (!query.trim()) {
+        setResults([]);
+        return;
+      }
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data } = await supabase
+        .from("users")
+        .select("id,username,avatar_url")
+        .ilike("username", `%${query.trim()}%`)
+        .limit(10);
+
+      const resolveAvatar = async (value: string | null) => {
+        if (!value) return null;
+        if (value.startsWith("http")) return value;
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(value);
+        return publicUrl.publicUrl;
+      };
+
+      const mapped = await Promise.all(
+        (data ?? []).map(async (row) => ({
+          id: row.id,
+          name: row.username ?? "usuario",
+          fullName: row.username ?? "",
+          detail: "Sugerencia para ti",
+          avatar: await resolveAvatar(row.avatar_url ?? null),
+        })),
+      );
+      setResults(mapped);
+    };
+
+    const handle = setTimeout(load, 300);
+    return () => clearTimeout(handle);
   }, [query]);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) {
+        setProfile({ username: null, avatarUrl: null });
+        setBalance(0);
+        return;
+      }
+
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("username, avatar_url")
+        .eq("id", userId)
+        .maybeSingle();
+
+      let avatarUrl = userRow?.avatar_url ?? null;
+      if (avatarUrl && !avatarUrl.startsWith("http")) {
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(avatarUrl);
+        avatarUrl = publicUrl.publicUrl;
+      }
+
+      setProfile({
+        username: userRow?.username ?? null,
+        avatarUrl,
+      });
+
+      const { data: postRows } = await supabase
+        .from("posts")
+        .select("id")
+        .eq("user_id", userId);
+      const postIds = (postRows ?? []).map((row) => row.id);
+      if (postIds.length === 0) {
+        setBalance(0);
+        return;
+      }
+      const { data: purchaseRows } = await supabase
+        .from("purchases")
+        .select("amount, post_id")
+        .in("post_id", postIds);
+      const total = (purchaseRows ?? []).reduce(
+        (sum, row) => sum + Number(row.amount || 0) * 0.7,
+        0,
+      );
+      setBalance(total);
+
+      const { data: notifRows } = await supabase
+        .from("notifications")
+        .select("id,actor_id,message,created_at,type,entity_id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      const actorIds = Array.from(
+        new Set((notifRows ?? []).map((n) => n.actor_id).filter(Boolean)),
+      );
+      const { data: actors } = actorIds.length
+        ? await supabase
+            .from("users")
+            .select("id,avatar_url,username")
+            .in("id", actorIds)
+        : { data: [] };
+
+      const resolveAvatar = async (value: string | null) => {
+        if (!value) return null;
+        if (value.startsWith("http")) return value;
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(value);
+        return publicUrl.publicUrl;
+      };
+
+      const actorMap = new Map(
+        (actors ?? []).map((actor) => [actor.id, actor]),
+      );
+      const mapped = await Promise.all(
+        (notifRows ?? []).map(async (row) => ({
+          id: row.id,
+          text: `${actorMap.get(row.actor_id)?.username ?? "alguien"} ${
+            row.message ?? ""
+          }`,
+          date: new Date(row.created_at).toLocaleDateString("es-AR", {
+            day: "2-digit",
+            month: "short",
+          }),
+          avatar: await resolveAvatar(actorMap.get(row.actor_id)?.avatar_url ?? null),
+          action:
+            row.type === "purchase"
+              ? { label: "Ver venta", href: "/ventas" }
+              : undefined,
+        })),
+      );
+      setNotifications(mapped);
+    };
+
+    loadProfile();
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        username?: string;
+        fullName?: string;
+        avatarUrl?: string | null;
+      };
+      if (detail?.avatarUrl !== undefined || detail?.username) {
+        setProfile({
+          username: detail?.username ?? profile.username,
+          avatarUrl:
+            detail?.avatarUrl !== undefined
+              ? detail.avatarUrl
+              : profile.avatarUrl,
+        });
+      }
+    };
+    window.addEventListener("profile-updated", handler as EventListener);
+    return () =>
+      window.removeEventListener("profile-updated", handler as EventListener);
+  }, [profile.avatarUrl, profile.username]);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -177,7 +235,7 @@ export default function TopBar() {
     };
   }, [searchOpen, notificationsOpen, profileOpen]);
 
-  const handleSelect = (item: (typeof results)[number]) => {
+  const handleSelect = (item: SearchResult) => {
     const params = new URLSearchParams({
       user: item.name,
       full: item.fullName,
@@ -243,18 +301,22 @@ export default function TopBar() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {filtered.map((item) => (
+                      {results.map((item) => (
                         <button
                           key={item.id}
                           type="button"
                           onClick={() => handleSelect(item)}
                           className="flex w-full items-center gap-3 rounded-[5px] p-2 text-left transition hover:bg-zinc-100"
                         >
-                          <img
-                            src={item.avatar}
-                            alt={item.name}
-                            className="h-12 w-12 rounded-full object-cover"
-                          />
+                          {item.avatar ? (
+                            <img
+                              src={item.avatar}
+                              alt={item.name}
+                              className="h-12 w-12 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 rounded-full bg-zinc-100" />
+                          )}
                           <div>
                             <div className="text-sm font-semibold text-zinc-900">
                               {item.name}
@@ -283,41 +345,45 @@ export default function TopBar() {
 
               {notificationsOpen ? (
                 <div className="absolute right-0 top-12 z-50 w-[360px] rounded-[12px] border border-zinc-200 bg-white p-4 shadow-xl">
-                  <div className="max-h-[520px] space-y-6 overflow-y-auto pr-2">
-                    {notifications.map((section) => (
-                      <div key={section.id}>
-                        <h3 className="text-sm font-semibold text-zinc-900">
-                          {section.section}
-                        </h3>
-                        <div className="mt-3 space-y-3">
-                          {section.items.map((item) => (
-                            <div
-                              key={item.id}
-                              className="flex items-center gap-3 rounded-[10px] bg-zinc-50 px-3 py-3"
-                            >
-                              <img
-                                src={item.avatar}
-                                alt="avatar"
-                                className="h-10 w-10 rounded-full object-cover"
-                              />
-                              <div className="flex-1 text-sm text-zinc-700">
-                                <div className="font-medium text-zinc-900">
-                                  {item.text}
-                                </div>
-                                <div className="text-xs text-zinc-400">
-                                  {item.date}
-                                </div>
-                              </div>
-                              {item.action ? (
-                                <button className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white">
-                                  {item.action}
-                                </button>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
+                  <div className="max-h-[520px] space-y-3 overflow-y-auto pr-2">
+                    {notifications.length === 0 ? (
+                      <div className="text-sm text-zinc-500">
+                        No hay notificaciones.
                       </div>
-                    ))}
+                    ) : (
+                      notifications.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center gap-3 rounded-[10px] bg-zinc-50 px-3 py-3"
+                        >
+                          {item.avatar ? (
+                            <img
+                              src={item.avatar}
+                              alt="avatar"
+                              className="h-10 w-10 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded-full bg-zinc-100" />
+                          )}
+                          <div className="flex-1 text-sm text-zinc-700">
+                            <div className="font-medium text-zinc-900">
+                              {item.text}
+                            </div>
+                            <div className="text-xs text-zinc-400">
+                              {item.date}
+                            </div>
+                          </div>
+                          {item.action ? (
+                            <Link
+                              href={item.action.href}
+                              className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white"
+                            >
+                              {item.action.label}
+                            </Link>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -328,7 +394,7 @@ export default function TopBar() {
                 href="/ventas"
                 className="cursor-pointer text-sm font-semibold text-zinc-900"
               >
-                $12.480
+                ${balance.toFixed(2)}
               </Link>
               <div className="relative" ref={profileRef}>
                 <button
@@ -337,11 +403,17 @@ export default function TopBar() {
                   className="rounded-full"
                   aria-label="Abrir menu de perfil"
                 >
-                  <img
-                    src="https://picsum.photos/seed/bebudlv/64/64"
-                    alt="Perfil"
-                    className="h-9 w-9 rounded-full object-cover"
-                  />
+                  {profile.avatarUrl ? (
+                    <img
+                      src={profile.avatarUrl}
+                      alt={profile.username ?? "Perfil"}
+                      className="h-9 w-9 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500">
+                      <UserIcon className="h-4 w-4" />
+                    </span>
+                  )}
                 </button>
                 {profileOpen ? (
                   <div className="absolute right-0 top-12 z-50 w-48 rounded-[10px] border border-zinc-200 bg-white p-2 shadow-xl">
@@ -359,13 +431,21 @@ export default function TopBar() {
                     >
                       Settings
                     </Link>
-                    <Link
-                      href="/auth"
-                      className="block rounded-[6px] px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-                      onClick={() => setProfileOpen(false)}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const supabase = getSupabaseClient();
+                        if (supabase) {
+                          await supabase.auth.signOut();
+                        }
+                        setProfileOpen(false);
+                        router.replace("/auth");
+                        window.location.assign("/auth");
+                      }}
+                      className="block w-full rounded-[6px] px-3 py-2 text-left text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
                     >
                       Cerrar sesion
-                    </Link>
+                    </button>
                   </div>
                 ) : null}
               </div>

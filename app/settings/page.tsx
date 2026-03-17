@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bell, User } from "lucide-react";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SettingsPage() {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -12,9 +13,136 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"profile" | "notifications">(
     "profile",
   );
-  const [avatarUrl, setAvatarUrl] = useState(
-    "https://picsum.photos/seed/bebudlv/96/96",
-  );
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarPath, setAvatarPath] = useState<string | null>(null);
+  const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) return;
+
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("username, avatar_url")
+        .eq("id", userId)
+        .maybeSingle();
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userId)
+        .maybeSingle();
+
+      setUsername(userRow?.username ?? "usuario");
+      setFullName(profileRow?.full_name ?? "");
+
+      const rawAvatar = userRow?.avatar_url ?? null;
+      if (rawAvatar && !rawAvatar.startsWith("http")) {
+        setAvatarPath(rawAvatar);
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(rawAvatar);
+        setAvatarUrl(publicUrl.publicUrl ?? null);
+      } else {
+        setAvatarPath(rawAvatar);
+        setAvatarUrl(rawAvatar);
+      }
+    };
+
+    loadProfile();
+  }, []);
+
+  const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setAvatarFile(file);
+    setAvatarUrl(URL.createObjectURL(file));
+  };
+
+  const handleSave = async () => {
+    setMessage(null);
+    setSaving(true);
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setMessage("Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY.");
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) throw new Error("Necesitas iniciar sesion.");
+
+      let uploadedAvatarUrl = avatarUrl;
+      let uploadedAvatarPath = avatarPath;
+      if (avatarFile) {
+        const path = `avatars/${userId}/${Date.now()}-${avatarFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from("Imagenes")
+          .upload(path, avatarFile, { upsert: true });
+        if (uploadError) throw uploadError;
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(path);
+        uploadedAvatarUrl = publicUrl.publicUrl;
+        uploadedAvatarPath = path;
+      }
+
+      const avatarDbValue =
+        uploadedAvatarPath ??
+        (uploadedAvatarUrl && uploadedAvatarUrl.startsWith("http")
+          ? uploadedAvatarUrl
+          : null);
+
+      const safeUsername =
+        username.trim() ||
+        authData?.user?.email?.split("@")[0] ||
+        "usuario";
+
+      const { error: userError } = await supabase.from("users").upsert(
+        {
+          id: userId,
+          username: safeUsername,
+          avatar_url: avatarDbValue,
+        },
+        { onConflict: "id" },
+      );
+      if (userError) throw userError;
+
+      const { error: profileError } = await supabase.from("profiles").upsert(
+        {
+          id: userId,
+          full_name: fullName.trim(),
+          email: authData?.user?.email ?? "",
+        },
+        { onConflict: "id" },
+      );
+      if (profileError) throw profileError;
+
+      setAvatarPath(uploadedAvatarPath ?? null);
+      setMessage("Perfil actualizado.");
+      window.dispatchEvent(
+        new CustomEvent("profile-updated", {
+          detail: {
+            fullName: fullName.trim(),
+            avatarUrl: uploadedAvatarUrl ?? null,
+          },
+        }),
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -84,14 +212,24 @@ export default function SettingsPage() {
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <img
-                        src={avatarUrl}
-                        alt="bebudlv"
-                        className="h-16 w-16 rounded-full object-cover"
-                      />
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={username || "Perfil"}
+                          className="h-16 w-16 rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-16 w-16 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500">
+                          <User className="h-6 w-6" />
+                        </span>
+                      )}
                       <div>
-                        <div className="text-sm font-semibold">bebudlv</div>
-                        <div className="text-sm text-zinc-500">Manu</div>
+                        <div className="text-sm font-semibold">
+                          {username || "usuario"}
+                        </div>
+                        <div className="text-sm text-zinc-500">
+                          {fullName || "Sin nombre"}
+                        </div>
                       </div>
                     </div>
                     <label className="cursor-pointer rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">
@@ -100,12 +238,7 @@ export default function SettingsPage() {
                         type="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (!file) return;
-                          const nextUrl = URL.createObjectURL(file);
-                          setAvatarUrl(nextUrl);
-                        }}
+                        onChange={handleAvatarChange}
                       />
                     </label>
                   </div>
@@ -118,6 +251,8 @@ export default function SettingsPage() {
                   <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <input
                       placeholder="Tu nombre"
+                      value={fullName}
+                      onChange={(event) => setFullName(event.target.value)}
                       className="w-full bg-transparent text-sm text-zinc-800 outline-none"
                     />
                   </div>
@@ -127,10 +262,20 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="flex justify-end">
-                  <button className="rounded-[5px] bg-zinc-900 px-6 py-2 text-sm font-semibold text-white">
-                    Guardar cambios
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="rounded-[5px] bg-zinc-900 px-6 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {saving ? "Guardando..." : "Guardar cambios"}
                   </button>
                 </div>
+
+                {message ? (
+                  <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                    {message}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="space-y-6">

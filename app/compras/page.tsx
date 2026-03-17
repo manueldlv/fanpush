@@ -1,44 +1,156 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Image as ImageIcon, Lock } from "lucide-react";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import { getSupabaseClient } from "@/lib/supabase";
 
-const purchases = [
-  {
-    id: "p1",
-    title: "Pack Naturaleza",
-    creator: "creativestudio",
-    date: "12 mar",
-    price: 9.99,
-    cover: "https://picsum.photos/seed/purchase-1/600/600",
-    status: "Desbloqueado",
-  },
-  {
-    id: "p2",
-    title: "Sesion urbana",
-    creator: "cami.rojas",
-    date: "09 mar",
-    price: 5.5,
-    cover: "https://picsum.photos/seed/purchase-2/600/600",
-    status: "Desbloqueado",
-  },
-  {
-    id: "p3",
-    title: "Estudio minimal",
-    creator: "mateod",
-    date: "05 mar",
-    price: 7.0,
-    cover: "https://picsum.photos/seed/purchase-3/600/600",
-    status: "Pendiente",
-  },
-];
+type PurchaseItem = {
+  id: string;
+  title: string;
+  creator: string;
+  date: string;
+  price: number;
+  cover: string;
+  covers: string[];
+  status: string;
+};
 
 export default function ComprasPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [items, setItems] = useState<PurchaseItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      setLoading(true);
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const userId = authData?.user?.id;
+        if (!userId) return;
+
+        const { data: purchaseRows } = await supabase
+          .from("purchases")
+          .select("id,post_id,amount,status,created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+
+        const postIds = Array.from(
+          new Set((purchaseRows ?? []).map((row) => row.post_id)),
+        );
+        const { data: postRows } = postIds.length
+          ? await supabase
+              .from("posts")
+              .select(
+                "id,user_id,media_url,is_locked,caption,album_posts(album_id)",
+              )
+              .in("id", postIds)
+          : { data: [] };
+
+        const creatorIds = Array.from(
+          new Set((postRows ?? []).map((row) => row.user_id)),
+        );
+        const { data: creators } = creatorIds.length
+          ? await supabase
+              .from("users")
+              .select("id,username,avatar_url")
+              .in("id", creatorIds)
+          : { data: [] };
+
+        const creatorMap = new Map(
+          (creators ?? []).map((row) => [row.id, row.username ?? "usuario"]),
+        );
+        const postMap = new Map((postRows ?? []).map((row) => [row.id, row]));
+
+        const albumIds = Array.from(
+          new Set(
+            (postRows ?? [])
+              .map((row) => row.album_posts?.[0]?.album_id)
+              .filter(Boolean) as string[],
+          ),
+        );
+        const { data: albumRows } = albumIds.length
+          ? await supabase
+              .from("albums")
+              .select(
+                "id,description,price,album_posts(post:posts(media_url,media_type))",
+              )
+              .in("id", albumIds)
+          : { data: [] };
+        const albumMap = new Map(
+          (albumRows ?? []).map((row) => [row.id, row]),
+        );
+
+        const resolveCover = (value: string | null) => {
+          if (!value) return "https://picsum.photos/seed/placeholder/600/600";
+          if (value.startsWith("http")) return value;
+          const { data: publicUrl } = supabase.storage
+            .from("Imagenes")
+            .getPublicUrl(value);
+          return publicUrl.publicUrl;
+        };
+
+        const albumEntries = new Map<string, PurchaseItem>();
+        (purchaseRows ?? []).forEach((row) => {
+          const post = postMap.get(row.post_id);
+          const albumId = post?.album_posts?.[0]?.album_id ?? row.post_id;
+          const album = albumMap.get(albumId);
+          const albumCovers = (album?.album_posts ?? [])
+            .map((item) => item.post?.media_url ?? "")
+            .filter(Boolean)
+            .map((value) => resolveCover(value));
+          const current = albumEntries.get(albumId);
+          const date = new Date(row.created_at).toLocaleDateString("es-AR", {
+            day: "2-digit",
+            month: "short",
+          });
+          const fallbackCover = resolveCover(post?.media_url ?? null);
+          const base: PurchaseItem = current ?? {
+            id: albumId,
+            title: album?.description || post?.caption || "Publicación",
+            creator: creatorMap.get(post?.user_id ?? "") ?? "usuario",
+            date,
+            price: album?.price ? Number(album.price) : 0,
+            cover: albumCovers[0] ?? fallbackCover,
+            covers: albumCovers.length > 0 ? albumCovers : [fallbackCover],
+            status: row.status ?? "Desbloqueado",
+          };
+
+          albumEntries.set(albumId, {
+            ...base,
+            date: base.date || date,
+            price:
+              album?.price && Number(album.price) > 0
+                ? Number(album.price)
+                : base.price + Number(row.amount || 0),
+          });
+        });
+
+        const mapped: PurchaseItem[] = Array.from(albumEntries.values());
+
+        setItems(mapped);
+      } finally {
+        setLoading(false);
+      }
+    }, []);
+
+  useEffect(() => {
+    load();
+    const handler = () => load();
+    window.addEventListener("purchases-updated", handler);
+    const visibilityHandler = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", visibilityHandler);
+    return () => {
+      window.removeEventListener("purchases-updated", handler);
+      document.removeEventListener("visibilitychange", visibilityHandler);
+    };
+  }, [load]);
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -71,21 +183,45 @@ export default function ComprasPage() {
           </div>
 
           <div className="space-y-4">
-            {purchases.map((purchase) => (
+            {loading ? (
+              <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
+                Cargando compras...
+              </div>
+            ) : null}
+            {!loading && items.length === 0 ? (
+              <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
+                Aún no tienes compras.
+              </div>
+            ) : null}
+            {items.map((purchase) => (
               <div
                 key={purchase.id}
                 className="flex flex-col gap-4 rounded-[5px] border border-zinc-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex items-center gap-4">
-                  <div className="relative h-20 w-20 overflow-hidden rounded-[5px] border border-zinc-200 bg-zinc-100">
-                    <img
-                      src={purchase.cover}
-                      alt={purchase.title}
-                      className="h-full w-full object-cover"
-                    />
-                    {purchase.status === "Pendiente" ? (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
-                        <Lock className="h-5 w-5" />
+                  <div className="flex items-center gap-2">
+                    <div className="relative h-20 w-20 overflow-hidden rounded-[5px] border border-zinc-200 bg-zinc-100">
+                      <img
+                        src={purchase.cover}
+                        alt={purchase.title}
+                        className="h-full w-full object-cover"
+                      />
+                      {purchase.status === "Pendiente" ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                          <Lock className="h-5 w-5" />
+                        </div>
+                      ) : null}
+                    </div>
+                    {purchase.covers.length > 1 ? (
+                      <div className="flex gap-1">
+                        {purchase.covers.slice(1, 3).map((cover, index) => (
+                          <img
+                            key={`${purchase.id}-thumb-${index}`}
+                            src={cover}
+                            alt={purchase.title}
+                            className="h-10 w-10 rounded-[5px] object-cover"
+                          />
+                        ))}
                       </div>
                     ) : null}
                   </div>

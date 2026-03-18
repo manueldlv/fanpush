@@ -2,69 +2,118 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { isAdminIdentity } from "@/lib/admin";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [ready, setReady] = useState(false);
+  const inAuth = pathname?.startsWith("/auth");
+  const inAdmin = pathname?.startsWith("/admin");
+  const inAdminLogin = pathname?.startsWith("/admin/login");
+  const inPublicTerms = pathname?.startsWith("/terminos");
+  const allowWithoutSession = Boolean(inAuth || inAdminLogin || inPublicTerms);
+  const [allowed, setAllowed] = useState(allowWithoutSession);
 
   useEffect(() => {
+    setAllowed(allowWithoutSession);
+
     const supabase = getSupabaseClient();
     if (!supabase) {
-      setReady(true);
+      setAllowed(true);
       return;
     }
 
-    const check = async () => {
-      const { data } = await supabase.auth.getSession();
-      const isAuthed = !!data.session;
-      const inAuth = pathname?.startsWith("/auth");
-      const hash =
-        typeof window !== "undefined" ? window.location.hash : "";
-      const search =
-        typeof window !== "undefined" ? window.location.search : "";
-      const hasRecoveryHash =
-        hash.includes("type=recovery") ||
-        hash.includes("access_token") ||
-        search.includes("reset=1");
+    let cancelled = false;
 
-      if (hasRecoveryHash && !inAuth) {
-        window.location.replace(`/auth${hash}`);
-        setReady(false);
-        return;
-      }
-      if (!isAuthed && !inAuth) {
-        router.replace("/auth");
-        setReady(false);
-        return;
-      }
-      if (inAuth) {
-        setReady(true);
-        if (isAuthed && !hasRecoveryHash) {
-          router.replace("/");
-          setReady(false);
-        }
-        return;
-      }
-      setReady(true);
+    const redirectToAuth = () => {
+      if (cancelled || allowWithoutSession) return;
+      setAllowed(false);
+      router.replace(inAdmin ? "/admin/login" : "/auth");
     };
 
-    check();
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
-        setReady(false);
-        router.replace("/auth");
+    const allowRoute = () => {
+      if (cancelled) return;
+      setAllowed(true);
+    };
+
+    const checkSession = async () => {
+      if (allowWithoutSession) {
+        allowRoute();
         return;
       }
-      check();
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        if (inAdmin) {
+          const isAdmin = isAdminIdentity({
+            email: session.user.email,
+            username:
+              typeof session.user.user_metadata?.username === "string"
+                ? session.user.user_metadata.username
+                : null,
+          });
+          if (!isAdmin) {
+            redirectToAuth();
+            return;
+          }
+        }
+        allowRoute();
+        return;
+      }
+
+      redirectToAuth();
+    };
+
+    void checkSession();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (allowWithoutSession) {
+        allowRoute();
+        return;
+      }
+
+      if (event === "SIGNED_OUT" || !session?.user) {
+        redirectToAuth();
+        return;
+      }
+
+      if (inAdmin) {
+        const isAdmin = isAdminIdentity({
+          email: session.user.email,
+          username:
+            typeof session.user.user_metadata?.username === "string"
+              ? session.user.user_metadata.username
+              : null,
+        });
+        if (!isAdmin) {
+          redirectToAuth();
+          return;
+        }
+      }
+
+      allowRoute();
     });
 
     return () => {
+      cancelled = true;
       sub?.subscription?.unsubscribe();
     };
-  }, [pathname, router]);
+  }, [allowWithoutSession, inAdmin, inAuth, pathname, router]);
 
-  if (!ready) return null;
+  if (allowWithoutSession) return <>{children}</>;
+  if (!allowed) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+        <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-5 text-sm text-zinc-600 shadow-sm">
+          Verificando sesión...
+        </div>
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }

@@ -15,6 +15,7 @@ import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
+import { formatARS } from "@/lib/utils";
 
 type UploadItem = {
   id: string;
@@ -36,6 +37,19 @@ export default function CrearPage() {
   const [price, setPrice] = useState("9.99");
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const getErrorMessage = (value: unknown) => {
+    if (value instanceof Error) return value.message;
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "message" in value &&
+      typeof value.message === "string"
+    ) {
+      return value.message;
+    }
+    return "Ocurrió un error.";
+  };
 
   // Note: we keep object URLs so published posts can render in the feed/modal.
 
@@ -238,10 +252,8 @@ export default function CrearPage() {
         .from("albums")
         .insert({
           user_id: userId,
-          title: "Nueva publicacion",
           description: caption,
           price: Number(price) || 0,
-          is_locked: monetization === "paid",
         })
         .select("id")
         .single();
@@ -260,9 +272,8 @@ export default function CrearPage() {
             media_type: item.kind,
             is_locked:
               monetization === "paid" ? !previewIds.includes(item.id) : false,
-            price: Number(price) || 0,
             likes_count: 0,
-            comments_count: 0,
+            caption,
           };
         }),
       );
@@ -286,7 +297,7 @@ export default function CrearPage() {
 
       router.push("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ocurrió un error.");
+      setError(getErrorMessage(err));
     } finally {
       setPublishing(false);
     }
@@ -415,120 +426,6 @@ export default function CrearPage() {
             <div className="space-y-8">
               <div>
                 <h1 className="text-3xl font-semibold">
-                  Vista previa vs contenido bloqueado
-                </h1>
-                <p className="mt-2 text-sm text-zinc-500">
-                  Elige que imagenes se mostraran como vista previa. El resto se
-                  bloqueara hasta que alguien compre tu publicacion.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={makeAllPreview}
-                  className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
-                >
-                  Hacer todo vista previa
-                </button>
-                <button
-                  type="button"
-                  onClick={lockAll}
-                  className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
-                >
-                  Bloquear todo
-                </button>
-              </div>
-
-              <div className="text-sm font-semibold">
-                Vista previa: {previewCount} · Bloqueado: {lockedCount}
-              </div>
-
-              <div className="flex gap-4">
-                {items.map((item) => {
-                  const isPreview = previewIds.includes(item.id);
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => togglePreview(item.id)}
-                      className={`relative h-28 w-28 overflow-hidden rounded-[5px] border ${
-                        isPreview ? "border-zinc-900" : "border-zinc-200"
-                      }`}
-                    >
-                      {item.kind === "image" ? (
-                        <img
-                          src={item.url}
-                          alt={item.file.name}
-                          className={`h-full w-full object-cover ${
-                            isPreview ? "" : "blur-[6px]"
-                          }`}
-                        />
-                      ) : (
-                        <video
-                          src={item.url}
-                          className={`h-full w-full object-cover ${
-                            isPreview ? "" : "blur-[6px]"
-                          }`}
-                          muted
-                          playsInline
-                        />
-                      )}
-                      <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
-                        {isPreview ? "Vista previa" : "Bloqueado"}
-                      </div>
-                      {isPreview ? (
-                        <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[5px] bg-white text-zinc-900">
-                          <Check className="h-4 w-4" />
-                        </div>
-                      ) : (
-                        <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[5px] bg-white text-zinc-900">
-                          <Lock className="h-4 w-4" />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
-                Cuando alguien compre tu publicacion, tendra acceso a todo el
-                contenido, incluyendo el bloqueado.
-              </div>
-
-              <div className="border-t border-zinc-200 pt-6">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setStep(1)}
-                    className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
-                  >
-                    <ArrowLeft className="mr-1 inline h-4 w-4" />
-                    Volver
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (previewCount === 0) {
-                        setMonetization("paid");
-                        setStep(4);
-                        return;
-                      }
-                      setStep(3);
-                    }}
-                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white"
-                  >
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {step === 3 ? (
-            <div className="space-y-8">
-              <div>
-                <h1 className="text-3xl font-semibold">
                   Elegi la monetizacion
                 </h1>
                 <p className="mt-2 text-sm text-zinc-500">
@@ -539,7 +436,10 @@ export default function CrearPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setMonetization("free")}
+                  onClick={() => {
+                    setMonetization("free");
+                    setPreviewIds(items.map((item) => item.id));
+                  }}
                   className={`rounded-[5px] border p-5 text-left ${
                     monetization === "free"
                       ? "border-zinc-900"
@@ -616,7 +516,7 @@ export default function CrearPage() {
 
                   <div>
                     <div className="text-sm font-semibold text-zinc-700">
-                      Precio (USD)
+                      Precio (ARS)
                     </div>
                     <div className="mt-2 flex items-center gap-2 rounded-[5px] border border-zinc-300 bg-white px-3 py-2 text-lg font-semibold text-zinc-900">
                       <span className="text-zinc-500">$</span>
@@ -636,21 +536,21 @@ export default function CrearPage() {
                   <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
                     <div className="flex items-center justify-between">
                       <span>Precio de venta</span>
-                      <span className="font-semibold">${payout.value}</span>
+                      <span className="font-semibold">{formatARS(Number(payout.value))}</span>
                     </div>
                     <div className="mt-2 flex items-center justify-between">
                       <span>Tu recibes (70%)</span>
-                      <span className="font-semibold">${payout.creator}</span>
+                      <span className="font-semibold">{formatARS(Number(payout.creator))}</span>
                     </div>
                     <div className="mt-2 flex items-center justify-between">
                       <span>Tarifa plataforma (30%)</span>
-                      <span className="font-semibold">${payout.platform}</span>
+                      <span className="font-semibold">{formatARS(Number(payout.platform))}</span>
                     </div>
                   </div>
 
                   <div className="text-xs text-zinc-500">
-                    Precio sugerido: $4.99 - $24.99. La mayoria cobra entre
-                    $7.99 y $14.99.
+                    Precio sugerido: ARS 2.000 - ARS 15.000. La mayoría cobra entre
+                    ARS 4.000 y ARS 9.000.
                   </div>
                 </div>
               ) : null}
@@ -659,7 +559,7 @@ export default function CrearPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setStep(2)}
+                    onClick={() => setStep(1)}
                     className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
                   >
                     <ArrowLeft className="mr-1 inline h-4 w-4" />
@@ -673,8 +573,120 @@ export default function CrearPage() {
                           setPreviewIds(items.slice(0, -1).map((item) => item.id));
                         }
                       }
-                      setStep(4);
+                      setStep(3);
                     }}
+                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {step === 3 ? (
+            <div className="space-y-8">
+              <div>
+                <h1 className="text-3xl font-semibold">
+                  Vista previa vs contenido bloqueado
+                </h1>
+                <p className="mt-2 text-sm text-zinc-500">
+                  Elige que imagenes se mostraran como vista previa. El resto se
+                  bloqueara hasta que alguien compre tu publicacion.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={makeAllPreview}
+                  disabled={monetization === "free"}
+                  className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
+                >
+                  Hacer todo vista previa
+                </button>
+                <button
+                  type="button"
+                  onClick={lockAll}
+                  disabled={monetization === "free"}
+                  className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
+                >
+                  Bloquear todo
+                </button>
+              </div>
+
+              <div className="text-sm font-semibold">
+                Vista previa: {previewCount} · Bloqueado: {lockedCount}
+              </div>
+
+              <div className="flex gap-4">
+                {items.map((item) => {
+                  const isPreview = previewIds.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        if (monetization === "free") return;
+                        togglePreview(item.id);
+                      }}
+                      className={`relative h-28 w-28 overflow-hidden rounded-[5px] border ${
+                        isPreview ? "border-zinc-900" : "border-zinc-200"
+                      }`}
+                    >
+                      {item.kind === "image" ? (
+                        <img
+                          src={item.url}
+                          alt={item.file.name}
+                          className={`h-full w-full object-cover ${
+                            isPreview ? "" : "blur-[6px]"
+                          }`}
+                        />
+                      ) : (
+                        <video
+                          src={item.url}
+                          className={`h-full w-full object-cover ${
+                            isPreview ? "" : "blur-[6px]"
+                          }`}
+                          muted
+                          playsInline
+                        />
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
+                        {isPreview ? "Vista previa" : "Bloqueado"}
+                      </div>
+                      {isPreview ? (
+                        <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[5px] bg-white text-zinc-900">
+                          <Check className="h-4 w-4" />
+                        </div>
+                      ) : (
+                        <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[5px] bg-white text-zinc-900">
+                          <Lock className="h-4 w-4" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
+                Cuando alguien compre tu publicacion, tendra acceso a todo el
+                contenido, incluyendo el bloqueado.
+              </div>
+
+              <div className="border-t border-zinc-200 pt-6">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep(2)}
+                    className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
+                  >
+                    <ArrowLeft className="mr-1 inline h-4 w-4" />
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep(4)}
                     className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white"
                   >
                     Siguiente
@@ -797,7 +809,7 @@ export default function CrearPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setStep(2)}
+                    onClick={() => setStep(3)}
                     className="rounded-[5px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
                   >
                     <ArrowLeft className="mr-1 inline h-4 w-4" />

@@ -1,9 +1,14 @@
+"use client";
+
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 
 type Suggestion = {
   id: string;
   name: string;
+  fullName: string;
   handle: string;
   note: string;
   avatar: string | null;
@@ -11,7 +16,10 @@ type Suggestion = {
 };
 
 export default function SidebarRight() {
+  const router = useRouter();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const load = async () => {
@@ -19,6 +27,19 @@ export default function SidebarRight() {
       if (!supabase) return;
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
+      setCurrentUserId(userId ?? null);
+
+      if (userId) {
+        const { data: followRows } = await supabase
+          .from("follows")
+          .select("following_id")
+          .eq("follower_id", userId);
+        setFollowingIds(
+          new Set((followRows ?? []).map((row) => row.following_id)),
+        );
+      } else {
+        setFollowingIds(new Set());
+      }
 
       let query = supabase.from("users").select("id,username,avatar_url").limit(5);
       if (userId) {
@@ -39,6 +60,7 @@ export default function SidebarRight() {
         (data ?? []).map(async (row) => ({
           id: row.id,
           name: row.username ?? "usuario",
+          fullName: row.username ?? "",
           handle: `@${row.username ?? "usuario"}`,
           note: "Sugerencia para ti",
           avatar: await resolveAvatar(row.avatar_url ?? null),
@@ -50,6 +72,50 @@ export default function SidebarRight() {
 
     load();
   }, []);
+
+  const openProfile = (profile: Suggestion) => {
+    router.push(buildUserProfileHref(profile.name));
+  };
+
+  const toggleFollow = async (profileId: string) => {
+    if (!currentUserId || profileId === currentUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const isFollowing = followingIds.has(profileId);
+    if (isFollowing) {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", currentUserId)
+        .eq("following_id", profileId);
+      if (!error) {
+        setFollowingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(profileId);
+          return next;
+        });
+      }
+      return;
+    }
+
+    const { error } = await supabase.from("follows").insert({
+      follower_id: currentUserId,
+      following_id: profileId,
+    });
+
+    if (!error) {
+      setFollowingIds((prev) => new Set(prev).add(profileId));
+      await supabase.from("notifications").insert({
+        user_id: profileId,
+        actor_id: currentUserId,
+        type: "follow",
+        entity_id: currentUserId,
+        message: "comenzó a seguirte.",
+        is_read: false,
+      });
+    }
+  };
 
   return (
     <aside className="hidden w-[320px] shrink-0 lg:block">
@@ -70,7 +136,11 @@ export default function SidebarRight() {
                 key={profile.id}
                 className="flex items-center justify-between"
               >
-                <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => openProfile(profile)}
+                  className="flex min-w-0 cursor-pointer items-center gap-3 text-left"
+                >
                   {profile.avatar ? (
                     <img
                       src={profile.avatar}
@@ -91,10 +161,20 @@ export default function SidebarRight() {
                     </div>
                     <div className="text-xs text-zinc-500">{profile.note}</div>
                   </div>
-                </div>
-                <button className="text-sm font-semibold text-blue-600">
-                  Seguir
                 </button>
+                {currentUserId && profile.id !== currentUserId ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleFollow(profile.id)}
+                    className={`text-sm font-semibold ${
+                      followingIds.has(profile.id)
+                        ? "text-zinc-700"
+                        : "text-blue-600"
+                    }`}
+                  >
+                    {followingIds.has(profile.id) ? "Siguiendo" : "Seguir"}
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>

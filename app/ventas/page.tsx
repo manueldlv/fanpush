@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import { parseTipAmountFromMessage } from "@/lib/earnings";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import {
+  getCurrentMonthKey,
+  getWithdrawalReservedAmount,
+  getWithdrawalStatusLabel,
+  parseWithdrawalRecord,
+  type WithdrawalStatus,
+} from "@/lib/withdrawals";
+import { FANPUSH_WITHDRAWAL_MIN_ARS, formatARS } from "@/lib/utils";
 
 type SaleItem = {
   id: string;
@@ -12,6 +22,7 @@ type SaleItem = {
   title: string;
   count: number;
   total: number;
+  createdAt?: string;
   buyer: {
     id: string;
     name: string;
@@ -20,11 +31,22 @@ type SaleItem = {
   };
 };
 
+type WithdrawalItem = {
+  id: string;
+  amount: number;
+  status: WithdrawalStatus;
+  statusLabel: string;
+  requestedAt: string;
+  monthKey: string;
+};
+
 export default function VentasPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sales, setSales] = useState<SaleItem[]>([]);
+  const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [requesting, setRequesting] = useState(false);
 
   const load = useCallback(async () => {
       const supabase = getSupabaseClient();
@@ -122,6 +144,7 @@ export default function VentasPage() {
             title: album?.description || post?.caption || "Publicación",
             count,
             total: 0,
+            createdAt: row.created_at,
             buyer: {
               id: row.user_id,
               name: buyer?.username ?? "usuario",
@@ -135,9 +158,62 @@ export default function VentasPage() {
           });
         });
 
-        const mapped: SaleItem[] = Array.from(grouped.values());
+        const { data: tipRows } = await supabase
+          .from("notifications")
+          .select("id,actor_id,message,created_at")
+          .eq("user_id", userId)
+          .eq("type", "tip")
+          .order("created_at", { ascending: false });
+
+        (tipRows ?? []).forEach((row) => {
+          const amount = parseTipAmountFromMessage(row.message);
+          if (!amount) return;
+          const buyer = buyerMap.get(row.actor_id);
+          grouped.set(`tip-${row.id}`, {
+            id: `tip-${row.id}`,
+            type: "Propina",
+            title: "Propina directa",
+            count: 1,
+            total: amount,
+            createdAt: row.created_at,
+            buyer: {
+              id: row.actor_id,
+              name: buyer?.username ?? "usuario",
+              full: buyer?.username ?? "Usuario",
+              avatar: resolveAvatar(buyer?.avatar_url ?? null),
+            },
+          });
+        });
+
+        const mapped: SaleItem[] = Array.from(grouped.values()).sort((a, b) =>
+          (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+        );
 
         setSales(mapped);
+
+        const { data: withdrawalRows } = await supabase
+          .from("notifications")
+          .select("id,message,created_at")
+          .eq("user_id", userId)
+          .eq("type", "withdrawal_request")
+          .order("created_at", { ascending: false });
+
+        const withdrawalItems = (withdrawalRows ?? [])
+          .map((row) => {
+            const parsed = parseWithdrawalRecord(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              amount: parsed.amount,
+              status: parsed.status,
+              statusLabel: getWithdrawalStatusLabel(parsed.status),
+              requestedAt: row.created_at,
+              monthKey: parsed.monthKey,
+            };
+          })
+          .filter(Boolean) as WithdrawalItem[];
+
+        setWithdrawals(withdrawalItems);
       } finally {
         setLoading(false);
       }
@@ -161,12 +237,72 @@ export default function VentasPage() {
     const totalSales = sales.reduce((acc, item) => acc + item.total, 0);
     const creator = totalSales * 0.7;
     const platform = totalSales * 0.3;
+    const reserved = getWithdrawalReservedAmount(withdrawals);
+    const withdrawable = Math.max(creator - reserved, 0);
+    const canRequest = withdrawable >= FANPUSH_WITHDRAWAL_MIN_ARS;
+    const currentMonthKey = getCurrentMonthKey();
+    const hasRequestThisMonth = withdrawals.some(
+      (item) => item.monthKey === currentMonthKey,
+    );
     return {
       totalSales,
       creator,
       platform,
+      withdrawable,
+      reserved,
+      canRequest,
+      hasRequestThisMonth,
     };
-  }, []);
+  }, [sales, withdrawals]);
+
+  const handleRequestWithdrawal = async () => {
+    try {
+      setRequesting(true);
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch("/api/withdrawals/request", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        record?: {
+          amount: number;
+          status: WithdrawalStatus;
+          requestedAt: string;
+          monthKey: string;
+        };
+      };
+      if (!response.ok || !result.record) {
+        throw new Error(result.error ?? "No se pudo solicitar el retiro.");
+      }
+
+      setWithdrawals((prev) => [
+        {
+          id: `local-${Date.now()}`,
+          amount: result.record!.amount,
+          status: result.record!.status,
+          statusLabel: getWithdrawalStatusLabel(result.record!.status),
+          requestedAt: result.record!.requestedAt,
+          monthKey: result.record!.monthKey,
+        },
+        ...prev,
+      ]);
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : "No se pudo solicitar el retiro.",
+      );
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -202,19 +338,19 @@ export default function VentasPage() {
             <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
               <div className="text-xs text-zinc-500">Ventas totales</div>
               <div className="mt-2 text-2xl font-semibold">
-                ${totals.totalSales.toFixed(2)}
+                {formatARS(totals.totalSales)}
               </div>
             </div>
             <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
               <div className="text-xs text-zinc-500">Comision (30%)</div>
               <div className="mt-2 text-2xl font-semibold">
-                ${totals.platform.toFixed(2)}
+                {formatARS(totals.platform)}
               </div>
             </div>
             <div className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-5">
               <div className="text-xs text-emerald-700">Tu ganancia (70%)</div>
               <div className="mt-2 text-2xl font-semibold text-emerald-900">
-                ${totals.creator.toFixed(2)}
+                {formatARS(totals.creator)}
               </div>
             </div>
           </div>
@@ -246,24 +382,17 @@ export default function VentasPage() {
                 <span>{sale.type}</span>
                 <span className="col-span-2">{sale.title}</span>
                 <a
-                  href={`/perfil?user=${encodeURIComponent(
-                    sale.buyer.name,
-                  )}&full=${encodeURIComponent(
-                    sale.buyer.full,
-                  )}&avatar=${encodeURIComponent(
-                    sale.buyer.avatar ?? "",
-                  )}`}
+                  href={buildUserProfileHref(sale.buyer.name)}
                   className="text-sm font-semibold text-blue-600 hover:underline"
                 >
                   {sale.buyer.name}
                 </a>
                 <span className="text-right">{sale.count}</span>
                 <span className="text-right font-semibold">
-                  ${sale.total.toFixed(2)}
+                  {formatARS(sale.total)}
                 </span>
                 <span className="col-span-2 text-right text-xs text-zinc-500">
-                  ${(sale.total * 0.7).toFixed(2)} (70%) · $
-                  {(sale.total * 0.3).toFixed(2)} (30%)
+                  {formatARS(sale.total * 0.7)} (70%) · {formatARS(sale.total * 0.3)} (30%)
                 </span>
               </div>
             ))}
@@ -276,18 +405,73 @@ export default function VentasPage() {
                   Retirar fondos con MercadoPago
                 </div>
                 <div className="text-xs text-emerald-700">
-                  Disponible para retirar: ${totals.creator.toFixed(2)}
+                  Disponible para retirar: {formatARS(totals.withdrawable)}
+                </div>
+                <div className="mt-1 text-xs text-emerald-700">
+                  Mínimo para retirar: {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}
+                </div>
+                <div className="mt-1 text-xs text-emerald-700">
+                  Los retiros se procesan una vez por mes y pueden demorar hasta 72 hs.
                 </div>
               </div>
-              <button className="rounded-[8px] bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700">
-                Retirar ahora
+              <button
+                type="button"
+                onClick={handleRequestWithdrawal}
+                disabled={
+                  requesting || !totals.canRequest || totals.hasRequestThisMonth
+                }
+                className="rounded-[8px] bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {requesting
+                  ? "Solicitando..."
+                  : totals.hasRequestThisMonth
+                    ? "Retiro ya solicitado este mes"
+                    : totals.canRequest
+                      ? `Solicitar retiro de ${formatARS(totals.withdrawable)}`
+                      : `Necesitas al menos ${formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}`}
               </button>
             </div>
           </div>
 
+          <div className="rounded-[5px] border border-zinc-200 bg-white">
+            <div className="border-b border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900">
+              Historial de retiros
+            </div>
+            {withdrawals.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-zinc-500">
+                Aún no solicitaste retiros.
+              </div>
+            ) : (
+              withdrawals.map((item) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-1 gap-2 border-t border-zinc-100 px-4 py-4 text-sm text-zinc-700 md:grid-cols-4"
+                >
+                  <div>
+                    <div className="text-xs text-zinc-500">Fecha</div>
+                    <div>{new Date(item.requestedAt).toLocaleString("es-AR")}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-500">Período</div>
+                    <div>{item.monthKey}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-500">Monto</div>
+                    <div className="font-semibold">{formatARS(item.amount)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-500">Estado</div>
+                    <div>{item.statusLabel}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
           <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
             Recibes el 70% de cada venta. La plataforma retiene el 30% en
-            concepto de comision.
+            concepto de comision. Los retiros se agrupan mensualmente para no
+            saturar pagos individuales.
           </div>
         </div>
       </div>

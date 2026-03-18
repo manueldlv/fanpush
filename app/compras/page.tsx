@@ -8,6 +8,7 @@ import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import { getSupabaseClient } from "@/lib/supabase";
+import { formatARS } from "@/lib/utils";
 
 type PurchaseItem = {
   id: string;
@@ -352,11 +353,9 @@ export default function ComprasPage() {
                     </div>
                     <div className="mt-2 flex items-center gap-3 text-sm">
                       <span className="font-semibold text-zinc-900">
-                        ${purchase.price.toFixed(2)}
+                        {formatARS(purchase.price)}
                       </span>
-                      <span className="text-xs text-zinc-500">
-                        {purchase.status}
-                      </span>
+                      <span className="text-xs text-zinc-500">{purchase.status}</span>
                     </div>
                   </div>
                 </div>

@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Search, User as UserIcon } from "lucide-react";
+import { Bell, Search } from "lucide-react";
+import UserAvatar from "@/components/UserAvatar";
+import { loadCreatorEarnings } from "@/lib/earnings";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import { formatARS } from "@/lib/utils";
 
 type SearchResult = {
   id: string;
@@ -19,6 +23,7 @@ type NotificationItem = {
   text: string;
   date: string;
   avatar: string | null;
+  isRead?: boolean;
   action?: { label: string; href: string };
 };
 
@@ -110,28 +115,12 @@ export default function TopBar() {
         avatarUrl,
       });
 
-      const { data: postRows } = await supabase
-        .from("posts")
-        .select("id")
-        .eq("user_id", userId);
-      const postIds = (postRows ?? []).map((row) => row.id);
-      if (postIds.length === 0) {
-        setBalance(0);
-        return;
-      }
-      const { data: purchaseRows } = await supabase
-        .from("purchases")
-        .select("amount, post_id")
-        .in("post_id", postIds);
-      const total = (purchaseRows ?? []).reduce(
-        (sum, row) => sum + Number(row.amount || 0) * 0.7,
-        0,
-      );
-      setBalance(total);
+      const earnings = await loadCreatorEarnings(supabase, userId);
+      setBalance(earnings.creatorNet);
 
       const { data: notifRows } = await supabase
         .from("notifications")
-        .select("id,actor_id,message,created_at,type,entity_id")
+        .select("id,actor_id,message,created_at,type,entity_id,is_read")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -159,7 +148,9 @@ export default function TopBar() {
         (actors ?? []).map((actor) => [actor.id, actor]),
       );
       const mapped = await Promise.all(
-        (notifRows ?? []).map(async (row) => ({
+        (notifRows ?? [])
+          .filter((row) => row.type !== "withdrawal_request")
+          .map(async (row) => ({
           id: row.id,
           text: `${actorMap.get(row.actor_id)?.username ?? "alguien"} ${
             row.message ?? ""
@@ -169,6 +160,7 @@ export default function TopBar() {
             month: "short",
           }),
           avatar: await resolveAvatar(actorMap.get(row.actor_id)?.avatar_url ?? null),
+          isRead: row.is_read ?? false,
           action:
             row.type === "purchase"
               ? { label: "Ver venta", href: "/ventas" }
@@ -179,6 +171,16 @@ export default function TopBar() {
     };
 
     loadProfile();
+
+    const refreshBalance = () => {
+      loadProfile();
+    };
+    window.addEventListener("purchases-updated", refreshBalance);
+    window.addEventListener("earnings-updated", refreshBalance);
+    return () => {
+      window.removeEventListener("purchases-updated", refreshBalance);
+      window.removeEventListener("earnings-updated", refreshBalance);
+    };
   }, []);
 
   useEffect(() => {
@@ -236,17 +238,18 @@ export default function TopBar() {
   }, [searchOpen, notificationsOpen, profileOpen]);
 
   const handleSelect = (item: SearchResult) => {
-    const params = new URLSearchParams({
-      user: item.name,
-      full: item.fullName,
-      avatar: item.avatar ?? "",
-    });
-    router.push(`/perfil?${params.toString()}`);
+    router.push(buildUserProfileHref(item.name));
     setSearchOpen(false);
     setQuery("");
   };
 
-  if (pathname?.startsWith("/auth")) {
+  const hasUnreadNotifications = notifications.some((item) => !item.isRead);
+
+  if (
+    pathname?.startsWith("/auth") ||
+    pathname?.startsWith("/admin") ||
+    pathname?.startsWith("/terminos")
+  ) {
     return null;
   }
 
@@ -336,11 +339,35 @@ export default function TopBar() {
             <div className="relative" ref={notificationsRef}>
               <button
                 type="button"
-                onClick={() => setNotificationsOpen((prev) => !prev)}
+                onClick={async () => {
+                  const nextOpen = !notificationsOpen;
+                  setNotificationsOpen(nextOpen);
+
+                  if (nextOpen) {
+                    const unreadIds = notifications
+                      .filter((item) => !item.isRead)
+                      .map((item) => item.id);
+                    if (unreadIds.length > 0) {
+                      const supabase = getSupabaseClient();
+                      if (supabase) {
+                        await supabase
+                          .from("notifications")
+                          .update({ is_read: true })
+                          .in("id", unreadIds);
+                      }
+                      setNotifications((prev) =>
+                        prev.map((item) => ({ ...item, isRead: true })),
+                      );
+                    }
+                  }
+                }}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:bg-zinc-100"
                 aria-label="Notificaciones"
               >
                 <Bell className="h-4 w-4" />
+                {hasUnreadNotifications ? (
+                  <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-red-500" />
+                ) : null}
               </button>
 
               {notificationsOpen ? (
@@ -356,15 +383,12 @@ export default function TopBar() {
                           key={item.id}
                           className="flex items-center gap-3 rounded-[10px] bg-zinc-50 px-3 py-3"
                         >
-                          {item.avatar ? (
-                            <img
-                              src={item.avatar}
-                              alt="avatar"
-                              className="h-10 w-10 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="h-10 w-10 rounded-full bg-zinc-100" />
-                          )}
+                          <UserAvatar
+                            src={item.avatar}
+                            alt="avatar"
+                            sizeClassName="h-10 w-10"
+                            iconClassName="h-4 w-4"
+                          />
                           <div className="flex-1 text-sm text-zinc-700">
                             <div className="font-medium text-zinc-900">
                               {item.text}
@@ -394,7 +418,7 @@ export default function TopBar() {
                 href="/ventas"
                 className="cursor-pointer text-sm font-semibold text-zinc-900"
               >
-                ${balance.toFixed(2)}
+                {formatARS(balance)}
               </Link>
               <div className="relative" ref={profileRef}>
                 <button
@@ -403,17 +427,12 @@ export default function TopBar() {
                   className="rounded-full"
                   aria-label="Abrir menu de perfil"
                 >
-                  {profile.avatarUrl ? (
-                    <img
-                      src={profile.avatarUrl}
-                      alt={profile.username ?? "Perfil"}
-                      className="h-9 w-9 rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500">
-                      <UserIcon className="h-4 w-4" />
-                    </span>
-                  )}
+                  <UserAvatar
+                    src={profile.avatarUrl}
+                    alt={profile.username ?? "Perfil"}
+                    sizeClassName="h-9 w-9"
+                    iconClassName="h-4 w-4"
+                  />
                 </button>
                 {profileOpen ? (
                   <div className="absolute right-0 top-12 z-50 w-48 rounded-[10px] border border-zinc-200 bg-white p-2 shadow-xl">

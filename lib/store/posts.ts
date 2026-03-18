@@ -10,7 +10,7 @@ type Post = {
   suggestion: string;
   caption: string;
   likes: number;
-  avatar: string;
+  avatar: string | null;
   price?: number;
   media: {
     url: string;

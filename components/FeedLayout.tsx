@@ -5,7 +5,10 @@ import { usePostsStore } from "@/lib/store";
 import type { Post } from "@/lib/store";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
+import UserAvatar from "@/components/UserAvatar";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import { formatARS } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
 type AlbumMediaPost = {
@@ -159,9 +162,7 @@ export default function FeedLayout() {
                   (sum, item) => sum + (item.likes_count ?? 0),
                   0,
                 ),
-                avatar:
-                  avatarUrl ||
-                  "https://picsum.photos/seed/default-avatar/64/64",
+                avatar: avatarUrl || null,
                 price: post.price ?? 0,
                 media: mediaWithUrls,
               } satisfies Post;
@@ -345,52 +346,48 @@ export default function FeedLayout() {
     if (!currentUserId) return;
     const supabase = getSupabaseClient();
     if (!supabase) return;
-    const post = posts.find((item) => item.id === albumId);
-    if (!post) return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Necesitas iniciar sesión para comprar.");
+        return false;
+      }
 
-    const rows = post.mediaPostIds.map((postId, index) => ({
-      user_id: currentUserId,
-      post_id: postId,
-      payment_id: `sim-${Date.now()}`,
-      amount: index === 0 ? post.price ?? 0 : 0,
-      status: "approved",
-    }));
-    const { error } = await supabase.from("purchases").insert(rows);
-    if (error) {
-      console.error(error);
-      alert("No se pudo registrar la compra. Revisa permisos (RLS).");
+      const response = await fetch("/api/mercadopago/preference", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          kind: "purchase",
+          albumId,
+          returnPath: window.location.pathname,
+        }),
+      });
+
+      const result = (await response.json()) as {
+        initPoint?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !result.initPoint) {
+        alert(result.error ?? "No se pudo iniciar el checkout con Mercado Pago.");
+        return false;
+      }
+
+      window.location.assign(result.initPoint);
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "No se pudo iniciar el checkout con Mercado Pago.",
+      );
       return false;
     }
-    if (!error) {
-      setPurchasedPostIds((prev) => {
-        const next = new Set(prev);
-        post.mediaPostIds.forEach((id) => next.add(id));
-        return next;
-      });
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === albumId
-            ? {
-                ...p,
-                media: p.media.map((item) => ({ ...item, locked: false })),
-              }
-            : p,
-        ),
-      );
-
-      if (post.userId !== currentUserId) {
-        await supabase.from("notifications").insert({
-          user_id: post.userId,
-          actor_id: currentUserId,
-          type: "purchase",
-          entity_id: albumId,
-          message: "compró tu publicación.",
-          is_read: false,
-        });
-      }
-      window.dispatchEvent(new Event("purchases-updated"));
-    }
-    return true;
+    return false;
   };
 
   const handleDelete = async (albumId: string) => {
@@ -572,29 +569,19 @@ export default function FeedLayout() {
               <button
                 type="button"
                 onClick={() => {
-                  const params = new URLSearchParams();
-                  if (post.author) params.set("user", post.author);
-                  if (post.avatar) params.set("avatar", post.avatar);
-                  router.push(`/perfil?${params.toString()}`);
+                  router.push(buildUserProfileHref(post.author));
                 }}
                 className="h-10 w-10 overflow-hidden rounded-full"
                 aria-label={`Ver perfil de ${post.author}`}
               >
-                <img
-                  src={post.avatar}
-                  alt={post.author}
-                  className="h-10 w-10 rounded-full object-cover"
-                />
+                <UserAvatar src={post.avatar} alt={post.author} />
               </button>
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
                   <button
                     type="button"
                     onClick={() => {
-                      const params = new URLSearchParams();
-                      if (post.author) params.set("user", post.author);
-                      if (post.avatar) params.set("avatar", post.avatar);
-                      router.push(`/perfil?${params.toString()}`);
+                      router.push(buildUserProfileHref(post.author));
                     }}
                     className="hover:underline"
                   >
@@ -684,7 +671,7 @@ export default function FeedLayout() {
                           {lockedCount} contenido bloqueado
                         </div>
                         <div className="mt-3 rounded-[5px] bg-zinc-900 px-5 py-2 text-sm font-semibold text-white">
-                          ${post.price?.toFixed(2) ?? "0.00"}
+                          {formatARS(post.price ?? 0)}
                         </div>
                         {post.userId !== currentUserId ? (
                           <button

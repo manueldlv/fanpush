@@ -5,6 +5,7 @@ import { Bell, User } from "lucide-react";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import UserAvatar from "@/components/UserAvatar";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SettingsPage() {
@@ -19,6 +20,8 @@ export default function SettingsPage() {
   const [fullName, setFullName] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,11 +130,14 @@ export default function SettingsPage() {
       );
       if (profileError) throw profileError;
 
+      setAvatarUrl(uploadedAvatarUrl ?? null);
       setAvatarPath(uploadedAvatarPath ?? null);
+      setAvatarFile(null);
       setMessage("Perfil actualizado.");
       window.dispatchEvent(
         new CustomEvent("profile-updated", {
           detail: {
+            username: safeUsername,
             fullName: fullName.trim(),
             avatarUrl: uploadedAvatarUrl ?? null,
           },
@@ -141,6 +147,51 @@ export default function SettingsPage() {
       setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setMessage(null);
+    const expected = username.trim().toLowerCase();
+    if (!expected || deleteConfirmText.trim().toLowerCase() !== expected) {
+      setMessage("Escribe tu nombre de usuario exacto para confirmar.");
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setMessage("Falta configurar Supabase.");
+      return;
+    }
+
+    setDeletingAccount(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error("Necesitas iniciar sesion.");
+      }
+
+      const response = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo borrar la cuenta.");
+      }
+
+      await supabase.auth.signOut();
+      window.location.assign("/auth");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -212,17 +263,12 @@ export default function SettingsPage() {
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      {avatarUrl ? (
-                        <img
-                          src={avatarUrl}
-                          alt={username || "Perfil"}
-                          className="h-16 w-16 rounded-full object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-16 w-16 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500">
-                          <User className="h-6 w-6" />
-                        </span>
-                      )}
+                      <UserAvatar
+                        src={avatarUrl}
+                        alt={username || "Perfil"}
+                        sizeClassName="h-16 w-16"
+                        iconClassName="h-6 w-6"
+                      />
                       <div>
                         <div className="text-sm font-semibold">
                           {username || "usuario"}
@@ -242,6 +288,23 @@ export default function SettingsPage() {
                       />
                     </label>
                   </div>
+                </div>
+
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  <label className="text-sm font-semibold text-zinc-900">
+                    Nombre de usuario
+                  </label>
+                  <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-100 px-3 py-2">
+                    <input
+                      value={username ? `@${username}` : "@usuario"}
+                      readOnly
+                      className="w-full cursor-not-allowed bg-transparent text-sm text-zinc-500 outline-none"
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    El nombre de usuario se elige al crear la cuenta y no se
+                    puede cambiar.
+                  </p>
                 </div>
 
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
@@ -269,6 +332,40 @@ export default function SettingsPage() {
                   >
                     {saving ? "Guardando..." : "Guardar cambios"}
                   </button>
+                </div>
+
+                <div className="rounded-[5px] border border-red-200 bg-red-50 p-6">
+                  <div className="text-sm font-semibold text-red-700">
+                    Borrar cuenta
+                  </div>
+                  <p className="mt-2 text-xs text-red-600">
+                    Esto elimina tu cuenta y sus datos relacionados. Para
+                    confirmar, escribe tu nombre de usuario exacto.
+                  </p>
+                  <div className="mt-4 rounded-[5px] border border-red-200 bg-white px-3 py-2">
+                    <input
+                      placeholder={`Escribe ${username || "tu usuario"}`}
+                      value={deleteConfirmText}
+                      onChange={(event) =>
+                        setDeleteConfirmText(event.target.value)
+                      }
+                      className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                    />
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleDeleteAccount}
+                      disabled={
+                        deletingAccount ||
+                        deleteConfirmText.trim().toLowerCase() !==
+                          username.trim().toLowerCase()
+                      }
+                      className="rounded-[5px] bg-red-600 px-6 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deletingAccount ? "Borrando..." : "Borrar cuenta"}
+                    </button>
+                  </div>
                 </div>
 
                 {message ? (

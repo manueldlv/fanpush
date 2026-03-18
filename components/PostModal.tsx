@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
+import UserAvatar from "@/components/UserAvatar";
 import type { Post } from "@/lib/store";
+import { formatARS } from "@/lib/utils";
 
 type PostModalProps = {
   post: Post;
@@ -184,11 +186,11 @@ export default function PostModal({
                   >
                     {purchaseLoading
                       ? "Procesando..."
-                      : `Desbloquear por $${post.price?.toFixed(2) ?? "0.00"}`}
+                      : `Desbloquear por ${formatARS(post.price ?? 0)}`}
                   </button>
                 ) : (
                   <div className="mt-3 rounded-[5px] bg-zinc-900 px-6 py-2 text-sm font-semibold text-white">
-                    ${post.price?.toFixed(2) ?? "0.00"}
+                    {formatARS(post.price ?? 0)}
                   </div>
                 )}
               </div>
@@ -211,17 +213,7 @@ export default function PostModal({
         <div className="relative w-[360px] border-l border-zinc-200 p-6">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
-              {post.avatar ? (
-                <img
-                  src={post.avatar}
-                  alt={post.author}
-                  className="h-10 w-10 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-xs text-zinc-500">
-                  --
-                </div>
-              )}
+              <UserAvatar src={post.avatar} alt={post.author} />
               <div>
                 <div className="text-sm font-semibold text-zinc-900">
                   {post.author}
@@ -291,11 +283,11 @@ export default function PostModal({
                 >
                   {purchaseLoading
                     ? "Procesando..."
-                    : `Desbloquear por $${post.price?.toFixed(2) ?? "0.00"}`}
+                    : `Desbloquear por ${formatARS(post.price ?? 0)}`}
                 </button>
               ) : (
                 <div className="mt-4 rounded-[5px] bg-zinc-900 px-4 py-2 text-center text-sm font-semibold text-white">
-                  ${post.price?.toFixed(2) ?? "0.00"}
+                  {formatARS(post.price ?? 0)}
                 </div>
               )}
             </div>

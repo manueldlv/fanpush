@@ -4,6 +4,19 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import Image from "next/image";
+import type { CSSProperties } from "react";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+
+const JUST_SIGNED_IN_KEY = "fanpush_just_signed_in";
+
+const isRecoveryUrl = () => {
+  if (typeof window === "undefined") return false;
+  const hash = window.location.hash;
+  const search = window.location.search;
+  return (
+    hash.includes("type=recovery") || search.includes("reset=1")
+  );
+};
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -11,6 +24,7 @@ export default function AuthPage() {
   const [reset, setReset] = useState(false);
   const router = useRouter();
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -18,15 +32,119 @@ export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<
+    "idle" | "checking" | "available" | "taken" | "invalid"
+  >("idle");
+  const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
-  const normalizeEmail = (value: string) => {
-    const compact = value.replace(/\s+/g, "").toLowerCase();
-    if (!compact) return "";
-    if (/^[^\s@]+@[^\s@]+$/.test(compact)) {
-      return `${compact}.com`;
-    }
-    return compact;
+  const pageStyle: CSSProperties = {
+    minHeight: "100vh",
+    background: "#ffffff",
+    color: "#18181b",
   };
+
+  const shellStyle: CSSProperties = {
+    margin: "0 auto",
+    minHeight: "100vh",
+    width: "100%",
+    maxWidth: "1400px",
+    display: "grid",
+    gridTemplateColumns: isMobile
+      ? "minmax(0, 1fr)"
+      : "minmax(0, 1.2fr) minmax(320px, 1fr)",
+  };
+
+  const leftPanelStyle: CSSProperties = {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRight: isMobile ? "none" : "1px solid #e4e4e7",
+    background: "#ffffff",
+    padding: isMobile ? "32px 20px 12px" : "40px 24px",
+  };
+
+  const rightPanelStyle: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: isMobile ? "12px 20px 40px" : "48px 24px",
+  };
+
+  const contentStyle: CSSProperties = {
+    width: "100%",
+    maxWidth: isMobile ? "100%" : "420px",
+  };
+
+  const formStyle: CSSProperties = {
+    marginTop: "16px",
+    border: "1px solid #e4e4e7",
+    borderRadius: "12px",
+    background: "#ffffff",
+    padding: isMobile ? "20px" : "24px",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+  };
+
+  const segmentedStyle: CSSProperties = {
+    display: "flex",
+    gap: "8px",
+  };
+
+  const inputStyle: CSSProperties = {
+    width: "100%",
+    height: "52px",
+    borderRadius: "10px",
+    border: "1px solid #e4e4e7",
+    padding: "12px 16px",
+    fontSize: "14px",
+    lineHeight: "20px",
+    outline: "none",
+    background: "#ffffff",
+    color: "#18181b",
+  };
+
+  const primaryButtonStyle: CSSProperties = {
+    width: "100%",
+    borderRadius: "9999px",
+    background: "#3b82f6",
+    color: "#ffffff",
+    padding: "12px 16px",
+    fontSize: "14px",
+    fontWeight: 600,
+    border: "none",
+    cursor: "pointer",
+  };
+
+  const secondaryButtonStyle: CSSProperties = {
+    width: "100%",
+    borderRadius: "9999px",
+    border: "1px solid #e4e4e7",
+    background: "#ffffff",
+    color: "#18181b",
+    padding: "12px 16px",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+  };
+
+  const enterResetMode = () => {
+    setReset(true);
+    setForgot(false);
+    setMode("login");
+  };
+
+  const normalizeEmail = (value: string) =>
+    value.replace(/\s+/g, "").toLowerCase();
+
+  const normalizeUsername = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9._]/g, "");
 
   const validate = () => {
     if (reset) {
@@ -48,6 +166,21 @@ export default function AuthPage() {
     }
     if (mode === "register" && fullName.trim().length < 2) {
       return "El nombre completo es obligatorio.";
+    }
+    if (mode === "register") {
+      const normalizedUsername = normalizeUsername(username);
+      if (normalizedUsername.length < 3) {
+        return "El nombre de usuario debe tener al menos 3 caracteres.";
+      }
+      if (!/^[a-z0-9._]+$/.test(normalizedUsername)) {
+        return "El nombre de usuario solo puede tener letras, numeros, punto y guion bajo.";
+      }
+      if (usernameStatus !== "available") {
+        return "Elegi un nombre de usuario disponible.";
+      }
+      if (!acceptedTerms) {
+        return "Debes aceptar los términos y condiciones.";
+      }
     }
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) return "El correo es obligatorio.";
@@ -100,11 +233,18 @@ export default function AuthPage() {
 
       if (mode === "register") {
         const normalizedEmail = normalizeEmail(email);
+        const normalizedUsername = normalizeUsername(username);
         const { error: signUpError } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
           options: {
-            data: { full_name: fullName.trim() },
+            data: {
+              full_name: fullName.trim(),
+              username: normalizedUsername,
+              accepted_terms: true,
+              accepted_terms_at: new Date().toISOString(),
+            },
+            emailRedirectTo: `${window.location.origin}/auth`,
           },
         });
 
@@ -116,12 +256,19 @@ export default function AuthPage() {
         setMode("login");
       } else {
         const normalizedEmail = normalizeEmail(email);
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        const { data: signInData, error: signInError } =
+          await supabase.auth.signInWithPassword({
           email: normalizedEmail,
           password,
         });
         if (signInError) throw signInError;
-        router.push("/");
+        if (signInData.session && typeof window !== "undefined") {
+          window.sessionStorage.setItem(
+            JUST_SIGNED_IN_KEY,
+            String(Date.now()),
+          );
+        }
+        window.location.assign("/");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ocurrió un error.");
@@ -131,11 +278,82 @@ export default function AuthPage() {
   };
 
   useEffect(() => {
+    if (mode !== "register" || forgot || reset) {
+      setUsernameStatus("idle");
+      setUsernameMessage(null);
+      return;
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+    if (!normalizedUsername) {
+      setUsernameStatus("idle");
+      setUsernameMessage("Elegi tu nombre de usuario.");
+      return;
+    }
+    if (normalizedUsername.length < 3) {
+      setUsernameStatus("invalid");
+      setUsernameMessage("Minimo 3 caracteres.");
+      return;
+    }
+    if (!/^[a-z0-9._]+$/.test(normalizedUsername)) {
+      setUsernameStatus("invalid");
+      setUsernameMessage("Solo letras, numeros, punto y guion bajo.");
+      return;
+    }
+
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      setUsernameStatus("checking");
+      setUsernameMessage("Comprobando disponibilidad...");
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("id")
+        .eq("username", normalizedUsername)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error) {
+        setUsernameStatus("invalid");
+        setUsernameMessage("No se pudo verificar el usuario.");
+        return;
+      }
+      if (data?.id) {
+        setUsernameStatus("taken");
+        setUsernameMessage("Ese nombre de usuario ya esta en uso.");
+        return;
+      }
+
+      setUsernameStatus("available");
+      setUsernameMessage("Nombre de usuario disponible.");
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [forgot, mode, reset, username]);
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+
+    setMounted(true);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+
     const supabase = getSupabaseClient();
-    if (!supabase) return;
+    if (!supabase) {
+      return () => window.removeEventListener("resize", updateViewport);
+    }
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     const search =
       typeof window !== "undefined" ? window.location.search : "";
+    const hasRecoveryHash = hash.includes("type=recovery");
+
     if (search.includes("reset=done")) {
       setReset(false);
       setForgot(false);
@@ -145,51 +363,86 @@ export default function AuthPage() {
       }
       return;
     }
-    if (hash.includes("type=recovery") || search.includes("reset=1")) {
-      setReset(true);
-      setForgot(false);
-      setMode("login");
-      if (typeof window !== "undefined") {
-        window.history.replaceState({}, "", "/auth?reset=1");
-      }
+
+    if (hasRecoveryHash || search.includes("reset=1")) {
+      enterResetMode();
     }
+
+    const settleRecoverySession = async () => {
+      if (!hasRecoveryHash) return;
+      // Let Supabase read the recovery hash first, then clean the URL.
+      await supabase.auth.getSession();
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          window.history.replaceState({}, "", "/auth?reset=1");
+        }, 250);
+      }
+    };
+
+    settleRecoverySession();
+
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") {
-        setReset(true);
-        setForgot(false);
-        setMode("login");
+        enterResetMode();
+        if (typeof window !== "undefined") {
+          window.history.replaceState({}, "", "/auth?reset=1");
+        }
       }
     });
     return () => {
+      window.removeEventListener("resize", updateViewport);
       sub?.subscription?.unsubscribe();
     };
   }, []);
 
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-white text-zinc-900">
+        <div className="mx-auto flex min-h-screen w-full max-w-[420px] items-center justify-center px-6">
+          <div className="text-sm font-medium text-zinc-500">Cargando...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-white text-zinc-900">
-      <div className="mx-auto grid min-h-screen w-full max-w-[1400px] grid-cols-1 gap-0 lg:grid-cols-[1.2fr_1fr]">
-        <div className="relative hidden items-center justify-center border-r border-zinc-200 bg-white lg:flex">
-          <div className="absolute left-10 top-10 text-3xl font-semibold">
+    <div className="min-h-screen bg-white text-zinc-900" style={pageStyle}>
+      <div
+        className="mx-auto grid min-h-screen w-full max-w-[1400px] grid-cols-1 gap-0 lg:grid-cols-[1.2fr_1fr]"
+        style={shellStyle}
+      >
+        <div
+          className={`relative items-center justify-center bg-white ${
+            isMobile ? "flex" : "hidden lg:flex"
+          }`}
+          style={leftPanelStyle}
+        >
+          <div
+            className={`text-3xl font-semibold ${isMobile ? "absolute left-5 top-5 text-2xl" : "absolute left-10 top-10"}`}
+          >
             Fanpush
           </div>
-          <div className="max-w-[480px] text-center">
-            <h1 className="text-4xl font-semibold leading-tight">
+          <div className={`text-center ${isMobile ? "w-full max-w-[380px] pt-10" : "max-w-[480px]"}`}>
+            <h1 className={`font-semibold leading-tight ${isMobile ? "text-[30px]" : "text-4xl"}`}>
               Mira los momentos cotidianos de tus <span className="text-pink-500">mejores amigos</span>.
             </h1>
-            <div className="mt-10 flex items-center justify-center">
+            <div className={`flex items-center justify-center ${isMobile ? "mt-6" : "mt-10"}`}>
               <Image
                 src="/auth-illustration.svg"
                 alt="Fanpush ilustración"
-                width={420}
-                height={420}
+                width={isMobile ? 240 : 420}
+                height={isMobile ? 240 : 420}
                 className="rounded-[24px]"
               />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-[420px]">
+        <div
+          className="flex items-center justify-center px-6 py-12"
+          style={rightPanelStyle}
+        >
+          <div className="w-full max-w-[420px]" style={contentStyle}>
             <div className="mb-6 text-left">
               <div className="text-sm font-semibold text-zinc-900">
                 {forgot
@@ -202,16 +455,26 @@ export default function AuthPage() {
 
             <form
               className="rounded-[12px] border border-zinc-200 bg-white p-6 shadow-sm"
+              style={formStyle}
               onSubmit={(event) => {
                 event.preventDefault();
                 handleSubmit();
               }}
             >
               {!forgot ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2" style={segmentedStyle}>
                   <button
                     type="button"
                     onClick={() => setMode("login")}
+                    style={{
+                      ...secondaryButtonStyle,
+                      borderRadius: "8px",
+                      width: "100%",
+                      background: mode === "login" ? "#18181b" : "#f4f4f5",
+                      color: mode === "login" ? "#ffffff" : "#3f3f46",
+                      border: "none",
+                      padding: "10px 12px",
+                    }}
                     className={`flex-1 rounded-[8px] px-3 py-2 text-sm font-semibold ${
                       mode === "login"
                         ? "bg-zinc-900 text-white"
@@ -223,6 +486,15 @@ export default function AuthPage() {
                   <button
                     type="button"
                     onClick={() => setMode("register")}
+                    style={{
+                      ...secondaryButtonStyle,
+                      borderRadius: "8px",
+                      width: "100%",
+                      background: mode === "register" ? "#18181b" : "#f4f4f5",
+                      color: mode === "register" ? "#ffffff" : "#3f3f46",
+                      border: "none",
+                      padding: "10px 12px",
+                    }}
                     className={`flex-1 rounded-[8px] px-3 py-2 text-sm font-semibold ${
                       mode === "register"
                         ? "bg-zinc-900 text-white"
@@ -236,13 +508,74 @@ export default function AuthPage() {
 
               <div className="mt-6 space-y-4">
                 {mode === "register" && !forgot && !reset ? (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Nombre de usuario"
+                      value={username}
+                      onChange={(event) =>
+                        setUsername(normalizeUsername(event.target.value))
+                      }
+                      style={{ ...inputStyle, paddingRight: "44px" }}
+                      className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 pr-11 text-sm"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-0 flex h-[52px] items-center justify-center text-zinc-400">
+                      {usernameStatus === "checking" ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : usernameStatus === "available" ? (
+                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                      ) : usernameStatus === "taken" ||
+                        usernameStatus === "invalid" ? (
+                        <XCircle className="h-5 w-5 text-red-500" />
+                      ) : null}
+                    </span>
+                    {usernameMessage ? (
+                      <div
+                        className={`mt-2 text-xs ${
+                          usernameStatus === "available"
+                            ? "text-emerald-600"
+                            : usernameStatus === "taken" ||
+                                usernameStatus === "invalid"
+                              ? "text-red-500"
+                              : "text-zinc-500"
+                        }`}
+                      >
+                        {usernameMessage}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {mode === "register" && !forgot && !reset ? (
                   <input
                     type="text"
                     placeholder="Nombre completo"
                     value={fullName}
                     onChange={(event) => setFullName(event.target.value)}
-                    className="w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
+                    style={inputStyle}
+                    className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
                   />
+                ) : null}
+                {mode === "register" && !forgot && !reset ? (
+                  <label className="flex items-start gap-3 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={acceptedTerms}
+                      onChange={(event) => setAcceptedTerms(event.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>
+                      Acepto los{" "}
+                      <a
+                        href="/terminos"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-blue-600"
+                      >
+                        términos y condiciones
+                      </a>
+                      .
+                    </span>
+                  </label>
                 ) : null}
                 {!reset ? (
                   <input
@@ -250,7 +583,8 @@ export default function AuthPage() {
                     placeholder="Correo electrónico"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    className="w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
+                    style={inputStyle}
+                    className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
                   />
                 ) : null}
                 {!forgot && !reset ? (
@@ -259,7 +593,8 @@ export default function AuthPage() {
                     placeholder="Contraseña"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    className="w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
+                    style={inputStyle}
+                    className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
                   />
                 ) : null}
                 {reset ? (
@@ -269,14 +604,16 @@ export default function AuthPage() {
                       placeholder="Nueva contraseña"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
-                      className="w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
+                      style={inputStyle}
+                      className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
                     />
                     <input
                       type="password"
                       placeholder="Confirmar contraseña"
                       value={confirmPassword}
                       onChange={(event) => setConfirmPassword(event.target.value)}
-                      className="w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
+                      style={inputStyle}
+                      className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
                     />
                   </>
                 ) : null}
@@ -296,7 +633,14 @@ export default function AuthPage() {
               <button
                 type="submit"
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={
+                  submitting ||
+                  (mode === "register" &&
+                    !forgot &&
+                    !reset &&
+                    usernameStatus !== "available")
+                }
+                style={primaryButtonStyle}
                 className="mt-6 w-full rounded-[999px] bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {submitting
@@ -340,6 +684,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => setMode("register")}
+                  style={secondaryButtonStyle}
                   className="mt-4 w-full rounded-[999px] border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900"
                 >
                   Crear una cuenta

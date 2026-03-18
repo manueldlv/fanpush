@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { Loader2, Search, X } from "lucide-react";
 
@@ -18,11 +19,26 @@ type SearchPanelProps = {
   onClose: () => void;
 };
 
+const RECENT_SEARCHES_KEY = "fanpush_recent_searches";
+
 export default function SearchPanel({ open, onClose }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [recentSearches, setRecentSearches] = useState<SearchResult[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(RECENT_SEARCHES_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as SearchResult[];
+      setRecentSearches(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setRecentSearches([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -39,6 +55,12 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
       setLoading(false);
     }
   }, [open]);
+
+  const persistRecentSearches = (items: SearchResult[]) => {
+    setRecentSearches(items);
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(items));
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -86,13 +108,21 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
   }, [query]);
 
   const handleSelect = (item: SearchResult) => {
-    const params = new URLSearchParams({
-      user: item.name,
-      full: item.fullName,
-      avatar: item.avatar ?? "",
-    });
-    router.push(`/perfil?${params.toString()}`);
+    const nextRecent = [
+      item,
+      ...recentSearches.filter((recent) => recent.id !== item.id),
+    ].slice(0, 8);
+    persistRecentSearches(nextRecent);
+    router.push(buildUserProfileHref(item.name));
     onClose();
+  };
+
+  const removeRecentSearch = (id: string) => {
+    persistRecentSearches(recentSearches.filter((item) => item.id !== id));
+  };
+
+  const clearRecentSearches = () => {
+    persistRecentSearches([]);
   };
 
   return (
@@ -151,9 +181,66 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
 
           <div className="mt-6 flex-1 overflow-y-auto">
             {!query.trim() ? (
-              <div className="text-sm text-zinc-500">
-                No hay búsquedas recientes.
-              </div>
+              recentSearches.length > 0 ? (
+                <div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div className="text-lg font-semibold text-zinc-900">
+                      Recientes
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearRecentSearches}
+                      className="text-sm font-semibold text-blue-600"
+                    >
+                      Borrar todo
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {recentSearches.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleSelect(item)}
+                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 rounded-[5px] p-2 text-left transition hover:bg-zinc-100"
+                        >
+                          {item.avatar ? (
+                            <img
+                              src={item.avatar}
+                              alt={item.name}
+                              className="h-12 w-12 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 rounded-full bg-zinc-100" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-zinc-900">
+                              {item.name}
+                            </div>
+                            <div className="truncate text-xs text-zinc-500">
+                              {item.fullName}
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeRecentSearch(item.id)}
+                          className="rounded-[5px] p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                          aria-label={`Quitar ${item.name} de recientes`}
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-zinc-500">
+                  No hay búsquedas recientes.
+                </div>
+              )
             ) : (
               <div className="space-y-4">
                 {results.map((item) => (

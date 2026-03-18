@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "../styles/globals.css";
-import TopBar from "@/components/TopBar";
 import AuthGate from "@/components/AuthGate";
+import TopBar from "@/components/TopBar";
 
 const inter = Inter({
   variable: "--font-primary",

@@ -6,6 +6,16 @@ import type { Post } from "@/lib/store";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
 import UserAvatar from "@/components/UserAvatar";
+import {
+  getSessionAccessTokenWithRetry,
+  PURCHASE_REFRESH_FLAG,
+} from "@/lib/auth";
+import {
+  getPremiumPathFromPreview,
+  inferDisplayKind,
+  PREMIUM_MEDIA_BUCKET,
+  PUBLIC_MEDIA_BUCKET,
+} from "@/lib/media";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
@@ -60,6 +70,15 @@ export default function FeedLayout() {
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [reportModal, setReportModal] = useState<{
+    albumId: string;
+    ownerId: string;
+    author: string;
+  } | null>(null);
+  const [reportReason, setReportReason] = useState("Contenido fuera de contexto");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportSent, setReportSent] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
@@ -70,6 +89,41 @@ export default function FeedLayout() {
 
   const openPost = posts.find((post) => post.id === selectedPost) ?? null;
   const menuPost = posts.find((post) => post.id === menuPostId) ?? null;
+
+  const resolveAccessibleMedia = async (
+    supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
+    accessToken: string,
+    incomingPosts: Post[],
+  ) => {
+    const allPostIds = incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+    if (allPostIds.length === 0) return incomingPosts;
+
+    const response = await fetch("/api/media/access", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ postIds: allPostIds }),
+    });
+
+    if (!response.ok) return incomingPosts;
+    const result = (await response.json()) as {
+      items?: Record<string, { url: string; kind: "image" | "video"; locked: boolean }>;
+    };
+
+    const resolvedItems = result.items ?? {};
+    return incomingPosts.map((post) => ({
+      ...post,
+      media: post.media.map((item, index): Post["media"][number] => {
+        const postId = post.mediaPostIds[index];
+        const resolved = postId ? resolvedItems[postId] : null;
+        return resolved
+          ? { ...item, url: resolved.url, kind: resolved.kind, locked: resolved.locked }
+          : item;
+      }),
+    }));
+  };
 
   const formatTime = (value: string) => {
     const date = new Date(value);
@@ -115,7 +169,7 @@ export default function FeedLayout() {
           if (!value) return "";
           if (value.startsWith("http")) return value;
           const { data: publicUrl } = supabase.storage
-            .from("Imagenes")
+            .from(PUBLIC_MEDIA_BUCKET)
             .getPublicUrl(value);
           return publicUrl.publicUrl;
         };
@@ -124,7 +178,7 @@ export default function FeedLayout() {
           if (!value) return "";
           if (value.startsWith("http")) return value;
           const { data: publicUrl } = supabase.storage
-            .from("Imagenes")
+            .from(PUBLIC_MEDIA_BUCKET)
             .getPublicUrl(value);
           return publicUrl.publicUrl;
         };
@@ -141,7 +195,11 @@ export default function FeedLayout() {
               const mediaWithUrls: Post["media"] = await Promise.all(
                 media.map(async (item) => ({
                   url: await resolveMediaUrl(item?.media_url ?? ""),
-                  kind: item?.media_type === "video" ? "video" : "image",
+                  kind: inferDisplayKind(
+                    item?.media_url,
+                    item?.media_type,
+                    item?.is_locked,
+                  ),
                   locked: item?.is_locked ?? false,
                 })),
               );
@@ -169,9 +227,25 @@ export default function FeedLayout() {
             }),
           )) ?? [];
 
-        setPosts(mapped);
-
         const allPostIds = mapped.flatMap((post) => post.mediaPostIds).filter(Boolean);
+        let resolvedMapped = mapped;
+        const accessToken =
+          allPostIds.length > 0
+            ? await getSessionAccessTokenWithRetry(supabase)
+            : sessionData?.session?.access_token ?? null;
+        if (accessToken && allPostIds.length > 0) {
+          resolvedMapped = await resolveAccessibleMedia(
+            supabase,
+            accessToken,
+            mapped,
+          );
+          if (typeof window !== "undefined") {
+            window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+          }
+        }
+
+        setPosts(resolvedMapped);
+
         if (userId && allPostIds.length > 0) {
           const { data: likesRows } = await supabase
             .from("likes")
@@ -189,18 +263,6 @@ export default function FeedLayout() {
             (purchaseRows ?? []).map((row) => row.post_id),
           );
           setPurchasedPostIds(purchased);
-
-          setPosts((prev) =>
-            prev.map((post) => ({
-              ...post,
-              media: post.media.map((item, index): Post["media"][number] => {
-                const postId = post.mediaPostIds[index];
-                const unlocked =
-                  post.userId === userId || purchased.has(postId);
-                return { ...item, locked: unlocked ? false : item.locked };
-              }),
-            })),
-          );
         }
       } catch (err) {
         console.error(err);
@@ -236,23 +298,62 @@ export default function FeedLayout() {
         (purchaseRows ?? []).map((row) => row.post_id),
       );
       setPurchasedPostIds(purchased);
-      setPosts((prev) =>
-        prev.map((post) => ({
-          ...post,
-          media: post.media.map((item, index): Post["media"][number] => {
-            const postId = post.mediaPostIds[index];
-            const unlocked =
-              post.userId === currentUserId || purchased.has(postId);
-            return { ...item, locked: unlocked ? false : item.locked };
-          }),
-        })),
-      );
+      const accessToken = await getSessionAccessTokenWithRetry(supabase);
+      if (accessToken) {
+        const resolved = await resolveAccessibleMedia(supabase, accessToken, posts);
+        setPosts(resolved);
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+        }
+      }
     };
     window.addEventListener("purchases-updated", purchasesHandler);
     return () => {
       window.removeEventListener("purchases-updated", purchasesHandler);
     };
   }, [currentUserId, posts, setPosts]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !currentUserId || purchasedPostIds.size === 0 || posts.length === 0) {
+      return;
+    }
+
+    const needsRefresh = posts.some((post) =>
+      post.mediaPostIds.some((postId, index) => {
+        const item = post.media[index];
+        return (
+          Boolean(postId) &&
+          purchasedPostIds.has(postId) &&
+          Boolean(item) &&
+          (item.locked || item.url.includes("locked-previews/"))
+        );
+      }),
+    );
+
+    if (!needsRefresh) return;
+
+    let cancelled = false;
+
+    const refreshPurchasedMedia = async () => {
+      const accessToken = await getSessionAccessTokenWithRetry(supabase, {
+        forceRetry: true,
+      });
+      if (!accessToken) return;
+      const resolved = await resolveAccessibleMedia(supabase, accessToken, posts);
+      if (cancelled) return;
+      setPosts(resolved);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+      }
+    };
+
+    refreshPurchasedMedia();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, purchasedPostIds, posts, setPosts]);
 
   useEffect(() => {
     if (!menuPostId) return;
@@ -405,6 +506,14 @@ export default function FeedLayout() {
       const mediaPaths = normalizedLinks
         .map((row) => normalizeSingleRelation(row.post)?.media_url)
         .filter(Boolean) as string[];
+      const premiumPaths = normalizedLinks
+        .map((row) =>
+          getPremiumPathFromPreview(
+            currentUserId,
+            normalizeSingleRelation(row.post)?.media_url,
+          ),
+        )
+        .filter(Boolean) as string[];
 
       const { error: albumPostsError } = await supabase
         .from("album_posts")
@@ -423,9 +532,15 @@ export default function FeedLayout() {
 
       if (mediaPaths.length > 0) {
         const { error: storageError } = await supabase.storage
-          .from("Imagenes")
+          .from(PUBLIC_MEDIA_BUCKET)
           .remove(mediaPaths);
         if (storageError) throw storageError;
+      }
+      if (premiumPaths.length > 0) {
+        const { error: premiumError } = await supabase.storage
+          .from(PREMIUM_MEDIA_BUCKET)
+          .remove(premiumPaths);
+        if (premiumError) throw premiumError;
       }
 
       const { error: albumsError } = await supabase
@@ -443,6 +558,50 @@ export default function FeedLayout() {
       setMenuPostId(null);
       setConfirmDeleteId(null);
     }
+  };
+
+  const handleReport = async () => {
+    if (!currentUserId || !reportModal?.ownerId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    if (!reportReason.trim()) {
+      setReportError("Escribí un motivo para enviar la denuncia.");
+      return;
+    }
+    setReportError(null);
+    setReportSubmitting(true);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setReportSubmitting(false);
+      setReportError("Necesitas iniciar sesión para reportar contenido.");
+      return;
+    }
+
+    const response = await fetch("/api/reports/content", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        albumId: reportModal.albumId,
+        ownerId: reportModal.ownerId,
+        reason: reportReason.trim(),
+      }),
+    });
+
+    const result = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setReportSubmitting(false);
+      setReportError(result.error ?? "No se pudo enviar el reporte.");
+      return;
+    }
+    setReportSent(true);
+    setReportSubmitting(false);
   };
 
   return (
@@ -472,7 +631,18 @@ export default function FeedLayout() {
           <div className="relative w-full max-w-[520px] overflow-hidden rounded-[18px] bg-white shadow-xl">
             <button
               type="button"
-              onClick={() => setMenuPostId(null)}
+              onClick={() => {
+                if (!menuPost?.userId) return;
+                setReportModal({
+                  albumId: menuPost.id,
+                  ownerId: menuPost.userId,
+                  author: menuPost.author,
+                });
+                setReportReason("Contenido fuera de contexto");
+                setReportError(null);
+                setReportSent(false);
+                setMenuPostId(null);
+              }}
               className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
             >
               Denunciar
@@ -521,6 +691,128 @@ export default function FeedLayout() {
             >
               Cancelar
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {reportModal ? (
+        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/50 px-6 py-10">
+          <button
+            type="button"
+            onClick={() => {
+              if (reportSubmitting) return;
+              setReportModal(null);
+              setReportError(null);
+              setReportSent(false);
+            }}
+            className="absolute inset-0 h-full w-full cursor-default"
+            aria-label="Cerrar denuncia"
+          />
+          <div className="relative w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-2xl md:p-7">
+            {!reportSent ? (
+              <>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-zinc-400">
+                  Moderación
+                </div>
+                <h3 className="mt-3 text-2xl font-semibold text-zinc-950">
+                  Denunciar contenido
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-500">
+                  Contanos qué viste en la publicación de @{reportModal.author}. El
+                  equipo de FanPush va a revisarlo.
+                </p>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {[
+                    "Contenido fuera de contexto",
+                    "Spam o engañoso",
+                    "Desnudez o sexual explícito",
+                    "Violencia o abuso",
+                  ].map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setReportReason(option)}
+                      className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
+                        reportReason === option
+                          ? "border-zinc-950 bg-zinc-950 text-white"
+                          : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                    Motivo
+                  </label>
+                  <textarea
+                    value={reportReason}
+                    onChange={(event) => setReportReason(event.target.value)}
+                    rows={4}
+                    className="w-full rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 focus:bg-white"
+                    placeholder="Describí brevemente por qué querés denunciar esta publicación."
+                  />
+                </div>
+
+                {reportError ? (
+                  <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {reportError}
+                  </div>
+                ) : null}
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (reportSubmitting) return;
+                      setReportModal(null);
+                      setReportError(null);
+                    }}
+                    className="flex-1 rounded-[18px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReport}
+                    disabled={reportSubmitting}
+                    className="flex-1 rounded-[18px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {reportSubmitting ? "Enviando..." : "Enviar denuncia"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <Send className="h-6 w-6" />
+                </div>
+                <h3 className="mt-4 text-center text-2xl font-semibold text-zinc-950">
+                  Denuncia enviada
+                </h3>
+                <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
+                  Recibimos tu reporte sobre la publicación de @{reportModal.author}.
+                  El equipo de moderación lo va a revisar.
+                </p>
+                <div className="mt-6 rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-700">
+                  Motivo enviado: <span className="font-semibold">{reportReason}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportModal(null);
+                    setReportError(null);
+                    setReportSent(false);
+                  }}
+                  className="mt-6 w-full rounded-[18px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  Cerrar
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : null}

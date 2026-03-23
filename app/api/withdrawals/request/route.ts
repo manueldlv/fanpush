@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadCreatorEarnings } from "@/lib/earnings";
 import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { parsePayoutProfile } from "@/lib/payouts";
 import {
   getCurrentMonthKey,
   getWithdrawalReservedAmount,
@@ -17,6 +18,26 @@ export async function POST(request: Request) {
     }
 
     const earnings = await loadCreatorEarnings(admin, user.id);
+    const { data: payoutRow } = await admin
+      .from("notifications")
+      .select("message")
+      .eq("user_id", user.id)
+      .eq("type", "payout_profile")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const payoutProfile = parsePayoutProfile(payoutRow?.message);
+    if (!payoutProfile) {
+      return NextResponse.json(
+        {
+          error:
+            "Completa tus datos de cobro en Configuración antes de solicitar un retiro.",
+        },
+        { status: 400 },
+      );
+    }
+
     const { data: rows } = await admin
       .from("notifications")
       .select("id,message,created_at")
@@ -33,7 +54,7 @@ export async function POST(request: Request) {
         (value): value is {
           id: string;
           amount: number;
-          status: "requested" | "scheduled" | "sent" | "rejected";
+          status: "requested" | "sent" | "rejected";
           requestedAt: string;
           monthKey: string;
         } => Boolean(value),

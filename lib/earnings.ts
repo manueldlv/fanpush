@@ -43,11 +43,15 @@ export const loadCreatorEarnings = async (
     0,
   );
 
+  const gross = purchaseGross + tipGross;
+  const creatorNet = gross * 0.7;
+  const platformFee = gross * 0.3;
+
   return {
     purchasesGross: purchaseGross,
     tipsGross: tipGross,
-    totalGross: purchaseGross + tipGross,
-    creatorNet: (purchaseGross + tipGross) * 0.7,
-    platformFee: (purchaseGross + tipGross) * 0.3,
+    totalGross: gross,
+    creatorNet,
+    platformFee,
   };
 };

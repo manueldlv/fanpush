@@ -35,7 +35,19 @@ export default function TerminosPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-zinc-900">3. Contenido subido por usuarios</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">3. Edad mínima y verificación</h2>
+            <p>
+              Debes tener al menos 18 años para registrarte y usar FanPush. Para
+              vender contenido, recibir pagos o acceder a funciones de autor,
+              FanPush puede solicitar verificación de identidad, incluyendo datos
+              personales y documentación oficial vigente. La plataforma podrá
+              rechazar, suspender o revocar el acceso como autor si la
+              información es incompleta, inexacta o no supera la revisión.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-zinc-900">4. Contenido subido por usuarios</h2>
             <p>
               Cada creador es responsable del contenido que publica y garantiza
               que tiene los derechos necesarios para subirlo, venderlo o licenciarlo.
@@ -46,7 +58,7 @@ export default function TerminosPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-zinc-900">4. Moderación y eliminación</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">5. Moderación y eliminación</h2>
             <p>
               FanPush se reserva el derecho de revisar, restringir, ocultar o
               eliminar contenido y cuentas cuando sea necesario por seguridad,
@@ -57,7 +69,7 @@ export default function TerminosPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-zinc-900">5. Compras, propinas y comisiones</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">6. Compras, propinas y comisiones</h2>
             <p>
               Las compras de contenido y las propinas se procesan mediante
               proveedores externos de pago. FanPush puede retener una comisión
@@ -69,7 +81,7 @@ export default function TerminosPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-zinc-900">6. Propiedad intelectual</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">7. Propiedad intelectual</h2>
             <p>
               El contenido y las marcas de FanPush pertenecen a sus respectivos
               titulares. El usuario no adquiere derechos sobre el software, el
@@ -80,7 +92,7 @@ export default function TerminosPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-zinc-900">7. Limitación de responsabilidad</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">8. Limitación de responsabilidad</h2>
             <p>
               FanPush se ofrece según disponibilidad. No garantizamos que el
               servicio sea ininterrumpido, libre de errores o adecuado para un
@@ -91,7 +103,7 @@ export default function TerminosPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-zinc-900">8. Cambios en los términos</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">9. Cambios en los términos</h2>
             <p>
               FanPush puede actualizar estos términos en cualquier momento. Si los
               cambios son relevantes, se podrá informar dentro de la plataforma.

@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { isAdminIdentity } from "@/lib/admin";
-import { getSupabaseClient } from "@/lib/supabase";
+import {
+  getSupabaseAdminBrowserClient,
+  getSupabaseClient,
+} from "@/lib/supabase";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -11,14 +13,24 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const inAuth = pathname?.startsWith("/auth");
   const inAdmin = pathname?.startsWith("/admin");
   const inAdminLogin = pathname?.startsWith("/admin/login");
+  const inCheckoutReturn = pathname?.startsWith("/checkout/return");
   const inPublicTerms = pathname?.startsWith("/terminos");
-  const allowWithoutSession = Boolean(inAuth || inAdminLogin || inPublicTerms);
+  const inPublicPrivacy = pathname?.startsWith("/privacidad");
+  const allowWithoutSession = Boolean(
+    inAuth ||
+      inAdminLogin ||
+      inCheckoutReturn ||
+      inPublicTerms ||
+      inPublicPrivacy,
+  );
   const [allowed, setAllowed] = useState(allowWithoutSession);
 
   useEffect(() => {
     setAllowed(allowWithoutSession);
 
-    const supabase = getSupabaseClient();
+    const supabase = inAdmin
+      ? getSupabaseAdminBrowserClient()
+      : getSupabaseClient();
     if (!supabase) {
       setAllowed(true);
       return;
@@ -49,14 +61,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         if (inAdmin) {
-          const isAdmin = isAdminIdentity({
-            email: session.user.email,
-            username:
-              typeof session.user.user_metadata?.username === "string"
-                ? session.user.user_metadata.username
-                : null,
+          const response = await fetch("/api/admin/access", {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
           });
-          if (!isAdmin) {
+          const result = (await response.json()) as { isAdmin?: boolean };
+          if (!response.ok || !result.isAdmin) {
             redirectToAuth();
             return;
           }
@@ -82,17 +93,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       }
 
       if (inAdmin) {
-        const isAdmin = isAdminIdentity({
-          email: session.user.email,
-          username:
-            typeof session.user.user_metadata?.username === "string"
-              ? session.user.user_metadata.username
-              : null,
-        });
-        if (!isAdmin) {
-          redirectToAuth();
-          return;
-        }
+        void (async () => {
+          const response = await fetch("/api/admin/access", {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          const result = (await response.json()) as { isAdmin?: boolean };
+          if (!response.ok || !result.isAdmin) {
+            redirectToAuth();
+            return;
+          }
+          allowRoute();
+        })();
+        return;
       }
 
       allowRoute();

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, Search } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
+import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 import { loadCreatorEarnings } from "@/lib/earnings";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -27,6 +28,15 @@ type NotificationItem = {
   action?: { label: string; href: string };
 };
 
+const USER_VISIBLE_NOTIFICATION_TYPES = new Set([
+  "follow",
+  "tip",
+  "purchase",
+  "withdrawal_update",
+  "author_application_update",
+  "content_removed_update",
+]);
+
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -40,6 +50,10 @@ export default function TopBar() {
     avatarUrl: string | null;
   }>({ username: null, avatarUrl: null });
   const [balance, setBalance] = useState(0);
+  const [canCreate, setCanCreate] = useState(false);
+  const [authorStatus, setAuthorStatus] = useState<
+    "idle" | "pending" | "approved" | "rejected"
+  >("idle");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
@@ -117,6 +131,10 @@ export default function TopBar() {
 
       const earnings = await loadCreatorEarnings(supabase, userId);
       setBalance(earnings.creatorNet);
+      const application = await getAuthorApplicationForUser(supabase, userId);
+      const nextAuthorStatus = application?.record?.status ?? "idle";
+      setAuthorStatus(nextAuthorStatus);
+      setCanCreate(nextAuthorStatus === "approved");
 
       const { data: notifRows } = await supabase
         .from("notifications")
@@ -149,37 +167,53 @@ export default function TopBar() {
       );
       const mapped = await Promise.all(
         (notifRows ?? [])
-          .filter((row) => row.type !== "withdrawal_request")
+          .filter((row) => USER_VISIBLE_NOTIFICATION_TYPES.has(row.type ?? ""))
           .map(async (row) => ({
           id: row.id,
-          text: `${actorMap.get(row.actor_id)?.username ?? "alguien"} ${
-            row.message ?? ""
-          }`,
+          text:
+            row.type === "withdrawal_update" ||
+            row.type === "author_application_update" ||
+            row.type === "content_removed_update"
+              ? `FanPush ${row.message ?? ""}`
+              : `${actorMap.get(row.actor_id)?.username ?? "alguien"} ${
+                  row.message ?? ""
+                }`,
           date: new Date(row.created_at).toLocaleDateString("es-AR", {
             day: "2-digit",
             month: "short",
           }),
-          avatar: await resolveAvatar(actorMap.get(row.actor_id)?.avatar_url ?? null),
+          avatar:
+            row.type === "withdrawal_update" ||
+            row.type === "author_application_update" ||
+            row.type === "content_removed_update"
+              ? null
+              : await resolveAvatar(actorMap.get(row.actor_id)?.avatar_url ?? null),
           isRead: row.is_read ?? false,
           action:
             row.type === "purchase"
               ? { label: "Ver venta", href: "/ventas" }
-              : undefined,
+              : row.type === "withdrawal_update"
+                ? { label: "Ver venta", href: "/ventas" }
+                : undefined,
         })),
       );
       setNotifications(mapped);
     };
 
     loadProfile();
+    const interval = window.setInterval(loadProfile, 15000);
 
     const refreshBalance = () => {
       loadProfile();
     };
     window.addEventListener("purchases-updated", refreshBalance);
     window.addEventListener("earnings-updated", refreshBalance);
+    window.addEventListener("creator-status-updated", refreshBalance);
     return () => {
+      window.clearInterval(interval);
       window.removeEventListener("purchases-updated", refreshBalance);
       window.removeEventListener("earnings-updated", refreshBalance);
+      window.removeEventListener("creator-status-updated", refreshBalance);
     };
   }, []);
 
@@ -248,7 +282,8 @@ export default function TopBar() {
   if (
     pathname?.startsWith("/auth") ||
     pathname?.startsWith("/admin") ||
-    pathname?.startsWith("/terminos")
+    pathname?.startsWith("/terminos") ||
+    pathname?.startsWith("/privacidad")
   ) {
     return null;
   }
@@ -272,6 +307,20 @@ export default function TopBar() {
           </div>
 
           <div className="flex items-center gap-4">
+            {!canCreate ? (
+              authorStatus === "pending" ? (
+                <div className="hidden rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 lg:inline-flex">
+                  Solicitud en revisión
+                </div>
+              ) : (
+                <Link
+                  href="/autor/solicitud"
+                  className="hidden rounded-full bg-zinc-950 px-4 py-2 text-sm font-semibold text-white lg:inline-flex"
+                >
+                  Convertirme en autor
+                </Link>
+              )
+            ) : null}
             <div className="relative" ref={searchRef}>
               <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2">
                 <Search className="h-4 w-4 text-zinc-400" />
@@ -371,7 +420,14 @@ export default function TopBar() {
               </button>
 
               {notificationsOpen ? (
-                <div className="absolute right-0 top-12 z-50 w-[360px] rounded-[12px] border border-zinc-200 bg-white p-4 shadow-xl">
+                <div
+                  className="absolute right-0 top-12 z-50 rounded-[12px] border border-zinc-200 bg-white p-4 shadow-xl"
+                  style={{
+                    width: "600px",
+                    minWidth: "600px",
+                    maxWidth: "calc(100vw - 1rem)",
+                  }}
+                >
                   <div className="max-h-[520px] space-y-3 overflow-y-auto pr-2">
                     {notifications.length === 0 ? (
                       <div className="text-sm text-zinc-500">
@@ -381,7 +437,7 @@ export default function TopBar() {
                       notifications.map((item) => (
                         <div
                           key={item.id}
-                          className="flex items-center gap-3 rounded-[10px] bg-zinc-50 px-3 py-3"
+                          className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-[12px] bg-zinc-50 px-4 py-3"
                         >
                           <UserAvatar
                             src={item.avatar}
@@ -389,22 +445,24 @@ export default function TopBar() {
                             sizeClassName="h-10 w-10"
                             iconClassName="h-4 w-4"
                           />
-                          <div className="flex-1 text-sm text-zinc-700">
-                            <div className="font-medium text-zinc-900">
+                          <div className="min-w-0 text-sm text-zinc-700">
+                            <div className="leading-[1.3] font-medium text-zinc-900">
                               {item.text}
                             </div>
-                            <div className="text-xs text-zinc-400">
+                            <div className="mt-1 text-xs text-zinc-400">
                               {item.date}
                             </div>
+                            {item.action && !item.text.startsWith("FanPush ") ? (
+                              <div className="mt-2">
+                                <Link
+                                  href={item.action.href}
+                                  className="inline-flex rounded-full bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white"
+                                >
+                                  {item.action.label}
+                                </Link>
+                              </div>
+                            ) : null}
                           </div>
-                          {item.action ? (
-                            <Link
-                              href={item.action.href}
-                              className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white"
-                            >
-                              {item.action.label}
-                            </Link>
-                          ) : null}
                         </div>
                       ))
                     )}

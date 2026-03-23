@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, User } from "lucide-react";
+import { Bell, Landmark, User } from "lucide-react";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import { parsePayoutProfile, serializePayoutProfile } from "@/lib/payouts";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SettingsPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "notifications">(
+  const [activeTab, setActiveTab] = useState<"profile" | "notifications" | "payments">(
     "profile",
   );
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -20,9 +21,14 @@ export default function SettingsPage() {
   const [fullName, setFullName] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingPayout, setSavingPayout] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [payoutAlias, setPayoutAlias] = useState("");
+  const [payoutHolderName, setPayoutHolderName] = useState("");
+  const [payoutHolderDocument, setPayoutHolderDocument] = useState("");
+  const [payoutNotes, setPayoutNotes] = useState("");
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -42,9 +48,22 @@ export default function SettingsPage() {
         .select("full_name")
         .eq("id", userId)
         .maybeSingle();
+      const { data: payoutRow } = await supabase
+        .from("notifications")
+        .select("message")
+        .eq("user_id", userId)
+        .eq("type", "payout_profile")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       setUsername(userRow?.username ?? "usuario");
       setFullName(profileRow?.full_name ?? "");
+      const payoutProfile = parsePayoutProfile(payoutRow?.message);
+      setPayoutAlias(payoutProfile?.alias ?? "");
+      setPayoutHolderName(payoutProfile?.holderName ?? "");
+      setPayoutHolderDocument(payoutProfile?.holderDocument ?? "");
+      setPayoutNotes(payoutProfile?.notes ?? "");
 
       const rawAvatar = userRow?.avatar_url ?? null;
       if (rawAvatar && !rawAvatar.startsWith("http")) {
@@ -195,6 +214,71 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSavePayout = async () => {
+    setMessage(null);
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setMessage("Falta configurar Supabase.");
+      return;
+    }
+    if (
+      !payoutAlias.trim() ||
+      !payoutHolderName.trim() ||
+      !payoutHolderDocument.trim()
+    ) {
+      setMessage("Completa alias, titular y documento para guardar tus datos de cobro.");
+      return;
+    }
+
+    setSavingPayout(true);
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) throw new Error("Necesitas iniciar sesión.");
+
+      const { data: existing } = await supabase
+        .from("notifications")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("type", "payout_profile")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const payload = serializePayoutProfile({
+        alias: payoutAlias.trim(),
+        holderName: payoutHolderName.trim(),
+        holderDocument: payoutHolderDocument.trim(),
+        notes: payoutNotes.trim(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (existing?.id) {
+        const { error } = await supabase
+          .from("notifications")
+          .update({ message: payload, is_read: true })
+          .eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("notifications").insert({
+          user_id: userId,
+          actor_id: userId,
+          type: "payout_profile",
+          entity_id: userId,
+          message: payload,
+          is_read: true,
+        });
+        if (error) throw error;
+      }
+
+      setMessage("Datos de cobro actualizados.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
       <SidebarLeft
@@ -245,6 +329,18 @@ export default function SettingsPage() {
                 >
                   <Bell className="h-4 w-4" />
                   Notificaciones
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("payments")}
+                  className={`flex w-full items-center gap-3 rounded-[5px] px-3 py-2 text-left text-sm font-semibold transition ${
+                    activeTab === "payments"
+                      ? "bg-zinc-100 text-zinc-900"
+                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                  }`}
+                >
+                  <Landmark className="h-4 w-4" />
+                  Cobros y retiros
                 </button>
               </div>
             </div>
@@ -373,6 +469,91 @@ export default function SettingsPage() {
                     {message}
                   </div>
                 ) : null}
+              </div>
+            ) : activeTab === "payments" ? (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-semibold">Cobros y retiros</h1>
+                  <p className="text-sm text-zinc-500">
+                    Estos datos se usan para procesar tus retiros mensuales de forma manual.
+                  </p>
+                </div>
+
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-900">
+                        Alias / CVU / CBU
+                      </label>
+                      <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <input
+                          value={payoutAlias}
+                          onChange={(event) => setPayoutAlias(event.target.value)}
+                          placeholder="Ej: juan.mp o tu CBU/CVU"
+                          className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-900">
+                        Titular de la cuenta
+                      </label>
+                      <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <input
+                          value={payoutHolderName}
+                          onChange={(event) => setPayoutHolderName(event.target.value)}
+                          placeholder="Nombre y apellido"
+                          className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-900">
+                        Documento / CUIT / CUIL
+                      </label>
+                      <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <input
+                          value={payoutHolderDocument}
+                          onChange={(event) =>
+                            setPayoutHolderDocument(event.target.value)
+                          }
+                          placeholder="DNI, CUIT o CUIL"
+                          className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-900">
+                        Notas
+                      </label>
+                      <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <input
+                          value={payoutNotes}
+                          onChange={(event) => setPayoutNotes(event.target.value)}
+                          placeholder="Banco, observaciones u otros datos"
+                          className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[5px] border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+                    Los retiros se agrupan una vez por mes. Si no completas estos datos,
+                    no podrás solicitar retiros.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSavePayout}
+                    disabled={savingPayout}
+                    className="mt-5 rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {savingPayout ? "Guardando..." : "Guardar datos de cobro"}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-6">

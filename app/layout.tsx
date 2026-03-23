@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "../styles/globals.css";
-import AuthGate from "@/components/AuthGate";
-import TopBar from "@/components/TopBar";
+import AppChrome from "@/components/AppChrome";
 
 const inter = Inter({
   variable: "--font-primary",
@@ -27,10 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${jetBrainsMono.variable} antialiased`}>
-        <AuthGate>
-          <TopBar />
-          <div className="pb-16 pt-16 md:pb-0">{children}</div>
-        </AuthGate>
+        <AppChrome>{children}</AppChrome>
       </body>
     </html>
   );

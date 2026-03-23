@@ -7,7 +7,17 @@ import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
+import {
+  getSessionAccessTokenWithRetry,
+  PURCHASE_REFRESH_FLAG,
+} from "@/lib/auth";
 import { loadCreatorEarnings } from "@/lib/earnings";
+import {
+  getPremiumPathFromPreview,
+  inferDisplayKind,
+  PREMIUM_MEDIA_BUCKET,
+  PUBLIC_MEDIA_BUCKET,
+} from "@/lib/media";
 import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 import type { Post } from "@/lib/store/posts";
@@ -119,6 +129,41 @@ export default function PerfilPage({
   );
   const [profileLoading, setProfileLoading] = useState(true);
 
+  const resolveAccessibleMedia = async (
+    supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
+    accessToken: string,
+    incomingPosts: Post[],
+  ) => {
+    const allPostIds = incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+    if (allPostIds.length === 0) return incomingPosts;
+
+    const response = await fetch("/api/media/access", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ postIds: allPostIds }),
+    });
+
+    if (!response.ok) return incomingPosts;
+    const result = (await response.json()) as {
+      items?: Record<string, { url: string; kind: "image" | "video"; locked: boolean }>;
+    };
+    const resolvedItems = result.items ?? {};
+
+    return incomingPosts.map((post) => ({
+      ...post,
+      media: post.media.map((item, index): Post["media"][number] => {
+        const postId = post.mediaPostIds[index];
+        const resolved = postId ? resolvedItems[postId] : null;
+        return resolved
+          ? { ...item, url: resolved.url, kind: resolved.kind, locked: resolved.locked }
+          : item;
+      }),
+    }));
+  };
+
   useEffect(() => {
     const checkoutKind = searchParams.get("checkout");
     if (checkoutKind === "tip") {
@@ -175,7 +220,7 @@ export default function PerfilPage({
       let avatarUrl = userRow?.avatar_url ?? "";
       if (avatarUrl && !avatarUrl.startsWith("http")) {
         const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
+          .from(PUBLIC_MEDIA_BUCKET)
           .getPublicUrl(avatarUrl);
         avatarUrl = publicUrl.publicUrl;
       }
@@ -276,7 +321,7 @@ export default function PerfilPage({
         if (!value) return "";
         if (value.startsWith("http")) return value;
         const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
+          .from(PUBLIC_MEDIA_BUCKET)
           .getPublicUrl(value);
         return publicUrl.publicUrl;
       };
@@ -285,7 +330,7 @@ export default function PerfilPage({
         if (!value) return "";
         if (value.startsWith("http")) return value;
         const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
+          .from(PUBLIC_MEDIA_BUCKET)
           .getPublicUrl(value);
         return publicUrl.publicUrl;
       };
@@ -313,7 +358,11 @@ export default function PerfilPage({
             const mediaWithUrls: Post["media"] = await Promise.all(
               media.map(async (item) => ({
                 url: await resolveMediaUrl(item?.media_url ?? ""),
-                kind: item?.media_type === "video" ? "video" : "image",
+                kind: inferDisplayKind(
+                  item?.media_url,
+                  item?.media_type,
+                  item?.is_locked,
+                ),
                 locked: item?.is_locked ?? false,
               })),
             );
@@ -346,25 +395,12 @@ export default function PerfilPage({
         );
 
         const allMediaIds = mapped.flatMap((post) => post.mediaPostIds);
-        if (currentUserId && allMediaIds.length > 0) {
-          const { data: purchaseRows } = await supabase
-            .from("purchases")
-            .select("post_id")
-            .eq("user_id", currentUserId)
-            .in("post_id", allMediaIds);
-          const purchased = new Set(
-            (purchaseRows ?? []).map((row) => row.post_id),
-          );
-          const unlocked: Post[] = mapped.map((post) => ({
-            ...post,
-            media: post.media.map((item, index): Post["media"][number] => {
-              const postId = post.mediaPostIds[index];
-              const canView =
-                post.userId === currentUserId || purchased.has(postId);
-              return { ...item, locked: canView ? false : item.locked };
-            }),
-          }));
-          setProfilePosts(unlocked);
+        const accessToken = await getSessionAccessTokenWithRetry(supabase);
+        if (accessToken && allMediaIds.length > 0) {
+          setProfilePosts(await resolveAccessibleMedia(supabase, accessToken, mapped));
+          if (typeof window !== "undefined") {
+            window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+          }
         } else {
           setProfilePosts(mapped);
         }
@@ -391,35 +427,23 @@ export default function PerfilPage({
             media: [
               {
                 url: await resolveMediaUrl(post.media_url),
-                kind: post.media_type === "video" ? "video" : "image",
+                kind: inferDisplayKind(
+                  post.media_url,
+                  post.media_type,
+                  post.is_locked,
+                ),
                 locked: post.is_locked ?? false,
               },
             ],
           } satisfies Post)),
         );
 
-        if (currentUserId && mapped.length > 0) {
-          const { data: purchaseRows } = await supabase
-            .from("purchases")
-            .select("post_id")
-            .eq("user_id", currentUserId)
-            .in(
-              "post_id",
-              mapped.flatMap((post) => post.mediaPostIds),
-            );
-          const purchased = new Set(
-            (purchaseRows ?? []).map((row) => row.post_id),
-          );
-          const unlocked: Post[] = mapped.map((post) => ({
-            ...post,
-            media: post.media.map((item, index): Post["media"][number] => {
-              const postId = post.mediaPostIds[index];
-              const canView =
-                post.userId === currentUserId || purchased.has(postId);
-              return { ...item, locked: canView ? false : item.locked };
-            }),
-          }));
-          setProfilePosts(unlocked);
+        const accessToken = await getSessionAccessTokenWithRetry(supabase);
+        if (accessToken && mapped.length > 0) {
+          setProfilePosts(await resolveAccessibleMedia(supabase, accessToken, mapped));
+          if (typeof window !== "undefined") {
+            window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+          }
         } else {
           setProfilePosts(mapped);
         }
@@ -474,7 +498,7 @@ export default function PerfilPage({
       if (!value) return "";
       if (value.startsWith("http")) return value;
       const { data: publicUrl } = supabase.storage
-        .from("Imagenes")
+        .from(PUBLIC_MEDIA_BUCKET)
         .getPublicUrl(value);
       return publicUrl.publicUrl;
     };
@@ -483,7 +507,7 @@ export default function PerfilPage({
       if (!value) return "";
       if (value.startsWith("http")) return value;
       const { data: publicUrl } = supabase.storage
-        .from("Imagenes")
+        .from(PUBLIC_MEDIA_BUCKET)
         .getPublicUrl(value);
       return publicUrl.publicUrl;
     };
@@ -507,7 +531,11 @@ export default function PerfilPage({
         const mediaWithUrls: Post["media"] = await Promise.all(
           media.map(async (item) => ({
             url: await resolveMediaUrl(item?.media_url ?? ""),
-            kind: item?.media_type === "video" ? "video" : "image",
+            kind: inferDisplayKind(
+              item?.media_url,
+              item?.media_type,
+              item?.is_locked,
+            ),
             locked: item?.is_locked ?? false,
           })),
         );
@@ -515,7 +543,7 @@ export default function PerfilPage({
         const avatarUrl = await resolveAvatarUrl(
           albumUser?.avatar_url ?? post.avatar ?? "",
         );
-        setOpenPost({
+        const basePost: Post = {
           id: album.id,
           userId: album.user_id ?? post.userId,
           mediaPostIds,
@@ -531,7 +559,14 @@ export default function PerfilPage({
           avatar: avatarUrl || null,
           price: album.price ?? post.price ?? 0,
           media: mediaWithUrls,
-        });
+        };
+        const accessToken = await getSessionAccessTokenWithRetry(supabase);
+        setOpenPost(
+          accessToken
+            ? (await resolveAccessibleMedia(supabase, accessToken, [basePost]))[0] ??
+                basePost
+            : basePost,
+        );
         return;
       }
 
@@ -661,6 +696,14 @@ export default function PerfilPage({
       const mediaPaths = normalizedLinks
         .map((row) => normalizeSingleRelation(row.post)?.media_url)
         .filter(Boolean) as string[];
+      const premiumPaths = normalizedLinks
+        .map((row) =>
+          getPremiumPathFromPreview(
+            currentUserId,
+            normalizeSingleRelation(row.post)?.media_url,
+          ),
+        )
+        .filter(Boolean) as string[];
 
       const { error: albumPostsError } = await supabase
         .from("album_posts")
@@ -679,9 +722,15 @@ export default function PerfilPage({
 
       if (mediaPaths.length > 0) {
         const { error: storageError } = await supabase.storage
-          .from("Imagenes")
+          .from(PUBLIC_MEDIA_BUCKET)
           .remove(mediaPaths);
         if (storageError) throw storageError;
+      }
+      if (premiumPaths.length > 0) {
+        const { error: premiumError } = await supabase.storage
+          .from(PREMIUM_MEDIA_BUCKET)
+          .remove(premiumPaths);
+        if (premiumError) throw premiumError;
       }
 
       const { error: albumsError } = await supabase

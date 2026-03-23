@@ -5,6 +5,7 @@ import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import { parseTipAmountFromMessage } from "@/lib/earnings";
+import { parsePayoutProfile, type PayoutProfile } from "@/lib/payouts";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import {
@@ -14,7 +15,10 @@ import {
   parseWithdrawalRecord,
   type WithdrawalStatus,
 } from "@/lib/withdrawals";
-import { FANPUSH_WITHDRAWAL_MIN_ARS, formatARS } from "@/lib/utils";
+import {
+  FANPUSH_WITHDRAWAL_MIN_ARS,
+  formatARS,
+} from "@/lib/utils";
 
 type SaleItem = {
   id: string;
@@ -47,7 +51,9 @@ export default function VentasPage() {
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [requesting, setRequesting] = useState(false);
-
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
+  const [payoutProfile, setPayoutProfile] = useState<PayoutProfile | null>(null);
   const load = useCallback(async () => {
       const supabase = getSupabaseClient();
       if (!supabase) return;
@@ -62,16 +68,14 @@ export default function VentasPage() {
           .select("id,user_id,media_type,caption,album_posts(album_id)")
           .eq("user_id", userId);
         const postIds = (postRows ?? []).map((row) => row.id);
-        if (postIds.length === 0) {
-          setSales([]);
-          return;
-        }
-
-        const { data: purchaseRows } = await supabase
-          .from("purchases")
-          .select("id,user_id,post_id,amount,created_at")
-          .in("post_id", postIds)
-          .order("created_at", { ascending: false });
+        const { data: purchaseRows } =
+          postIds.length > 0
+            ? await supabase
+                .from("purchases")
+                .select("id,user_id,post_id,amount,created_at")
+                .in("post_id", postIds)
+                .order("created_at", { ascending: false })
+            : { data: [] };
 
         const buyerIds = Array.from(
           new Set((purchaseRows ?? []).map((row) => row.user_id)),
@@ -214,6 +218,16 @@ export default function VentasPage() {
           .filter(Boolean) as WithdrawalItem[];
 
         setWithdrawals(withdrawalItems);
+
+        const { data: payoutRow } = await supabase
+          .from("notifications")
+          .select("message")
+          .eq("user_id", userId)
+          .eq("type", "payout_profile")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        setPayoutProfile(parsePayoutProfile(payoutRow?.message));
       } finally {
         setLoading(false);
       }
@@ -257,6 +271,8 @@ export default function VentasPage() {
 
   const handleRequestWithdrawal = async () => {
     try {
+      setRequestError(null);
+      setRequestSuccess(null);
       setRequesting(true);
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Falta configurar Supabase.");
@@ -295,8 +311,11 @@ export default function VentasPage() {
         },
         ...prev,
       ]);
+      setRequestSuccess(
+        "Solicitud enviada. Te avisaremos cuando el retiro quede programado o enviado.",
+      );
     } catch (err) {
-      window.alert(
+      setRequestError(
         err instanceof Error ? err.message : "No se pudo solicitar el retiro.",
       );
     } finally {
@@ -413,12 +432,18 @@ export default function VentasPage() {
                 <div className="mt-1 text-xs text-emerald-700">
                   Los retiros se procesan una vez por mes y pueden demorar hasta 72 hs.
                 </div>
+                <div className="mt-1 text-xs text-emerald-700">
+                  Próxima ventana estimada de pago: entre el 1 y el 3 del próximo ciclo mensual.
+                </div>
               </div>
               <button
                 type="button"
                 onClick={handleRequestWithdrawal}
                 disabled={
-                  requesting || !totals.canRequest || totals.hasRequestThisMonth
+                  requesting ||
+                  !totals.canRequest ||
+                  totals.hasRequestThisMonth ||
+                  !payoutProfile
                 }
                 className="rounded-[8px] bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -427,10 +452,39 @@ export default function VentasPage() {
                   : totals.hasRequestThisMonth
                     ? "Retiro ya solicitado este mes"
                     : totals.canRequest
-                      ? `Solicitar retiro de ${formatARS(totals.withdrawable)}`
+                      ? payoutProfile
+                        ? `Solicitar retiro de ${formatARS(totals.withdrawable)}`
+                        : "Completa tus datos de cobro"
                       : `Necesitas al menos ${formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}`}
               </button>
             </div>
+            <div className="mt-4 rounded-[8px] border border-zinc-200 bg-white px-4 py-3 text-xs text-zinc-600">
+              {payoutProfile ? (
+                <>
+                  <div className="font-semibold text-zinc-900">Datos de cobro cargados</div>
+                  <div className="mt-1">
+                    Alias / CVU / CBU: <span className="font-semibold">{payoutProfile.alias}</span>
+                  </div>
+                  <div className="mt-1">
+                    Titular: <span className="font-semibold">{payoutProfile.holderName}</span>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  Completa tus datos de cobro en Configuración &gt; Cobros y retiros para poder solicitar un retiro.
+                </div>
+              )}
+            </div>
+            {requestError ? (
+              <div className="mt-4 rounded-[8px] border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+                {requestError}
+              </div>
+            ) : null}
+            {requestSuccess ? (
+              <div className="mt-4 rounded-[8px] border border-emerald-200 bg-white px-4 py-3 text-xs text-emerald-700">
+                {requestSuccess}
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-[5px] border border-zinc-200 bg-white">

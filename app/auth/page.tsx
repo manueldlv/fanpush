@@ -573,7 +573,17 @@ export default function AuthPage() {
                       >
                         términos y condiciones
                       </a>
-                      .
+                      {" "}y la{" "}
+                      <a
+                        href="/privacidad"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-blue-600"
+                      >
+                        política de privacidad
+                      </a>
+                      . Declaro además que soy mayor de 18 años y que, si quiero
+                      vender contenido, podré ser requerido a verificar mi identidad.
                     </span>
                   </label>
                 ) : null}
@@ -693,7 +703,7 @@ export default function AuthPage() {
             </form>
 
             <div className="mt-6 text-center text-xs text-zinc-500">
-              Al continuar aceptas los términos y condiciones de Fanpush.
+              Al continuar confirmas que eres mayor de 18 años y aceptas los términos y condiciones de Fanpush.
             </div>
           </div>
         </div>

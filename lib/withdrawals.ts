@@ -1,8 +1,4 @@
-export type WithdrawalStatus =
-  | "requested"
-  | "scheduled"
-  | "sent"
-  | "rejected";
+export type WithdrawalStatus = "requested" | "sent" | "rejected";
 
 export type WithdrawalRecord = {
   amount: number;
@@ -12,6 +8,7 @@ export type WithdrawalRecord = {
 };
 
 const PREFIX = "withdrawal_request:";
+const HISTORY_PREFIX = "withdrawal_history:";
 
 export const getCurrentMonthKey = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -38,13 +35,35 @@ export const getWithdrawalStatusLabel = (status: WithdrawalStatus) => {
   switch (status) {
     case "requested":
       return "Solicitado";
-    case "scheduled":
-      return "Programado";
     case "sent":
       return "Enviado";
     case "rejected":
       return "Rechazado";
     default:
       return status;
+  }
+};
+
+export type WithdrawalHistoryRecord = {
+  withdrawalId: string;
+  status: WithdrawalStatus;
+  amount: number;
+  actedAt: string;
+  reason?: string;
+};
+
+export const serializeWithdrawalHistory = (record: WithdrawalHistoryRecord) =>
+  `${HISTORY_PREFIX}${JSON.stringify(record)}`;
+
+export const parseWithdrawalHistory = (
+  message?: string | null,
+): WithdrawalHistoryRecord | null => {
+  if (!message?.startsWith(HISTORY_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(message.slice(HISTORY_PREFIX.length)) as WithdrawalHistoryRecord;
+    if (!parsed.withdrawalId || !parsed.status || !parsed.actedAt) return null;
+    return parsed;
+  } catch {
+    return null;
   }
 };

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -11,6 +12,7 @@ import {
   SquarePlus,
   User,
 } from "lucide-react";
+import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 import { getSupabaseClient } from "@/lib/supabase";
 
 type SidebarLeftProps = {
@@ -26,6 +28,29 @@ export default function SidebarLeft({
   onNotificationsClick,
   notificationsOpen,
 }: SidebarLeftProps) {
+  const [canCreate, setCanCreate] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data } = await supabase.auth.getUser();
+      const userId = data.user?.id;
+      if (!userId) return;
+      const application = await getAuthorApplicationForUser(supabase, userId);
+      const approved = application?.record?.status === "approved";
+      setCanCreate(approved);
+    };
+    load();
+    const interval = window.setInterval(load, 15000);
+    const refresh = () => load();
+    window.addEventListener("creator-status-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("creator-status-updated", refresh);
+    };
+  }, []);
+
   return (
     <>
       <aside className="fixed left-0 top-16 z-40 hidden h-[calc(100vh-4rem)] w-60 border-r border-zinc-200 bg-white/95 px-4 py-6 backdrop-blur md:block">
@@ -77,13 +102,24 @@ export default function SidebarLeft({
               />
               <span>Notificaciones</span>
             </button>
-            <Link
-              href="/crear"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              <SquarePlus className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
-              <span>Crear</span>
-            </Link>
+            {canCreate ? (
+              <Link
+                href="/crear"
+                className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              >
+                <SquarePlus className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+                <span>Crear</span>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-400"
+              >
+                <SquarePlus className="h-5 w-5 text-zinc-300" />
+                <span>Crear</span>
+              </button>
+            )}
             <Link
               href="/compras"
               className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
@@ -163,13 +199,24 @@ export default function SidebarLeft({
         >
           <Compass className="h-5 w-5" />
         </Link>
-        <Link
-          href="/crear"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
-          aria-label="Crear"
-        >
-          <SquarePlus className="h-5 w-5" />
-        </Link>
+        {canCreate ? (
+          <Link
+            href="/crear"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+            aria-label="Crear"
+          >
+            <SquarePlus className="h-5 w-5" />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled
+            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-300"
+            aria-label="Crear deshabilitado"
+          >
+            <SquarePlus className="h-5 w-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onNotificationsClick}

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
+import { getSessionAccessTokenWithRetry } from "@/lib/auth";
+import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store";
 import { formatARS } from "@/lib/utils";
 
@@ -27,13 +29,14 @@ export default function PostModal({
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [showPurchaseToast, setShowPurchaseToast] = useState(false);
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
-  const lockedCount = post.media.filter((m) => m.locked).length;
-  const current = post.media[index];
+  const [resolvedMedia, setResolvedMedia] = useState(post.media);
+  const lockedCount = resolvedMedia.filter((m) => m.locked).length;
+  const current = resolvedMedia[index];
   const isOwner =
     Boolean(post.userId) && Boolean(currentUserId) && post.userId === currentUserId;
   const unlockedMedia = purchased
-    ? post.media.map((item) => ({ ...item, locked: false }))
-    : post.media;
+    ? resolvedMedia.map((item) => ({ ...item, locked: false }))
+    : resolvedMedia;
   const unlockedLockedCount = unlockedMedia.filter((m) => m.locked).length;
   const unlockedCurrent = unlockedMedia[index];
   const hasPaidContent = lockedCount > 0;
@@ -55,7 +58,67 @@ export default function PostModal({
     setPurchaseLoading(false);
     setShowPurchaseToast(false);
     setShowUnlockedChip(false);
+    setResolvedMedia(post.media);
   }, [post.id]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !currentUserId || post.mediaPostIds.length === 0) return;
+
+    const needsResolution = post.media.some(
+      (item) => item.locked || item.url.includes("locked-previews/"),
+    );
+    if (!needsResolution) return;
+
+    let cancelled = false;
+
+    const resolvePremiumMedia = async () => {
+      const accessToken = await getSessionAccessTokenWithRetry(supabase, {
+        forceRetry: true,
+      });
+      if (!accessToken) return;
+
+      const response = await fetch("/api/media/access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ postIds: post.mediaPostIds }),
+      });
+
+      if (!response.ok) return;
+      const result = (await response.json()) as {
+        items?: Record<
+          string,
+          { url: string; kind: "image" | "video"; locked: boolean }
+        >;
+      };
+      const resolvedItems = result.items ?? {};
+
+      if (cancelled) return;
+      setResolvedMedia(
+        post.media.map((item, mediaIndex) => {
+          const postId = post.mediaPostIds[mediaIndex];
+          const resolved = postId ? resolvedItems[postId] : null;
+          return resolved
+            ? {
+                ...item,
+                url: resolved.url,
+                kind: resolved.kind,
+                locked: resolved.locked,
+              }
+            : item;
+        }),
+      );
+    };
+
+    resolvePremiumMedia();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, post.id, post.media, post.mediaPostIds]);
 
   useEffect(() => {
     if (!showPurchaseToast) return;

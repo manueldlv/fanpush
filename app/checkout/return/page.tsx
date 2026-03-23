@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  EARNINGS_REFRESH_FLAG,
+  PURCHASE_REFRESH_FLAG,
+} from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
 
-export default function CheckoutReturnPage() {
+function CheckoutReturnContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("Validando el pago...");
@@ -41,12 +45,19 @@ export default function CheckoutReturnPage() {
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      let session = null;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const { data } = await supabase.auth.getSession();
+        session = data.session;
+        if (session?.access_token) break;
+        setMessage("Recuperando tu sesión para acreditar el pago...");
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+      }
 
       if (!session?.access_token) {
-        setMessage("Necesitas volver a iniciar sesión para acreditar el pago.");
+        setMessage(
+          "No pudimos recuperar tu sesión. Vuelve a iniciar sesión para acreditar el pago.",
+        );
         return;
       }
 
@@ -82,9 +93,17 @@ export default function CheckoutReturnPage() {
       }
 
       if (result.kind === "purchase") {
+        window.sessionStorage.setItem(
+          PURCHASE_REFRESH_FLAG,
+          String(Date.now()),
+        );
         window.dispatchEvent(new Event("purchases-updated"));
       }
       if (result.kind === "tip") {
+        window.sessionStorage.setItem(
+          EARNINGS_REFRESH_FLAG,
+          String(Date.now()),
+        );
         window.dispatchEvent(new Event("earnings-updated"));
       }
 
@@ -107,5 +126,22 @@ export default function CheckoutReturnPage() {
         <p className="mt-3 text-sm text-zinc-500">{message}</p>
       </div>
     </div>
+  );
+}
+
+export default function CheckoutReturnPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 text-zinc-900">
+          <div className="w-full max-w-[460px] rounded-[20px] border border-zinc-200 bg-white p-8 text-center shadow-sm">
+            <h1 className="text-2xl font-semibold">Mercado Pago</h1>
+            <p className="mt-3 text-sm text-zinc-500">Preparando la acreditación...</p>
+          </div>
+        </div>
+      }
+    >
+      <CheckoutReturnContent />
+    </Suspense>
   );
 }

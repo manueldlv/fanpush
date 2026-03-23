@@ -1,3 +1,5 @@
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+
 const HARDCODED_ADMIN_EMAILS: string[] = [];
 
 const HARDCODED_ADMIN_USERNAMES: string[] = [];
@@ -38,4 +40,25 @@ export const isAdminIdentity = ({
     getAdminEmails().includes(normalizedEmail) ||
     getAdminUsernames().includes(normalizedUsername)
   );
+};
+
+export const isAdminUser = async (
+  admin: SupabaseClient,
+  user: User,
+) => {
+  const metadataUsername =
+    typeof user.user_metadata?.username === "string"
+      ? user.user_metadata.username
+      : null;
+
+  const { data: userRow } = await admin
+    .from("users")
+    .select("username")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  return isAdminIdentity({
+    email: user.email,
+    username: userRow?.username ?? metadataUsername,
+  });
 };

@@ -7,6 +7,11 @@ import { saveAs } from "file-saver";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import {
+  getSessionAccessTokenWithRetry,
+  PURCHASE_REFRESH_FLAG,
+} from "@/lib/auth";
+import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 
@@ -31,6 +36,27 @@ export default function ComprasPage() {
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  const resolveAccessibleMedia = async (
+    supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
+    accessToken: string,
+    postIds: string[],
+  ) => {
+    if (postIds.length === 0) return {};
+    const response = await fetch("/api/media/access", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ postIds }),
+    });
+    if (!response.ok) return {};
+    const result = (await response.json()) as {
+      items?: Record<string, { url: string; kind: "image" | "video"; locked: boolean }>;
+    };
+    return result.items ?? {};
+  };
+
   const load = useCallback(async () => {
       const supabase = getSupabaseClient();
       if (!supabase) return;
@@ -53,7 +79,7 @@ export default function ComprasPage() {
           ? await supabase
               .from("posts")
               .select(
-                "id,user_id,media_url,is_locked,caption,album_posts(album_id)",
+                "id,user_id,media_url,media_type,is_locked,caption,album_posts(album_id)",
               )
               .in("id", postIds)
           : { data: [] };
@@ -84,7 +110,7 @@ export default function ComprasPage() {
           ? await supabase
               .from("albums")
               .select(
-                "id,description,price,album_posts(post:posts(media_url,media_type))",
+                "id,description,price,album_posts(post_id,post:posts(id,media_url,media_type,is_locked))",
               )
               .in("id", albumIds)
           : { data: [] };
@@ -92,11 +118,19 @@ export default function ComprasPage() {
           (albumRows ?? []).map((row) => [row.id, row]),
         );
 
+        const accessToken = await getSessionAccessTokenWithRetry(supabase);
+        const resolvedAccess = accessToken
+          ? await resolveAccessibleMedia(supabase, accessToken, postIds)
+          : {};
+        if (accessToken && typeof window !== "undefined") {
+          window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+        }
+
         const resolveCover = (value: string | null) => {
           if (!value) return "https://picsum.photos/seed/placeholder/600/600";
           if (value.startsWith("http")) return value;
           const { data: publicUrl } = supabase.storage
-            .from("Imagenes")
+            .from(PUBLIC_MEDIA_BUCKET)
             .getPublicUrl(value);
           return publicUrl.publicUrl;
         };
@@ -113,13 +147,21 @@ export default function ComprasPage() {
             .filter(Boolean)
             .map((value) => resolveCover(value));
           const albumMedia = (album?.album_posts ?? [])
-            .map((item: any) => ({
-              url: resolveCover(item?.post?.media_url ?? item?.media_url ?? null),
-              kind:
-                (item?.post?.media_type ?? item?.media_type) === "video"
-                  ? ("video" as const)
-                  : ("image" as const),
-            }))
+            .map((item: any) => {
+              const postId = item?.post_id ?? item?.post?.id ?? null;
+              const resolved = postId ? resolvedAccess[postId] : null;
+              const rawUrl = item?.post?.media_url ?? item?.media_url ?? null;
+              return {
+                url: resolved?.url ?? resolveCover(rawUrl),
+                kind:
+                  resolved?.kind ??
+                  inferDisplayKind(
+                    rawUrl,
+                    item?.post?.media_type ?? item?.media_type ?? null,
+                    item?.post?.is_locked ?? true,
+                  ),
+              };
+            })
             .filter((item) => item.url);
           const current = albumEntries.get(albumId);
           const date = new Date(row.created_at).toLocaleDateString("es-AR", {

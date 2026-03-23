@@ -5,14 +5,32 @@ import {
 } from "@supabase/supabase-js";
 
 let cachedClient: SupabaseClient | null = null;
+let cachedAdminBrowserClient: SupabaseClient | null = null;
 
 export const getSupabaseClient = () => {
   if (cachedClient) return cachedClient;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) return null;
-  cachedClient = createClient(url, anonKey);
+  cachedClient = createClient(url, anonKey, {
+    auth: {
+      storageKey: "fanpush-user-auth",
+    },
+  });
   return cachedClient;
+};
+
+export const getSupabaseAdminBrowserClient = () => {
+  if (cachedAdminBrowserClient) return cachedAdminBrowserClient;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return null;
+  cachedAdminBrowserClient = createClient(url, anonKey, {
+    auth: {
+      storageKey: "fanpush-admin-auth",
+    },
+  });
+  return cachedAdminBrowserClient;
 };
 
 export const ensureUserRow = async (

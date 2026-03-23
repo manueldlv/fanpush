@@ -13,6 +13,8 @@ import {
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import { getAuthorApplicationForUser } from "@/lib/authorApplications";
+import { getExtensionFromFile } from "@/lib/media";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
@@ -35,8 +37,12 @@ export default function CrearPage() {
   const [previewIds, setPreviewIds] = useState<string[]>([]);
   const [monetization, setMonetization] = useState<Monetization>("free");
   const [price, setPrice] = useState("9.99");
+  const [description, setDescription] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authorStatus, setAuthorStatus] = useState<
+    "loading" | "idle" | "pending" | "approved" | "rejected"
+  >("loading");
 
   const getErrorMessage = (value: unknown) => {
     if (value instanceof Error) return value.message;
@@ -221,6 +227,79 @@ export default function CrearPage() {
     };
   }, [price]);
 
+  const createImagePreviewFile = async (item: UploadItem) => {
+    const bitmap = await createImageBitmap(item.file);
+    const canvas = document.createElement("canvas");
+    const ratio = bitmap.width / bitmap.height || 1;
+    const width = Math.min(900, bitmap.width);
+    const height = Math.round(width / ratio);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("No se pudo preparar la vista previa.");
+    ctx.filter = "blur(10px)";
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.72),
+    );
+    if (!blob) {
+      throw new Error(`No se pudo generar la vista previa de ${item.file.name}.`);
+    }
+    return new File([blob], `${item.id}-preview.jpg`, { type: "image/jpeg" });
+  };
+
+  const createVideoPreviewFile = async (item: UploadItem) => {
+    const video = document.createElement("video");
+    video.src = item.url;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error("No se pudo generar la miniatura del video."));
+    });
+
+    const captureTime =
+      Number.isFinite(video.duration) && video.duration > 0.5 ? 0.3 : 0;
+
+    await new Promise<void>((resolve, reject) => {
+      const done = () => {
+        video.removeEventListener("seeked", done);
+        resolve();
+      };
+      video.addEventListener("seeked", done, { once: true });
+      try {
+        video.currentTime = captureTime;
+      } catch {
+        resolve();
+      }
+      window.setTimeout(resolve, 250);
+      video.onerror = () =>
+        reject(new Error("No se pudo capturar la miniatura del video."));
+    });
+
+    const width = Math.min(video.videoWidth || 1280, 960);
+    const height =
+      Math.round(width / ((video.videoWidth || 1280) / (video.videoHeight || 720))) ||
+      720;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("No se pudo preparar la miniatura del video.");
+    ctx.filter = "blur(8px)";
+    ctx.drawImage(video, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.72),
+    );
+    if (!blob) {
+      throw new Error(`No se pudo generar la vista previa de ${item.file.name}.`);
+    }
+    return new File([blob], `${item.id}-preview.jpg`, { type: "image/jpeg" });
+  };
+
   const handlePublish = async () => {
     if (items.length === 0 || publishing) return;
     setError(null);
@@ -243,56 +322,54 @@ export default function CrearPage() {
         return;
       }
 
-      const caption =
-        monetization === "paid"
-          ? "Nueva publicacion en venta."
-          : "Nueva publicacion.";
+      const formData = new FormData();
+      formData.append("description", description.trim());
+      formData.append("monetization", monetization);
+      formData.append("price", price);
 
-      const { data: albumRows, error: albumError } = await supabase
-        .from("albums")
-        .insert({
-          user_id: userId,
-          description: caption,
-          price: Number(price) || 0,
-        })
-        .select("id")
-        .single();
-      if (albumError) throw albumError;
+      const itemsMeta = await Promise.all(
+        items.map(async (item, index) => {
+          formData.append(`original_${index}`, item.file);
+          const isPreview =
+            monetization === "free" ? true : previewIds.includes(item.id);
 
-      const uploads = await Promise.all(
-        items.map(async (item) => {
-          const path = `posts/${userId}/${Date.now()}-${item.file.name}`;
-          const { error: uploadError } = await supabase.storage
-            .from("Imagenes")
-            .upload(path, item.file);
-          if (uploadError) throw uploadError;
+          if (monetization === "paid" && !isPreview) {
+            const previewFile =
+              item.kind === "video"
+                ? await createVideoPreviewFile(item)
+                : await createImagePreviewFile(item);
+            formData.append(`preview_${index}`, previewFile);
+          }
+
           return {
-            user_id: userId,
-            media_url: path,
-            media_type: item.kind,
-            is_locked:
-              monetization === "paid" ? !previewIds.includes(item.id) : false,
-            likes_count: 0,
-            caption,
+            id: item.id,
+            kind: item.kind,
+            isPreview,
+            fileName:
+              item.file.name || `${item.kind}-${index}.${getExtensionFromFile(item.file)}`,
           };
         }),
       );
 
-      const { data: postRows, error: insertError } = await supabase
-        .from("posts")
-        .insert(uploads)
-        .select("id");
-      if (insertError) throw insertError;
+      formData.append("itemsMeta", JSON.stringify(itemsMeta));
 
-      const albumPosts = (postRows ?? []).map((row) => ({
-        album_id: albumRows.id,
-        post_id: row.id,
-      }));
-      if (albumPosts.length > 0) {
-        const { error: linkError } = await supabase
-          .from("album_posts")
-          .insert(albumPosts);
-        if (linkError) throw linkError;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Necesitas iniciar sesion para publicar.");
+      }
+
+      const response = await fetch("/api/posts/create", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo publicar el contenido.");
       }
 
       router.push("/");
@@ -302,6 +379,33 @@ export default function CrearPage() {
       setPublishing(false);
     }
   };
+
+  useEffect(() => {
+    const loadAuthorStatus = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        setAuthorStatus("idle");
+        return;
+      }
+      const { data } = await supabase.auth.getUser();
+      const userId = data.user?.id;
+      if (!userId) {
+        setAuthorStatus("idle");
+        return;
+      }
+      const application = await getAuthorApplicationForUser(supabase, userId);
+      setAuthorStatus(application?.record?.status ?? "idle");
+    };
+
+    loadAuthorStatus();
+    const interval = window.setInterval(loadAuthorStatus, 15000);
+    const refresh = () => loadAuthorStatus();
+    window.addEventListener("creator-status-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("creator-status-updated", refresh);
+    };
+  }, []);
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -325,6 +429,53 @@ export default function CrearPage() {
 
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[720px] md:gap-8 md:px-6 md:py-10">
+          {authorStatus !== "approved" ? (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-3xl font-semibold">Crear contenido</h1>
+                <p className="mt-2 text-sm text-zinc-500">
+                  Para vender contenido en FanPush primero necesitas aprobación
+                  como autor.
+                </p>
+              </div>
+
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="rounded-[20px] border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-700">
+                  {authorStatus === "pending"
+                    ? "Tu solicitud está en revisión. Cuando el equipo la apruebe se habilitará Crear automáticamente."
+                    : authorStatus === "rejected"
+                      ? "Tu solicitud fue rechazada. Revisa tus datos y vuelve a enviarla."
+                      : authorStatus === "loading"
+                        ? "Comprobando estado de autor..."
+                        : "Todavía no tienes acceso para crear publicaciones. Completa la verificación de identidad para convertirte en autor."}
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/autor/solicitud")}
+                    className="rounded-[18px] bg-zinc-950 px-5 py-3 text-sm font-semibold text-white"
+                  >
+                    {authorStatus === "pending"
+                      ? "Ver mi solicitud"
+                      : authorStatus === "rejected"
+                        ? "Reenviar solicitud"
+                        : "Convertirme en autor"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/")}
+                    className="rounded-[18px] border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-700"
+                  >
+                    Volver al feed
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {authorStatus === "approved" ? (
+          <>
           {step === 1 ? (
             <div className="space-y-8">
               <div>
@@ -367,6 +518,20 @@ export default function CrearPage() {
                   {error}
                 </div>
               ) : null}
+
+              <div>
+                <div className="text-sm font-semibold">Descripcion del post</div>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Escribe una descripcion para tu publicacion..."
+                  maxLength={500}
+                  className="mt-3 min-h-[120px] w-full rounded-[18px] border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
+                />
+                <div className="mt-2 text-xs text-zinc-500">
+                  {description.trim().length}/500 caracteres
+                </div>
+              </div>
 
               <div>
                 <div className="text-sm font-semibold">
@@ -710,6 +875,9 @@ export default function CrearPage() {
                 <div className="text-sm font-semibold text-zinc-900">
                   Vista previa del post
                 </div>
+                <div className="mt-3 rounded-[16px] bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                  {description.trim() || "Sin descripcion."}
+                </div>
                 <div className="mt-4 flex gap-4">
                   {items.slice(0, 2).map((item) => {
                     const isPreview = previewIds.includes(item.id);
@@ -783,13 +951,15 @@ export default function CrearPage() {
                   </div>
                   <div className="mt-2 flex items-center justify-between text-sm text-zinc-600">
                     <span>Precio de venta</span>
-                    <span className="text-xl font-semibold">${payout.value}</span>
+                    <span className="text-xl font-semibold">
+                      {formatARS(Number(payout.value))}
+                    </span>
                   </div>
                   <div className="mt-2 text-xs text-zinc-500">
                     Compra unica · Sin reembolsos
                   </div>
                   <div className="mt-4 border-t border-zinc-200 pt-3 text-xs text-zinc-500">
-                    Luego del procesamiento, recibiras ${payout.creator}.
+                    Luego del procesamiento, recibirás {formatARS(Number(payout.creator))}.
                   </div>
                 </div>
               ) : null}
@@ -835,6 +1005,8 @@ export default function CrearPage() {
                 ) : null}
               </div>
             </div>
+          ) : null}
+          </>
           ) : null}
         </div>
       </div>

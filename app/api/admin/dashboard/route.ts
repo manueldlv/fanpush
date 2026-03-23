@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
-import { isAdminIdentity } from "@/lib/admin";
+import { isAdminUser } from "@/lib/admin";
 import { parseTipAmountFromMessage } from "@/lib/earnings";
 import { getAuthenticatedUser } from "@/lib/mercadopago";
-import { getWithdrawalStatusLabel, parseWithdrawalRecord } from "@/lib/withdrawals";
+import { parsePayoutProfile } from "@/lib/payouts";
+import {
+  parseModerationAction,
+  parseContentReport,
+} from "@/lib/reports";
+import { parseModerationArchive } from "@/lib/moderation";
+import {
+  parseAuthorApplication,
+  parseAuthorApplicationHistory,
+} from "@/lib/authorApplications";
+import {
+  getWithdrawalStatusLabel,
+  parseWithdrawalHistory,
+  parseWithdrawalRecord,
+} from "@/lib/withdrawals";
 
 export async function GET(request: Request) {
   try {
@@ -11,7 +25,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
     }
 
-    if (!isAdminIdentity({ email: user.email })) {
+    if (!(await isAdminUser(admin, user))) {
       return NextResponse.json({ error: "Solo admins." }, { status: 403 });
     }
 
@@ -24,6 +38,13 @@ export async function GET(request: Request) {
       recentPurchasesResult,
       recentAlbumsResult,
       withdrawalRowsResult,
+      payoutRowsResult,
+      reportRowsResult,
+      authorApplicationRowsResult,
+      authorApplicationHistoryRowsResult,
+      moderationHistoryRowsResult,
+      withdrawalHistoryRowsResult,
+      moderationArchiveRowsResult,
     ] = await Promise.all([
       admin.from("users").select("id", { count: "exact", head: true }),
       admin.from("albums").select("id", { count: "exact", head: true }),
@@ -55,6 +76,47 @@ export async function GET(request: Request) {
         .eq("type", "withdrawal_request")
         .order("created_at", { ascending: false })
         .limit(30),
+      admin
+        .from("notifications")
+        .select("user_id,message,created_at")
+        .eq("type", "payout_profile")
+        .order("created_at", { ascending: false }),
+      admin
+        .from("notifications")
+        .select("id,user_id,actor_id,entity_id,message,created_at")
+        .eq("type", "content_report")
+        .order("created_at", { ascending: false })
+        .limit(50),
+      admin
+        .from("notifications")
+        .select("id,user_id,actor_id,message,created_at")
+        .eq("type", "author_application")
+        .order("created_at", { ascending: false })
+        .limit(100),
+      admin
+        .from("notifications")
+        .select("id,user_id,actor_id,entity_id,message,created_at")
+        .eq("type", "author_application_history")
+        .order("created_at", { ascending: false })
+        .limit(100),
+      admin
+        .from("notifications")
+        .select("id,actor_id,entity_id,message,created_at")
+        .eq("type", "moderation_action")
+        .order("created_at", { ascending: false })
+        .limit(100),
+      admin
+        .from("notifications")
+        .select("id,actor_id,entity_id,message,created_at")
+        .eq("type", "withdrawal_history")
+        .order("created_at", { ascending: false })
+        .limit(100),
+      admin
+        .from("notifications")
+        .select("id,user_id,entity_id,message,created_at")
+        .eq("type", "moderation_archive")
+        .order("created_at", { ascending: false })
+        .limit(100),
     ]);
 
     const buyerIds = Array.from(
@@ -72,9 +134,31 @@ export async function GET(request: Request) {
     const withdrawalUserIds = Array.from(
       new Set((withdrawalRowsResult.data ?? []).map((row) => row.user_id)),
     );
+    const reportActorIds = Array.from(
+      new Set((reportRowsResult.data ?? []).map((row) => row.actor_id)),
+    );
+    const authorApplicantIds = Array.from(
+      new Set((authorApplicationRowsResult.data ?? []).map((row) => row.user_id)),
+    );
+    const authorHistoryActorIds = Array.from(
+      new Set(
+        (authorApplicationHistoryRowsResult.data ?? []).map((row) => row.actor_id),
+      ),
+    );
 
     const actorAndBuyerIds = Array.from(
-      new Set([...buyerIds, ...albumUserIds, ...tipActorIds, ...withdrawalUserIds]),
+      new Set([
+        ...buyerIds,
+        ...albumUserIds,
+        ...tipActorIds,
+        ...withdrawalUserIds,
+        ...reportActorIds,
+        ...authorApplicantIds,
+        ...authorHistoryActorIds,
+        ...(moderationHistoryRowsResult.data ?? []).map((row) => row.actor_id),
+        ...(withdrawalHistoryRowsResult.data ?? []).map((row) => row.actor_id),
+        ...(moderationArchiveRowsResult.data ?? []).map((row) => row.user_id),
+      ]),
     );
 
     const [{ data: usersRows }, { data: postOwnerRows }] = await Promise.all([
@@ -92,6 +176,11 @@ export async function GET(request: Request) {
     const userMap = new Map((usersRows ?? []).map((row) => [row.id, row]));
     const postOwnerMap = new Map(
       (postOwnerRows ?? []).map((row) => [row.id, row.user_id]),
+    );
+    const payoutMap = new Map(
+      (payoutRowsResult.data ?? [])
+        .map((row) => [row.user_id, parsePayoutProfile(row.message)] as const)
+        .filter((entry) => Boolean(entry[1])),
     );
 
     const purchaseGross = (purchasesRowsResult.data ?? []).reduce(
@@ -143,6 +232,18 @@ export async function GET(request: Request) {
         mediaUrl: resolveAvatar(firstPost?.media_url ?? null),
         mediaType: firstPost?.media_type ?? "image",
         itemsCount: Array.isArray(album.album_posts) ? album.album_posts.length : 0,
+        media: Array.isArray(album.album_posts)
+          ? album.album_posts
+              .map((link) => {
+                const post = Array.isArray(link.post) ? link.post[0] : link.post;
+                if (!post?.media_url) return null;
+                return {
+                  url: resolveAvatar(post.media_url ?? null),
+                  type: post.media_type ?? "image",
+                };
+              })
+              .filter(Boolean)
+          : [],
       };
     });
 
@@ -155,6 +256,8 @@ export async function GET(request: Request) {
         purchaseGross,
         tipGross,
         totalGross: purchaseGross + tipGross,
+        creatorsNet: (purchaseGross + tipGross) * 0.7,
+        platformFee: (purchaseGross + tipGross) * 0.3,
       },
       commerce: {
         recentPurchases,
@@ -169,6 +272,7 @@ export async function GET(request: Request) {
           .map((row) => {
             const parsed = parseWithdrawalRecord(row.message);
             if (!parsed) return null;
+            const payoutProfile = payoutMap.get(row.user_id);
             return {
               id: row.id,
               username: userMap.get(row.user_id)?.username ?? "usuario",
@@ -176,6 +280,108 @@ export async function GET(request: Request) {
               status: parsed.status,
               statusLabel: getWithdrawalStatusLabel(parsed.status),
               createdAt: row.created_at,
+              payoutAlias: payoutProfile?.alias ?? null,
+              payoutHolder: payoutProfile?.holderName ?? null,
+              payoutDocument: payoutProfile?.holderDocument ?? null,
+            };
+          })
+          .filter((item) => item?.status === "requested")
+          .filter(Boolean),
+        reports: (reportRowsResult.data ?? [])
+          .map((row) => {
+            const parsed = parseContentReport(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              albumId: parsed.albumId,
+              reason: parsed.reason,
+              createdAt: row.created_at,
+              reportedBy: userMap.get(row.actor_id)?.username ?? "usuario",
+              owner: userMap.get(row.user_id)?.username ?? "usuario",
+              status: parsed.status ?? "open",
+              archived: parsed.archived ?? false,
+            };
+          })
+          .filter(Boolean),
+        authorApplications: (authorApplicationRowsResult.data ?? [])
+          .map((row) => {
+            const parsed = parseAuthorApplication(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              username: userMap.get(row.user_id)?.username ?? "usuario",
+              fullName: parsed.fullName,
+              birthDate: parsed.birthDate,
+              documentType: parsed.documentType,
+              documentNumber: parsed.documentNumber,
+              country: parsed.country,
+              province: parsed.province,
+              city: parsed.city,
+              address: parsed.address,
+              documentFrontUrl: parsed.documentFrontUrl,
+              documentBackUrl: parsed.documentBackUrl,
+              status: parsed.status,
+              submittedAt: parsed.submittedAt,
+              archived: parsed.archived ?? false,
+            };
+          })
+          .filter(Boolean),
+        authorApplicationHistory: (authorApplicationHistoryRowsResult.data ?? [])
+          .map((row) => {
+            const parsed = parseAuthorApplicationHistory(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              applicationId: parsed.applicationId,
+              action: parsed.action,
+              reason: parsed.reason ?? "",
+              actedAt: row.created_at,
+              actor: userMap.get(row.actor_id)?.username ?? "admin",
+            };
+          })
+          .filter(Boolean),
+        reportHistory: (moderationHistoryRowsResult.data ?? [])
+          .map((row) => {
+            const parsed = parseModerationAction(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              reportId: parsed.reportId,
+              albumId: parsed.albumId,
+              action: parsed.action,
+              reason: parsed.reason ?? "",
+              actedAt: row.created_at,
+              actor: userMap.get(row.actor_id)?.username ?? "admin",
+            };
+          })
+          .filter(Boolean),
+        archivedContent: (moderationArchiveRowsResult.data ?? [])
+          .map((row) => {
+            const parsed = parseModerationArchive(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              albumId: parsed.album.id,
+              owner: userMap.get(parsed.album.user_id)?.username ?? "usuario",
+              description: parsed.album.description ?? "Sin descripción",
+              itemsCount: parsed.posts.length,
+              archivedAt: parsed.archivedAt,
+            };
+          })
+          .filter(Boolean),
+        withdrawalHistory: (withdrawalHistoryRowsResult.data ?? [])
+          .map((row) => {
+            const parsed = parseWithdrawalHistory(row.message);
+            if (!parsed) return null;
+            return {
+              id: row.id,
+              withdrawalId: parsed.withdrawalId,
+              status: parsed.status,
+              statusLabel: getWithdrawalStatusLabel(parsed.status),
+              amount: parsed.amount,
+              actedAt: row.created_at,
+              actor: userMap.get(row.actor_id)?.username ?? "admin",
+              reason: parsed.reason ?? "",
             };
           })
           .filter(Boolean),

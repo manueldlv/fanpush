@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { Loader2, Search, X } from "lucide-react";
+import UserAvatar from "@/components/UserAvatar";
 
 type SearchResult = {
   id: string;
@@ -39,6 +40,78 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
       setRecentSearches([]);
     }
   }, []);
+
+  useEffect(() => {
+    const refreshRecentAvatars = async () => {
+      if (!recentSearches.length) return;
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+
+      const ids = recentSearches.map((item) => item.id).filter(Boolean);
+      if (!ids.length) return;
+
+      const { data } = await supabase
+        .from("users")
+        .select("id, username, avatar_url")
+        .in("id", ids);
+
+      const resolveAvatar = async (value: string | null) => {
+        if (!value) return null;
+        if (value.startsWith("http")) return value;
+        const { data: publicUrl } = supabase.storage
+          .from("Imagenes")
+          .getPublicUrl(value);
+        return publicUrl.publicUrl;
+      };
+
+      const avatarEntries = await Promise.all(
+        (data ?? []).map(async (row) => {
+          const entry: [string, { username: string; avatar: string | null }] = [
+            row.id,
+            {
+              username: row.username ?? "usuario",
+              avatar: await resolveAvatar(row.avatar_url ?? null),
+            },
+          ];
+          return entry;
+        }),
+      );
+
+      const avatarMap = new Map<string, { username: string; avatar: string | null }>(
+        avatarEntries,
+      );
+
+      const refreshed = recentSearches.map((item) => {
+        const next = avatarMap.get(item.id);
+        if (!next) return item;
+        return {
+          ...item,
+          name: next.username || item.name,
+          fullName: next.username || item.fullName,
+          avatar: next.avatar,
+        };
+      });
+
+      const changed = refreshed.some(
+        (item, index) =>
+          item.avatar !== recentSearches[index]?.avatar ||
+          item.name !== recentSearches[index]?.name ||
+          item.fullName !== recentSearches[index]?.fullName,
+      );
+
+      if (changed) {
+        setRecentSearches(refreshed);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            RECENT_SEARCHES_KEY,
+            JSON.stringify(refreshed),
+          );
+        }
+      }
+    };
+
+    void refreshRecentAvatars();
+  }, [recentSearches]);
 
   useEffect(() => {
     if (!open) return;
@@ -206,15 +279,12 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
                           onClick={() => handleSelect(item)}
                           className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 rounded-[5px] p-2 text-left transition hover:bg-zinc-100"
                         >
-                          {item.avatar ? (
-                            <img
-                              src={item.avatar}
-                              alt={item.name}
-                              className="h-12 w-12 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="h-12 w-12 rounded-full bg-zinc-100" />
-                          )}
+                          <UserAvatar
+                            src={item.avatar}
+                            alt={item.name}
+                            sizeClassName="h-12 w-12"
+                            iconClassName="h-5 w-5"
+                          />
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-zinc-900">
                               {item.name}
@@ -250,15 +320,12 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
                     onClick={() => handleSelect(item)}
                     className="flex w-full cursor-pointer items-center gap-4 rounded-[5px] p-2 text-left transition hover:bg-zinc-100"
                   >
-                    {item.avatar ? (
-                      <img
-                        src={item.avatar}
-                        alt={item.name}
-                        className="h-12 w-12 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-12 w-12 rounded-full bg-zinc-100" />
-                    )}
+                    <UserAvatar
+                      src={item.avatar}
+                      alt={item.name}
+                      sizeClassName="h-12 w-12"
+                      iconClassName="h-5 w-5"
+                    />
                     <div>
                       <div className="text-sm font-semibold text-zinc-900">
                         {item.name}

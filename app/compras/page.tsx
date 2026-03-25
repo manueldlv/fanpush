@@ -343,6 +343,29 @@ export default function ComprasPage() {
             </p>
           </div>
 
+          {!loading && items.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="rounded-[12px] border border-zinc-200 bg-white p-5">
+                <div className="text-xs text-zinc-500">Publicaciones compradas</div>
+                <div className="mt-2 text-2xl font-semibold text-zinc-900">
+                  {items.length}
+                </div>
+              </div>
+              <div className="rounded-[12px] border border-zinc-200 bg-white p-5">
+                <div className="text-xs text-zinc-500">Invertido en contenido</div>
+                <div className="mt-2 text-2xl font-semibold text-zinc-900">
+                  {formatARS(items.reduce((acc, item) => acc + item.price, 0))}
+                </div>
+              </div>
+              <div className="rounded-[12px] border border-zinc-200 bg-white p-5">
+                <div className="text-xs text-zinc-500">Última compra</div>
+                <div className="mt-2 text-lg font-semibold text-zinc-900">
+                  {items[0]?.date ?? "—"}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-4">
             {loading ? (
               <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
@@ -350,8 +373,28 @@ export default function ComprasPage() {
               </div>
             ) : null}
             {!loading && items.length === 0 ? (
-              <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
-                Aún no tienes compras.
+              <div className="rounded-[16px] border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
+                <div className="text-lg font-semibold text-zinc-900">
+                  Aún no tienes compras
+                </div>
+                <p className="mt-2 max-w-[560px] leading-6">
+                  Cuando compres contenido bloqueado o envíes propinas, lo verás
+                  reflejado aquí con acceso rápido para volver a abrirlo o descargarlo.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <a
+                    href="/explorar"
+                    className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+                  >
+                    Explorar contenido
+                  </a>
+                  <a
+                    href="/ayuda"
+                    className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+                  >
+                    Cómo funciona
+                  </a>
+                </div>
               </div>
             ) : null}
             {items.map((purchase) => (

@@ -4,6 +4,38 @@ type BrowserSupabase = SupabaseClient<any, "public", any>;
 
 export const PURCHASE_REFRESH_FLAG = "fanpush-refresh-purchases";
 export const EARNINGS_REFRESH_FLAG = "fanpush-refresh-earnings";
+export const PENDING_CHECKOUT_KEY = "fanpush-pending-checkout";
+
+export type PendingCheckoutPayload = {
+  paymentId: string;
+  kind: "purchase" | "tip" | null;
+  target: string;
+  status: string;
+  savedAt: number;
+};
+
+export const savePendingCheckout = (payload: PendingCheckoutPayload) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PENDING_CHECKOUT_KEY, JSON.stringify(payload));
+};
+
+export const readPendingCheckout = (): PendingCheckoutPayload | null => {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(PENDING_CHECKOUT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PendingCheckoutPayload;
+    if (!parsed?.paymentId || !parsed?.target) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+export const clearPendingCheckout = () => {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(PENDING_CHECKOUT_KEY);
+};
 
 export const getSessionAccessTokenWithRetry = async (
   supabase: BrowserSupabase,

@@ -1,4 +1,8 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import {
+  getCreatorShareFromProfile,
+  getLatestUserCommissionProfile,
+} from "@/lib/userCommission";
 
 export const parseTipAmountFromMessage = (message?: string | null) => {
   if (!message) return 0;
@@ -44,8 +48,10 @@ export const loadCreatorEarnings = async (
   );
 
   const gross = purchaseGross + tipGross;
-  const creatorNet = gross * 0.7;
-  const platformFee = gross * 0.3;
+  const commissionProfile = await getLatestUserCommissionProfile(supabase, userId);
+  const creatorShare = getCreatorShareFromProfile(commissionProfile?.record);
+  const creatorNet = gross * creatorShare;
+  const platformFee = gross - creatorNet;
 
   return {
     purchasesGross: purchaseGross,
@@ -53,5 +59,6 @@ export const loadCreatorEarnings = async (
     totalGross: gross,
     creatorNet,
     platformFee,
+    creatorShare,
   };
 };

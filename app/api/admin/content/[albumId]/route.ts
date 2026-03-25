@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/admin";
-import { serializeModerationAction } from "@/lib/reports";
-import { serializeModerationArchive } from "@/lib/moderation";
+import {
+  parseContentReport,
+  serializeContentReport,
+  serializeModerationAction,
+} from "@/lib/reports";
+import {
+  serializeModerationArchive,
+  serializeModerationContentState,
+} from "@/lib/moderation";
 import { getAuthenticatedUser } from "@/lib/mercadopago";
 
 type DeleteBody = {
   reason?: string;
+};
+
+type ReviewBody = {
+  action?: "approved" | "archived";
 };
 
 export async function DELETE(
@@ -76,6 +87,35 @@ export async function DELETE(
     });
 
     const postIds = normalizedLinks.map((row) => row.postId).filter(Boolean);
+    const { data: reportRows, error: reportRowsError } = await admin
+      .from("notifications")
+      .select("id,message")
+      .eq("type", "content_report")
+      .eq("entity_id", albumId);
+
+    if (reportRowsError) throw reportRowsError;
+
+    const parsedReports = (reportRows ?? []).flatMap((row) => {
+      const parsed = parseContentReport(row.message);
+      if (!parsed || parsed.albumId !== albumId) return [];
+      return [{ id: row.id, parsed }];
+    });
+
+    if (parsedReports.length > 0) {
+      await Promise.all(
+        parsedReports.map((row) =>
+          admin
+            .from("notifications")
+            .update({
+              message: serializeContentReport({
+                ...row.parsed,
+                status: "removed",
+              }),
+            })
+            .eq("id", row.id),
+        ),
+      );
+    }
     const archivedPosts = normalizedLinks
       .map((row) => row.post)
       .filter(
@@ -139,20 +179,27 @@ export async function DELETE(
       .eq("id", albumId);
     if (albumError) throw albumError;
 
-    await admin.from("notifications").insert({
-      user_id: album.user_id,
-      actor_id: user.id,
-      entity_id: album.id,
-      type: "moderation_action",
-      message: serializeModerationAction({
-        reportId: `delete-${album.id}`,
-        albumId: album.id,
-        action: "removed",
-        reason,
-        actedAt: new Date().toISOString(),
-      }),
-      is_read: true,
-    });
+    await Promise.all(
+      (parsedReports.length > 0
+        ? parsedReports.map((row) => row.id)
+        : [`delete-${album.id}`]
+      ).map((reportId) =>
+        admin.from("notifications").insert({
+          user_id: album.user_id,
+          actor_id: user.id,
+          entity_id: album.id,
+          type: "moderation_action",
+          message: serializeModerationAction({
+            reportId,
+            albumId: album.id,
+            action: "removed",
+            reason,
+            actedAt: new Date().toISOString(),
+          }),
+          is_read: true,
+        }),
+      ),
+    );
 
     await admin.from("notifications").insert({
       user_id: album.user_id,
@@ -171,6 +218,121 @@ export async function DELETE(
           error instanceof Error
             ? error.message
             : "No se pudo eliminar el contenido.",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: { albumId: string } },
+) {
+  try {
+    const { admin, user, error } = await getAuthenticatedUser(request);
+    if (error || !admin || !user) {
+      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+    }
+
+    if (!(await isAdminUser(admin, user))) {
+      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
+    }
+
+    const { albumId } = params;
+    const body = (await request.json().catch(() => ({}))) as ReviewBody;
+    const action = body.action === "archived" ? "archived" : "approved";
+
+    const { data: album, error: albumError } = await admin
+      .from("albums")
+      .select("id,user_id")
+      .eq("id", albumId)
+      .maybeSingle();
+
+    if (albumError) throw albumError;
+    if (!album) {
+      return NextResponse.json({ error: "No se encontró el contenido." }, { status: 404 });
+    }
+
+    const { data: openReports, error: reportsError } = await admin
+      .from("notifications")
+      .select("id,message,user_id")
+      .eq("type", "content_report")
+      .eq("entity_id", albumId)
+      .order("created_at", { ascending: false });
+
+    if (reportsError) throw reportsError;
+
+    const reportRows = (openReports ?? []).flatMap((row) => {
+      const parsed = parseContentReport(row.message);
+      if (!row?.id || !parsed || parsed.albumId !== albumId) return [];
+      if ((parsed.status ?? "open") !== "open" || parsed.archived) return [];
+      return [{ id: row.id, parsed, userId: row.user_id }];
+    });
+
+    if (reportRows.length > 0) {
+      await Promise.all(
+        reportRows.map((row) =>
+          admin
+            .from("notifications")
+            .update({
+              message: serializeContentReport({
+                ...row.parsed,
+                status: action === "approved" ? "reviewed" : "dismissed",
+              }),
+            })
+            .eq("id", row.id),
+        ),
+      );
+    }
+
+    const { error: stateError } = await admin.from("notifications").insert({
+      user_id: album.user_id,
+      actor_id: user.id,
+      entity_id: albumId,
+      type: "moderation_content_state",
+      message: serializeModerationContentState({
+        albumId,
+        action,
+        actedAt: new Date().toISOString(),
+        actorId: user.id,
+      }),
+      is_read: true,
+    });
+
+    if (stateError) throw stateError;
+
+    if (reportRows.length > 0) {
+      await Promise.all(
+        reportRows.map((row) =>
+          admin.from("notifications").insert({
+            user_id: album.user_id,
+            actor_id: user.id,
+            entity_id: albumId,
+            type: "moderation_action",
+            message: serializeModerationAction({
+              reportId: row.id,
+              albumId,
+              action: action === "approved" ? "reviewed" : "dismissed",
+              reason:
+                action === "approved"
+                  ? "Contenido aprobado y mantenido en el sitio."
+                  : "Contenido archivado como revisión completa.",
+              actedAt: new Date().toISOString(),
+            }),
+            is_read: true,
+          }),
+        ),
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "No se pudo actualizar el estado del contenido.",
       },
       { status: 500 },
     );

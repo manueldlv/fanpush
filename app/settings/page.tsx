@@ -6,7 +6,13 @@ import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import type { PayoutProfile } from "@/lib/payouts";
 import { parsePayoutProfile, serializePayoutProfile } from "@/lib/payouts";
+import {
+  normalizeWebsite,
+  parseProfileDetails,
+  serializeProfileDetails,
+} from "@/lib/profileDetails";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SettingsPage() {
@@ -19,6 +25,9 @@ export default function SettingsPage() {
   const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
+  const [bio, setBio] = useState("");
+  const [website, setWebsite] = useState("");
+  const [instagram, setInstagram] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingPayout, setSavingPayout] = useState(false);
@@ -29,6 +38,7 @@ export default function SettingsPage() {
   const [payoutHolderName, setPayoutHolderName] = useState("");
   const [payoutHolderDocument, setPayoutHolderDocument] = useState("");
   const [payoutNotes, setPayoutNotes] = useState("");
+  const [savedPayoutProfile, setSavedPayoutProfile] = useState<PayoutProfile | null>(null);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -56,14 +66,27 @@ export default function SettingsPage() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      const { data: profileMetaRow } = await supabase
+        .from("notifications")
+        .select("message")
+        .eq("user_id", userId)
+        .eq("type", "profile_meta")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       setUsername(userRow?.username ?? "usuario");
       setFullName(profileRow?.full_name ?? "");
       const payoutProfile = parsePayoutProfile(payoutRow?.message);
+      const profileDetails = parseProfileDetails(profileMetaRow?.message);
       setPayoutAlias(payoutProfile?.alias ?? "");
       setPayoutHolderName(payoutProfile?.holderName ?? "");
       setPayoutHolderDocument(payoutProfile?.holderDocument ?? "");
       setPayoutNotes(payoutProfile?.notes ?? "");
+      setSavedPayoutProfile(payoutProfile);
+      setBio(profileDetails?.bio ?? "");
+      setWebsite(profileDetails?.website ?? "");
+      setInstagram(profileDetails?.instagram ?? "");
 
       const rawAvatar = userRow?.avatar_url ?? null;
       if (rawAvatar && !rawAvatar.startsWith("http")) {
@@ -149,6 +172,38 @@ export default function SettingsPage() {
       );
       if (profileError) throw profileError;
 
+      const profileMetaPayload = serializeProfileDetails({
+        bio,
+        website: normalizeWebsite(website),
+        instagram,
+      });
+      const { data: existingProfileMeta } = await supabase
+        .from("notifications")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("type", "profile_meta")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingProfileMeta?.id) {
+        const { error: profileMetaError } = await supabase
+          .from("notifications")
+          .update({ message: profileMetaPayload, is_read: true })
+          .eq("id", existingProfileMeta.id);
+        if (profileMetaError) throw profileMetaError;
+      } else {
+        const { error: profileMetaError } = await supabase.from("notifications").insert({
+          user_id: userId,
+          actor_id: userId,
+          type: "profile_meta",
+          entity_id: userId,
+          message: profileMetaPayload,
+          is_read: true,
+        });
+        if (profileMetaError) throw profileMetaError;
+      }
+
       setAvatarUrl(uploadedAvatarUrl ?? null);
       setAvatarPath(uploadedAvatarPath ?? null);
       setAvatarFile(null);
@@ -159,6 +214,9 @@ export default function SettingsPage() {
             username: safeUsername,
             fullName: fullName.trim(),
             avatarUrl: uploadedAvatarUrl ?? null,
+            bio: bio.trim(),
+            website: normalizeWebsite(website),
+            instagram: instagram.trim(),
           },
         }),
       );
@@ -271,6 +329,13 @@ export default function SettingsPage() {
         if (error) throw error;
       }
 
+      setSavedPayoutProfile({
+        alias: payoutAlias.trim(),
+        holderName: payoutHolderName.trim(),
+        holderDocument: payoutHolderDocument.trim(),
+        notes: payoutNotes.trim(),
+        updatedAt: new Date().toISOString(),
+      });
       setMessage("Datos de cobro actualizados.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
@@ -279,8 +344,29 @@ export default function SettingsPage() {
     }
   };
 
+  const hasSavedPayoutProfile =
+    !!savedPayoutProfile?.alias &&
+    !!savedPayoutProfile?.holderName &&
+    !!savedPayoutProfile?.holderDocument;
+
+  const hasUnsavedPayoutChanges =
+    payoutAlias.trim() !== (savedPayoutProfile?.alias ?? "") ||
+    payoutHolderName.trim() !== (savedPayoutProfile?.holderName ?? "") ||
+    payoutHolderDocument.trim() !== (savedPayoutProfile?.holderDocument ?? "") ||
+    payoutNotes.trim() !== (savedPayoutProfile?.notes ?? "");
+
+  const payoutUpdatedLabel = savedPayoutProfile?.updatedAt
+    ? new Date(savedPayoutProfile.updatedAt).toLocaleString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft
         searchOpen={searchOpen}
         onSearchClick={() => {
@@ -300,8 +386,8 @@ export default function SettingsPage() {
         onClose={() => setNotificationsOpen(false)}
       />
 
-      <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none gap-6 px-4 py-6 md:max-w-[1200px] md:gap-8 md:px-6 md:py-8">
+      <div className="md:pl-60">
+        <div className="mx-auto flex w-full max-w-none gap-6 px-4 py-6 md:max-w-[1200px] md:gap-8 md:px-6 md:py-8">
           <aside className="w-[280px] shrink-0">
             <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
               <div className="text-lg font-semibold">Configuración</div>
@@ -420,6 +506,82 @@ export default function SettingsPage() {
                   </p>
                 </div>
 
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  <label className="text-sm font-semibold text-zinc-900">
+                    Bio
+                  </label>
+                  <textarea
+                    value={bio}
+                    onChange={(event) => setBio(event.target.value)}
+                    placeholder="Cuéntale a la gente qué compartes en FanPush."
+                    maxLength={220}
+                    className="mt-2 min-h-[110px] w-full rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-800 outline-none"
+                  />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {bio.trim().length}/220 caracteres
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                    <label className="text-sm font-semibold text-zinc-900">
+                      Sitio web o link principal
+                    </label>
+                    <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
+                      <input
+                        placeholder="ejemplo.com o https://..."
+                        value={website}
+                        onChange={(event) => setWebsite(event.target.value)}
+                        className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Puedes usarlo para tu landing, Telegram o enlace principal.
+                    </p>
+                  </div>
+
+                  <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                    <label className="text-sm font-semibold text-zinc-900">
+                      Instagram
+                    </label>
+                    <div className="mt-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2">
+                      <input
+                        placeholder="@tuusuario"
+                        value={instagram}
+                        onChange={(event) => setInstagram(event.target.value)}
+                        className="w-full bg-transparent text-sm text-zinc-800 outline-none"
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Opcional. Se mostrará como contacto social en tu perfil.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 p-5">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Ayuda y soporte
+                  </div>
+                  <p className="mt-2 text-sm text-zinc-600">
+                    Si tienes dudas sobre compras, retiros o verificación de autor,
+                    puedes revisar la guía rápida o la sección de preguntas frecuentes.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <a
+                      href="/ayuda"
+                      className="rounded-[5px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
+                    >
+                      Centro de ayuda
+                    </a>
+                    <a
+                      href="/faq"
+                      className="rounded-[5px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700"
+                    >
+                      Preguntas frecuentes
+                    </a>
+                  </div>
+                </div>
+
                 <div className="flex justify-end">
                   <button
                     onClick={handleSave}
@@ -480,6 +642,105 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">
+                        Cuenta de cobro actual
+                      </div>
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Aquí puedes confirmar qué datos están activos para recibir tus retiros.
+                      </p>
+                    </div>
+                    <div
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        hasSavedPayoutProfile
+                          ? hasUnsavedPayoutChanges
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-emerald-100 text-emerald-700"
+                          : "bg-zinc-100 text-zinc-500"
+                      }`}
+                    >
+                      {hasSavedPayoutProfile
+                        ? hasUnsavedPayoutChanges
+                          ? "Tienes cambios sin guardar"
+                          : "Datos guardados"
+                        : "Aún no cargaste una cuenta"}
+                    </div>
+                  </div>
+
+                  {hasSavedPayoutProfile ? (
+                    <div className="mt-5 rounded-[5px] border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Alias / CVU / CBU activo
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-zinc-900">
+                            {savedPayoutProfile?.alias}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Titular
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-zinc-900">
+                            {savedPayoutProfile?.holderName}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Documento
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-zinc-900">
+                            {savedPayoutProfile?.holderDocument}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Última actualización
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-zinc-900">
+                            {payoutUpdatedLabel ?? "Sin fecha"}
+                          </div>
+                        </div>
+                      </div>
+                      {savedPayoutProfile?.notes ? (
+                        <div className="mt-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Notas guardadas
+                          </div>
+                          <div className="mt-1 text-sm text-zinc-700">
+                            {savedPayoutProfile.notes}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-[5px] border border-dashed border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
+                      Todavía no hay una cuenta de cobro guardada. Completa los campos de abajo y guarda para dejarla activa.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">
+                        Editar datos de cobro
+                      </div>
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Si cambias tu alias, CBU o titular, guarda nuevamente para reemplazar la cuenta activa.
+                      </p>
+                    </div>
+                    {hasSavedPayoutProfile ? (
+                      <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                        {hasUnsavedPayoutChanges
+                          ? "Estás editando una cuenta ya guardada."
+                          : "Estos campos coinciden con tu cuenta activa."}
+                      </div>
+                    ) : null}
+                  </div>
+
                   <div className="grid gap-5 md:grid-cols-2">
                     <div>
                       <label className="text-sm font-semibold text-zinc-900">

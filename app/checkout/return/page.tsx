@@ -3,7 +3,9 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  clearPendingCheckout,
   EARNINGS_REFRESH_FLAG,
+  savePendingCheckout,
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -55,9 +57,18 @@ function CheckoutReturnContent() {
       }
 
       if (!session?.access_token) {
-        setMessage(
-          "No pudimos recuperar tu sesión. Vuelve a iniciar sesión para acreditar el pago.",
-        );
+        savePendingCheckout({
+          paymentId,
+          kind:
+            (searchParams.get("kind") as "purchase" | "tip" | null) ?? null,
+          target,
+          status: status || "approved",
+          savedAt: Date.now(),
+        });
+        setMessage("Redirigiéndote al login para continuar con la acreditación...");
+        window.setTimeout(() => {
+          window.location.assign("/auth?checkout=resume");
+        }, 500);
         return;
       }
 
@@ -93,6 +104,7 @@ function CheckoutReturnContent() {
       }
 
       if (result.kind === "purchase") {
+        clearPendingCheckout();
         window.sessionStorage.setItem(
           PURCHASE_REFRESH_FLAG,
           String(Date.now()),
@@ -100,6 +112,7 @@ function CheckoutReturnContent() {
         window.dispatchEvent(new Event("purchases-updated"));
       }
       if (result.kind === "tip") {
+        clearPendingCheckout();
         window.sessionStorage.setItem(
           EARNINGS_REFRESH_FLAG,
           String(Date.now()),

@@ -152,7 +152,24 @@ export default function SidebarLeft({
           </nav>
 
           <div className="mt-6 rounded-[5px] border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-            Comparte fotos y conecta con tu comunidad.
+            <div className="font-semibold text-zinc-900">FanPush guía rápida</div>
+            <div className="mt-2">
+              Compra contenido al instante, deja propinas y, si quieres vender, solicita tu verificación de autor.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href="/ayuda"
+                className="rounded-[5px] border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700"
+              >
+                Centro de ayuda
+              </Link>
+              <Link
+                href="/faq"
+                className="rounded-[5px] border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700"
+              >
+                FAQ
+              </Link>
+            </div>
           </div>
 
         <div className="mt-auto pt-4">

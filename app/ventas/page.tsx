@@ -353,6 +353,32 @@ export default function VentasPage() {
             </p>
           </div>
 
+          {sales.length === 0 && !loading ? (
+            <div className="rounded-[16px] border border-zinc-200 bg-white p-6">
+              <div className="text-lg font-semibold text-zinc-900">
+                Todavía no tienes ventas
+              </div>
+              <p className="mt-2 max-w-[640px] text-sm leading-6 text-zinc-600">
+                Cuando alguien compre tu contenido o te envíe una propina, aquí
+                verás el resumen, tu ganancia neta y el estado de los retiros.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <a
+                  href="/crear"
+                  className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  Crear mi primera publicación
+                </a>
+                <a
+                  href="/settings"
+                  className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+                >
+                  Completar datos de cobro
+                </a>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
               <div className="text-xs text-zinc-500">Ventas totales</div>
@@ -390,7 +416,7 @@ export default function VentasPage() {
             ) : null}
             {!loading && sales.length === 0 ? (
               <div className="px-4 py-4 text-sm text-zinc-500">
-                Aún no tienes ventas.
+                Aún no tienes ventas registradas.
               </div>
             ) : null}
             {sales.map((sale) => (

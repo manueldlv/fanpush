@@ -16,12 +16,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const inCheckoutReturn = pathname?.startsWith("/checkout/return");
   const inPublicTerms = pathname?.startsWith("/terminos");
   const inPublicPrivacy = pathname?.startsWith("/privacidad");
+  const inPublicHelp = pathname?.startsWith("/ayuda");
+  const inPublicFaq = pathname?.startsWith("/faq");
   const allowWithoutSession = Boolean(
     inAuth ||
       inAdminLogin ||
       inCheckoutReturn ||
       inPublicTerms ||
-      inPublicPrivacy,
+      inPublicPrivacy ||
+      inPublicHelp ||
+      inPublicFaq,
   );
   const [allowed, setAllowed] = useState(allowWithoutSession);
 

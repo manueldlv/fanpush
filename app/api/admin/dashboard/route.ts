@@ -2,12 +2,21 @@ import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/admin";
 import { parseTipAmountFromMessage } from "@/lib/earnings";
 import { getAuthenticatedUser } from "@/lib/mercadopago";
+import {
+  buildPremiumMediaPath,
+  parseLockedPreviewPath,
+  PREMIUM_MEDIA_BUCKET,
+  PUBLIC_MEDIA_BUCKET,
+} from "@/lib/media";
 import { parsePayoutProfile } from "@/lib/payouts";
 import {
   parseModerationAction,
   parseContentReport,
 } from "@/lib/reports";
-import { parseModerationArchive } from "@/lib/moderation";
+import {
+  parseModerationArchive,
+  parseModerationContentState,
+} from "@/lib/moderation";
 import {
   parseAuthorApplication,
   parseAuthorApplicationHistory,
@@ -17,6 +26,10 @@ import {
   parseWithdrawalHistory,
   parseWithdrawalRecord,
 } from "@/lib/withdrawals";
+import {
+  getCreatorShareFromProfile,
+  parseUserCommissionProfile,
+} from "@/lib/userCommission";
 
 export async function GET(request: Request) {
   try {
@@ -45,6 +58,12 @@ export async function GET(request: Request) {
       moderationHistoryRowsResult,
       withdrawalHistoryRowsResult,
       moderationArchiveRowsResult,
+      moderationStateRowsResult,
+      allUsersRowsResult,
+      profilesRowsResult,
+      followsRowsResult,
+      allAlbumsResult,
+      commissionRowsResult,
     ] = await Promise.all([
       admin.from("users").select("id", { count: "exact", head: true }),
       admin.from("albums").select("id", { count: "exact", head: true }),
@@ -66,7 +85,7 @@ export async function GET(request: Request) {
       admin
         .from("albums")
         .select(
-          "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post_id,post:posts(media_url,media_type))",
+          "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post_id,post:posts(id,media_url,media_type,is_locked,caption,created_at,likes_count))",
         )
         .order("created_at", { ascending: false })
         .limit(30),
@@ -117,63 +136,43 @@ export async function GET(request: Request) {
         .eq("type", "moderation_archive")
         .order("created_at", { ascending: false })
         .limit(100),
+      admin
+        .from("notifications")
+        .select("id,user_id,entity_id,message,created_at")
+        .eq("type", "moderation_content_state")
+        .order("created_at", { ascending: false })
+        .limit(200),
+      admin.from("users").select("id,username,avatar_url,created_at"),
+      admin.from("profiles").select("id,full_name,email,created_at"),
+      admin.from("follows").select("follower_id,following_id"),
+      admin
+        .from("albums")
+        .select(
+          "id,user_id,description,price,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,caption,created_at,likes_count))",
+        )
+        .order("created_at", { ascending: false }),
+      admin
+        .from("notifications")
+        .select("user_id,message,created_at")
+        .eq("type", "user_commission_profile")
+        .order("created_at", { ascending: false }),
     ]);
 
-    const buyerIds = Array.from(
-      new Set((recentPurchasesResult.data ?? []).map((row) => row.user_id)),
-    );
     const purchasePostIds = Array.from(
-      new Set((recentPurchasesResult.data ?? []).map((row) => row.post_id)),
-    );
-    const albumUserIds = Array.from(
-      new Set((recentAlbumsResult.data ?? []).map((row) => row.user_id)),
-    );
-    const tipActorIds = Array.from(
-      new Set((tipRowsResult.data ?? []).map((row) => row.actor_id)),
-    );
-    const withdrawalUserIds = Array.from(
-      new Set((withdrawalRowsResult.data ?? []).map((row) => row.user_id)),
-    );
-    const reportActorIds = Array.from(
-      new Set((reportRowsResult.data ?? []).map((row) => row.actor_id)),
-    );
-    const authorApplicantIds = Array.from(
-      new Set((authorApplicationRowsResult.data ?? []).map((row) => row.user_id)),
-    );
-    const authorHistoryActorIds = Array.from(
-      new Set(
-        (authorApplicationHistoryRowsResult.data ?? []).map((row) => row.actor_id),
-      ),
+      new Set((purchasesRowsResult.data ?? []).map((row) => row.post_id)),
     );
 
-    const actorAndBuyerIds = Array.from(
-      new Set([
-        ...buyerIds,
-        ...albumUserIds,
-        ...tipActorIds,
-        ...withdrawalUserIds,
-        ...reportActorIds,
-        ...authorApplicantIds,
-        ...authorHistoryActorIds,
-        ...(moderationHistoryRowsResult.data ?? []).map((row) => row.actor_id),
-        ...(withdrawalHistoryRowsResult.data ?? []).map((row) => row.actor_id),
-        ...(moderationArchiveRowsResult.data ?? []).map((row) => row.user_id),
-      ]),
-    );
-
-    const [{ data: usersRows }, { data: postOwnerRows }] = await Promise.all([
-      actorAndBuyerIds.length
-        ? admin
-            .from("users")
-            .select("id, username, avatar_url")
-            .in("id", actorAndBuyerIds)
-        : Promise.resolve({ data: [] }),
+    const [{ data: postOwnerRows }] = await Promise.all([
       purchasePostIds.length
         ? admin.from("posts").select("id, user_id").in("id", purchasePostIds)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [] as Array<{ id: string; user_id: string }> }),
     ]);
 
-    const userMap = new Map((usersRows ?? []).map((row) => [row.id, row]));
+    const allUsersRows = allUsersRowsResult.data ?? [];
+    const userMap = new Map(allUsersRows.map((row) => [row.id, row]));
+    const profileMap = new Map(
+      (profilesRowsResult.data ?? []).map((row) => [row.id, row]),
+    );
     const postOwnerMap = new Map(
       (postOwnerRows ?? []).map((row) => [row.id, row.user_id]),
     );
@@ -181,6 +180,212 @@ export async function GET(request: Request) {
       (payoutRowsResult.data ?? [])
         .map((row) => [row.user_id, parsePayoutProfile(row.message)] as const)
         .filter((entry) => Boolean(entry[1])),
+    );
+    const commissionMap = new Map(
+      (commissionRowsResult.data ?? [])
+        .map((row) => [row.user_id, parseUserCommissionProfile(row.message)] as const)
+        .filter((entry) => Boolean(entry[1])),
+    );
+
+    const follows = followsRowsResult.data ?? [];
+    const allAlbums = allAlbumsResult.data ?? [];
+    const allPurchases = purchasesRowsResult.data ?? [];
+    const allTips = tipRowsResult.data ?? [];
+    const authorApplications = (authorApplicationRowsResult.data ?? [])
+      .map((row) => ({
+        userId: row.user_id,
+        parsed: parseAuthorApplication(row.message),
+        createdAt: row.created_at,
+      }))
+      .filter((entry) => Boolean(entry.parsed));
+
+    const authorStatusMap = new Map<string, "pending" | "approved" | "rejected">();
+    authorApplications.forEach((entry) => {
+      if (!entry.parsed) return;
+      if (!authorStatusMap.has(entry.userId)) {
+        authorStatusMap.set(entry.userId, entry.parsed.status);
+      }
+    });
+
+    const salesByUser = new Map<
+      string,
+      { purchasesGross: number; tipsGross: number }
+    >();
+    const addSales = (userId: string, purchaseAmount = 0, tipAmount = 0) => {
+      const current = salesByUser.get(userId) ?? { purchasesGross: 0, tipsGross: 0 };
+      current.purchasesGross += purchaseAmount;
+      current.tipsGross += tipAmount;
+      salesByUser.set(userId, current);
+    };
+
+    allPurchases.forEach((row) => {
+      const ownerId = postOwnerMap.get(row.post_id);
+      if (!ownerId) return;
+      addSales(ownerId, Number(row.amount || 0), 0);
+    });
+
+    allTips.forEach((row) => {
+      addSales(row.user_id, 0, parseTipAmountFromMessage(row.message));
+    });
+
+    const resolveAvatar = (value: string | null) => {
+      if (!value) return null;
+      if (value.startsWith("http")) return value;
+      return admin.storage.from("Imagenes").getPublicUrl(value).data.publicUrl;
+    };
+
+    const resolveModerationMediaUrl = async ({
+      value,
+      ownerUserId,
+      isLocked,
+      fallbackKind,
+    }: {
+      value: string | null;
+      ownerUserId: string;
+      isLocked?: boolean | null;
+      fallbackKind?: string | null;
+    }) => {
+      if (!value) return null;
+      if (value.startsWith("http")) return value;
+
+      if (isLocked) {
+        const parsed = parseLockedPreviewPath(value);
+        if (parsed) {
+          const premiumPath = buildPremiumMediaPath(
+            ownerUserId,
+            parsed.token,
+            parsed.originalExt,
+          );
+          const { data } = await admin.storage
+            .from(PREMIUM_MEDIA_BUCKET)
+            .createSignedUrl(premiumPath, 60 * 30);
+          if (data?.signedUrl) return data.signedUrl;
+        }
+      }
+
+      const bucket =
+        value.startsWith("premium/") || fallbackKind === "premium"
+          ? PREMIUM_MEDIA_BUCKET
+          : PUBLIC_MEDIA_BUCKET;
+      if (bucket === PREMIUM_MEDIA_BUCKET) {
+        const { data } = await admin.storage
+          .from(PREMIUM_MEDIA_BUCKET)
+          .createSignedUrl(value, 60 * 30);
+        return data?.signedUrl ?? null;
+      }
+      return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+    };
+
+    const latestContentStateByAlbum = new Map<
+      string,
+      ReturnType<typeof parseModerationContentState>
+    >();
+    for (const row of moderationStateRowsResult.data ?? []) {
+      const parsed = parseModerationContentState(row.message);
+      if (!parsed || latestContentStateByAlbum.has(parsed.albumId)) continue;
+      latestContentStateByAlbum.set(parsed.albumId, parsed);
+    }
+
+    const usersDetailed = allUsersRows
+      .map((row) => {
+        const profile = profileMap.get(row.id);
+        const authoredAlbums = allAlbums.filter((album) => album.user_id === row.id);
+        const followers = follows
+          .filter((follow) => follow.following_id === row.id)
+          .map((follow) => {
+            const follower = userMap.get(follow.follower_id);
+            return {
+              id: follow.follower_id,
+              username: follower?.username ?? "usuario",
+              avatar: follower?.avatar_url
+                ? resolveAvatar(follower.avatar_url)
+                : null,
+            };
+          });
+        const following = follows
+          .filter((follow) => follow.follower_id === row.id)
+          .map((follow) => {
+            const followed = userMap.get(follow.following_id);
+            return {
+              id: follow.following_id,
+              username: followed?.username ?? "usuario",
+              avatar: followed?.avatar_url
+                ? resolveAvatar(followed.avatar_url)
+                : null,
+            };
+          });
+
+        const commissionProfile = commissionMap.get(row.id) ?? null;
+        const creatorShare = getCreatorShareFromProfile(commissionProfile);
+        const grosses = salesByUser.get(row.id) ?? { purchasesGross: 0, tipsGross: 0 };
+        const totalGross = grosses.purchasesGross + grosses.tipsGross;
+        const creatorNet = totalGross * creatorShare;
+        const platformFee = totalGross - creatorNet;
+        const authorStatus = authorStatusMap.get(row.id) ?? "idle";
+
+        return {
+          id: row.id,
+          username: row.username ?? "usuario",
+          avatar: row.avatar_url ? resolveAvatar(row.avatar_url) : null,
+          fullName: profile?.full_name ?? "",
+          email: profile?.email ?? "",
+          createdAt: profile?.created_at ?? null,
+          role: authorStatus === "approved" ? "author" : "user",
+          authorStatus,
+          followersCount: followers.length,
+          followingCount: following.length,
+          followers,
+          following,
+          commissionPercent: Math.round(creatorShare * 100),
+          salesGross: totalGross,
+          creatorNet,
+          platformFee,
+          tipsGross: grosses.tipsGross,
+          purchasesGross: grosses.purchasesGross,
+          posts: authoredAlbums.map((album) => {
+            const media = Array.isArray(album.album_posts)
+              ? album.album_posts
+                  .map((link) => {
+                    const post = Array.isArray(link.post) ? link.post[0] : link.post;
+                    if (!post) return null;
+                    return {
+                      id: post.id ?? link.post_id,
+                      url: post.media_url ? resolveAvatar(post.media_url) : null,
+                      type: post.media_type ?? "image",
+                      caption: post.caption ?? "",
+                      isLocked: Boolean(post.is_locked || Number(album.price || 0) > 0),
+                      createdAt: post.created_at ?? album.created_at,
+                      likesCount: Number(post.likes_count || 0),
+                    };
+                  })
+                  .filter(Boolean)
+              : [];
+
+            return {
+              id: album.id,
+              description: album.description ?? "",
+              price: Number(album.price || 0),
+              createdAt: album.created_at,
+              visibility: Number(album.price || 0) > 0 ? "private" : "public",
+              itemsCount: media.length,
+              likesCount: media.reduce(
+                (sum, item) => sum + Number(item?.likesCount || 0),
+                0,
+              ),
+              media,
+            };
+          }),
+        };
+      })
+      .sort((a, b) => a.username.localeCompare(b.username));
+
+    const totalCreatorsNet = usersDetailed.reduce(
+      (sum, item) => sum + item.creatorNet,
+      0,
+    );
+    const totalPlatformFee = usersDetailed.reduce(
+      (sum, item) => sum + item.platformFee,
+      0,
     );
 
     const purchaseGross = (purchasesRowsResult.data ?? []).reduce(
@@ -205,13 +410,7 @@ export async function GET(request: Request) {
       };
     });
 
-    const resolveAvatar = (value: string | null) => {
-      if (!value) return null;
-      if (value.startsWith("http")) return value;
-      return admin.storage.from("Imagenes").getPublicUrl(value).data.publicUrl;
-    };
-
-    const content = (recentAlbumsResult.data ?? []).map((album) => {
+    const content = await Promise.all((recentAlbumsResult.data ?? []).map(async (album) => {
       const albumUser = Array.isArray(album.users) ? album.users[0] : album.users;
       const firstLink = Array.isArray(album.album_posts)
         ? album.album_posts[0]
@@ -222,6 +421,7 @@ export async function GET(request: Request) {
             ? firstLink.post[0]
             : firstLink.post
           : null;
+      const moderationState = latestContentStateByAlbum.get(album.id);
       return {
         id: album.id,
         description: album.description ?? "",
@@ -229,23 +429,38 @@ export async function GET(request: Request) {
         createdAt: album.created_at,
         username: albumUser?.username ?? "usuario",
         avatar: resolveAvatar(albumUser?.avatar_url ?? null),
-        mediaUrl: resolveAvatar(firstPost?.media_url ?? null),
+        mediaUrl: await resolveModerationMediaUrl({
+          value: firstPost?.media_url ?? null,
+          ownerUserId: album.user_id,
+          isLocked: firstPost?.is_locked ?? Number(album.price || 0) > 0,
+        }),
         mediaType: firstPost?.media_type ?? "image",
         itemsCount: Array.isArray(album.album_posts) ? album.album_posts.length : 0,
+        moderationState: moderationState?.action ?? null,
         media: Array.isArray(album.album_posts)
-          ? album.album_posts
-              .map((link) => {
+          ? (
+              await Promise.all(
+                album.album_posts.map(async (link) => {
                 const post = Array.isArray(link.post) ? link.post[0] : link.post;
                 if (!post?.media_url) return null;
                 return {
-                  url: resolveAvatar(post.media_url ?? null),
+                  id: post.id ?? link.post_id,
+                  url: await resolveModerationMediaUrl({
+                    value: post.media_url ?? null,
+                    ownerUserId: album.user_id,
+                    isLocked: post.is_locked ?? Number(album.price || 0) > 0,
+                  }),
                   type: post.media_type ?? "image",
+                  caption: post.caption ?? "",
+                  isLocked: Boolean(post.is_locked ?? Number(album.price || 0) > 0),
+                  createdAt: post.created_at ?? album.created_at,
                 };
-              })
-              .filter(Boolean)
+                }),
+              )
+            ).filter(Boolean)
           : [],
       };
-    });
+    }));
 
     return NextResponse.json({
       metrics: {
@@ -256,8 +471,8 @@ export async function GET(request: Request) {
         purchaseGross,
         tipGross,
         totalGross: purchaseGross + tipGross,
-        creatorsNet: (purchaseGross + tipGross) * 0.7,
-        platformFee: (purchaseGross + tipGross) * 0.3,
+        creatorsNet: totalCreatorsNet,
+        platformFee: totalPlatformFee,
       },
       commerce: {
         recentPurchases,
@@ -385,6 +600,7 @@ export async function GET(request: Request) {
             };
           })
           .filter(Boolean),
+        users: usersDetailed,
       },
       content,
     });

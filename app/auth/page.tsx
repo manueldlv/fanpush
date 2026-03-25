@@ -6,6 +6,10 @@ import { getSupabaseClient } from "@/lib/supabase";
 import Image from "next/image";
 import type { CSSProperties } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import {
+  clearPendingCheckout,
+  readPendingCheckout,
+} from "@/lib/auth";
 
 const JUST_SIGNED_IN_KEY = "fanpush_just_signed_in";
 
@@ -39,6 +43,23 @@ export default function AuthPage() {
   >("idle");
   const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+
+  const resumePendingCheckout = () => {
+    const pendingCheckout = readPendingCheckout();
+    if (!pendingCheckout) return false;
+
+    const checkoutUrl = new URL("/checkout/return", window.location.origin);
+    checkoutUrl.searchParams.set("payment_id", pendingCheckout.paymentId);
+    checkoutUrl.searchParams.set("status", pendingCheckout.status || "approved");
+    if (pendingCheckout.kind) {
+      checkoutUrl.searchParams.set("kind", pendingCheckout.kind);
+    }
+    if (pendingCheckout.target) {
+      checkoutUrl.searchParams.set("target", pendingCheckout.target);
+    }
+    window.location.assign(`${checkoutUrl.pathname}${checkoutUrl.search}`);
+    return true;
+  };
 
   const pageStyle: CSSProperties = {
     minHeight: "100vh",
@@ -268,6 +289,9 @@ export default function AuthPage() {
             String(Date.now()),
           );
         }
+        if (typeof window !== "undefined" && resumePendingCheckout()) {
+          return;
+        }
         window.location.assign("/");
       }
     } catch (err) {
@@ -381,12 +405,25 @@ export default function AuthPage() {
 
     settleRecoverySession();
 
+    if (
+      typeof window !== "undefined" &&
+      search.includes("checkout=resume")
+    ) {
+      void (async () => {
+        const { data } = await supabase.auth.getSession();
+        if (data.session?.access_token) {
+          resumePendingCheckout();
+        }
+      })();
+    }
+
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") {
         enterResetMode();
         if (typeof window !== "undefined") {
           window.history.replaceState({}, "", "/auth?reset=1");
         }
+        clearPendingCheckout();
       }
     });
     return () => {

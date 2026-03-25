@@ -12,6 +12,7 @@ import {
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
 import { loadCreatorEarnings } from "@/lib/earnings";
+import { parseProfileDetails } from "@/lib/profileDetails";
 import {
   getPremiumPathFromPreview,
   inferDisplayKind,
@@ -128,6 +129,9 @@ export default function PerfilPage({
     searchParams.get("avatar") ?? "",
   );
   const [profileLoading, setProfileLoading] = useState(true);
+  const [profileBio, setProfileBio] = useState("");
+  const [profileWebsite, setProfileWebsite] = useState("");
+  const [profileInstagram, setProfileInstagram] = useState("");
 
   const resolveAccessibleMedia = async (
     supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
@@ -211,6 +215,15 @@ export default function PerfilPage({
         .select("full_name")
         .eq("id", userId)
         .maybeSingle();
+      const { data: profileMetaRow } = await supabase
+        .from("notifications")
+        .select("message")
+        .eq("user_id", userId)
+        .eq("type", "profile_meta")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const profileDetails = parseProfileDetails(profileMetaRow?.message);
 
       const fallbackUser = resolveFallbackUsername(
         authData?.user?.email,
@@ -228,6 +241,9 @@ export default function PerfilPage({
       setProfileName(userRow?.username ?? fallbackUser);
       setProfileAvatar(avatarUrl);
       setProfileFullName(profileRow?.full_name ?? "Sin nombre");
+      setProfileBio(profileDetails?.bio ?? "");
+      setProfileWebsite(profileDetails?.website ?? "");
+      setProfileInstagram(profileDetails?.instagram ?? "");
       setProfileLoading(false);
     };
 
@@ -240,12 +256,18 @@ export default function PerfilPage({
         username?: string;
         fullName?: string;
         avatarUrl?: string | null;
+        bio?: string;
+        website?: string;
+        instagram?: string;
       };
       if (detail?.username) setProfileName(detail.username);
       if (detail?.fullName) setProfileFullName(detail.fullName);
       if (detail?.avatarUrl !== undefined) {
         setProfileAvatar(detail.avatarUrl ?? "");
       }
+      if (detail?.bio !== undefined) setProfileBio(detail.bio);
+      if (detail?.website !== undefined) setProfileWebsite(detail.website);
+      if (detail?.instagram !== undefined) setProfileInstagram(detail.instagram);
     };
     window.addEventListener("profile-updated", handler as EventListener);
     return () =>
@@ -309,6 +331,15 @@ export default function PerfilPage({
         .select("full_name")
         .eq("id", userId)
         .maybeSingle();
+      const { data: profileMetaRow } = await supabase
+        .from("notifications")
+        .select("message")
+        .eq("user_id", userId)
+        .eq("type", "profile_meta")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const profileDetails = parseProfileDetails(profileMetaRow?.message);
       const { data: albums } = await supabase
         .from("albums")
         .select(
@@ -345,6 +376,9 @@ export default function PerfilPage({
       setProfileName(userRow?.username ?? userParam ?? fallbackUsername);
       setProfileFullName(profileRow?.full_name ?? "Sin nombre");
       setProfileAvatar(resolvedAvatar);
+      setProfileBio(profileDetails?.bio ?? "");
+      setProfileWebsite(profileDetails?.website ?? "");
+      setProfileInstagram(profileDetails?.instagram ?? "");
 
       if ((albums ?? []).length > 0) {
         const mapped: Post[] = await Promise.all(
@@ -982,34 +1016,43 @@ export default function PerfilPage({
       ) : null}
 
       <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1360px] md:gap-8 md:px-6 md:py-8">
-          <div className="rounded-[12px] border border-zinc-200 bg-white px-6 py-8 md:px-10 md:py-10">
-            <div className="mx-auto flex w-full max-w-[980px] flex-col gap-8 md:flex-row md:items-start md:gap-14">
-              <div className="flex flex-1 items-start gap-6 md:gap-10">
+        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-4 px-4 py-4 md:max-w-[1240px] md:gap-5 md:px-6 md:py-5">
+          <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
+            <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 md:flex-row md:items-start md:gap-8">
+              <div className="flex flex-1 items-start gap-4 md:gap-6">
                 {profileAvatar ? (
                   <img
                     src={profileAvatar}
                     alt={profileName}
-                    className="h-28 w-28 rounded-full object-cover md:h-40 md:w-40"
+                    className="h-20 w-20 rounded-full object-cover md:h-28 md:w-28"
                   />
                 ) : (
-                  <div className="flex h-28 w-28 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500 md:h-40 md:w-40">
-                    <User className="h-10 w-10 md:h-14 md:w-14" />
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500 md:h-28 md:w-28">
+                    <User className="h-8 w-8 md:h-10 md:w-10" />
                   </div>
                 )}
-                <div className="flex-1 md:max-w-[560px]">
-                  <div className="flex items-center gap-2 md:gap-3">
-                    <h1 className="text-[28px] font-semibold leading-none md:text-[38px]">
+                <div className="flex-1 md:max-w-[500px]">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-[22px] font-semibold leading-none md:text-[28px]">
                       {profileName || "usuario"}
                     </h1>
-                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white md:h-6 md:w-6 md:text-[10px]">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white">
                       ✓
                     </span>
                   </div>
-                  <div className="mt-3 text-[18px] font-medium leading-snug text-zinc-700 md:text-[20px]">
+                  <div className="mt-1.5 text-[15px] font-medium leading-snug text-zinc-700 md:text-[17px]">
                     {profileFullName || "Sin nombre"}
                   </div>
-                  <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-[15px] text-zinc-600 md:gap-x-10 md:text-[17px]">
+                  {profileBio ? (
+                    <div className="mt-2.5 max-w-[560px] text-[13px] leading-5 text-zinc-700 md:text-[14px]">
+                      {profileBio}
+                    </div>
+                  ) : isOwnProfile ? (
+                    <div className="mt-2.5 max-w-[560px] rounded-[14px] border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
+                      Tu perfil todavía no tiene bio. Puedes agregar una desde Configuración para que se vea más completo.
+                    </div>
+                  ) : null}
+                  <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-zinc-600 md:gap-x-6 md:text-[14px]">
                     <span className="whitespace-nowrap">
                       <span className="font-semibold text-zinc-900">
                         {stats.posts}
@@ -1035,21 +1078,47 @@ export default function PerfilPage({
                       ventas
                     </span>
                   </div>
-                  <div className="mt-6 w-full max-w-[520px]">
+                  {profileWebsite || profileInstagram ? (
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      {profileWebsite ? (
+                        <a
+                          href={profileWebsite}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Link principal
+                        </a>
+                      ) : null}
+                      {profileInstagram ? (
+                        <a
+                          href={`https://instagram.com/${profileInstagram.replace(/^@/, "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          {profileInstagram.startsWith("@")
+                            ? profileInstagram
+                            : `@${profileInstagram}`}
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="mt-4 w-full max-w-[460px]">
                     {isOwnProfile ? (
                       <button
                         type="button"
                         onClick={() => router.push("/settings")}
-                        className="w-full rounded-[16px] bg-zinc-100 px-4 py-4 text-[15px] font-semibold text-zinc-900 md:text-[16px]"
+                        className="w-full rounded-[14px] bg-zinc-100 px-4 py-2.5 text-[14px] font-semibold text-zinc-900"
                       >
                         Editar perfil
                       </button>
                     ) : currentUserId && viewedUserId ? (
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2.5">
                         <button
                           type="button"
                           onClick={toggleFollow}
-                          className={`w-full rounded-[16px] px-4 py-4 text-[15px] font-semibold transition-colors md:text-[16px] ${
+                          className={`w-full rounded-[14px] px-4 py-2.5 text-[14px] font-semibold transition-colors ${
                             isFollowing
                               ? "bg-zinc-100 text-zinc-900"
                               : "bg-indigo-600 text-white hover:bg-indigo-500"
@@ -1063,7 +1132,7 @@ export default function PerfilPage({
                             setTipSent(null);
                             setTipOpen(true);
                           }}
-                          className="w-full rounded-[16px] border border-zinc-200 bg-white px-4 py-4 text-[15px] font-semibold text-zinc-900 transition hover:bg-zinc-50 md:text-[16px]"
+                          className="w-full rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
                         >
                           Propina
                         </button>

@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Search } from "lucide-react";
+import {
+  BadgeDollarSign,
+  Bell,
+  CreditCard,
+  ShieldAlert,
+  Sparkles,
+  UserPlus,
+  Wallet,
+  type LucideIcon,
+  Search,
+} from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 import { loadCreatorEarnings } from "@/lib/earnings";
@@ -23,7 +33,9 @@ type NotificationItem = {
   id: string;
   text: string;
   date: string;
+  createdAt: string;
   avatar: string | null;
+  type: string;
   isRead?: boolean;
   action?: { label: string; href: string };
 };
@@ -36,6 +48,76 @@ const USER_VISIBLE_NOTIFICATION_TYPES = new Set([
   "author_application_update",
   "content_removed_update",
 ]);
+
+function getNotificationMeta(type: string, text: string): {
+  label: string;
+  source: string;
+  icon: LucideIcon;
+  tone: string;
+  iconTone: string;
+} {
+  if (type === "follow") {
+    return {
+      label: "Nuevo seguidor",
+      source: "Usuario",
+      icon: UserPlus,
+      tone: "bg-sky-50 text-sky-700",
+      iconTone: "bg-sky-100 text-sky-700",
+    };
+  }
+  if (type === "tip") {
+    return {
+      label: "Propina",
+      source: "Ingreso",
+      icon: BadgeDollarSign,
+      tone: "bg-emerald-50 text-emerald-700",
+      iconTone: "bg-emerald-100 text-emerald-700",
+    };
+  }
+  if (type === "purchase") {
+    return {
+      label: "Compra",
+      source: "Venta",
+      icon: CreditCard,
+      tone: "bg-violet-50 text-violet-700",
+      iconTone: "bg-violet-100 text-violet-700",
+    };
+  }
+  if (type === "withdrawal_update") {
+    return {
+      label: "Retiro",
+      source: "FanPush",
+      icon: Wallet,
+      tone: "bg-amber-50 text-amber-700",
+      iconTone: "bg-amber-100 text-amber-700",
+    };
+  }
+  if (type === "content_removed_update") {
+    return {
+      label: "Moderación",
+      source: "Admin",
+      icon: ShieldAlert,
+      tone: "bg-rose-50 text-rose-700",
+      iconTone: "bg-rose-100 text-rose-700",
+    };
+  }
+  if (type === "author_application_update") {
+    return {
+      label: "Solicitud de autor",
+      source: "FanPush",
+      icon: Sparkles,
+      tone: "bg-indigo-50 text-indigo-700",
+      iconTone: "bg-indigo-100 text-indigo-700",
+    };
+  }
+  return {
+    label: "Notificación",
+    source: text.startsWith("FanPush ") ? "FanPush" : "Usuario",
+    icon: Bell,
+    tone: "bg-zinc-100 text-zinc-700",
+    iconTone: "bg-zinc-200 text-zinc-700",
+  };
+}
 
 export default function TopBar() {
   const pathname = usePathname();
@@ -170,6 +252,7 @@ export default function TopBar() {
           .filter((row) => USER_VISIBLE_NOTIFICATION_TYPES.has(row.type ?? ""))
           .map(async (row) => ({
           id: row.id,
+          type: row.type ?? "generic",
           text:
             row.type === "withdrawal_update" ||
             row.type === "author_application_update" ||
@@ -182,6 +265,7 @@ export default function TopBar() {
             day: "2-digit",
             month: "short",
           }),
+          createdAt: row.created_at,
           avatar:
             row.type === "withdrawal_update" ||
             row.type === "author_application_update" ||
@@ -278,12 +362,48 @@ export default function TopBar() {
   };
 
   const hasUnreadNotifications = notifications.some((item) => !item.isRead);
+  const groupedNotifications = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+
+    const groups = {
+      unread: [] as NotificationItem[],
+      today: [] as NotificationItem[],
+      yesterday: [] as NotificationItem[],
+      older: [] as NotificationItem[],
+    };
+
+    for (const item of notifications) {
+      const createdAt = new Date(item.createdAt);
+      if (!item.isRead) {
+        groups.unread.push(item);
+        continue;
+      }
+      if (createdAt >= startOfToday) {
+        groups.today.push(item);
+      } else if (createdAt >= startOfYesterday) {
+        groups.yesterday.push(item);
+      } else {
+        groups.older.push(item);
+      }
+    }
+
+    return groups;
+  }, [notifications]);
 
   if (
     pathname?.startsWith("/auth") ||
     pathname?.startsWith("/admin") ||
     pathname?.startsWith("/terminos") ||
-    pathname?.startsWith("/privacidad")
+    pathname?.startsWith("/privacidad") ||
+    pathname?.startsWith("/ayuda") ||
+    pathname?.startsWith("/faq")
   ) {
     return null;
   }
@@ -428,43 +548,101 @@ export default function TopBar() {
                     maxWidth: "calc(100vw - 1rem)",
                   }}
                 >
-                  <div className="max-h-[520px] space-y-3 overflow-y-auto pr-2">
+                  <div className="border-b border-zinc-100 pb-2">
+                    <div className="text-[24px] font-semibold tracking-tight text-zinc-950">
+                      Notifications
+                    </div>
+                  </div>
+                  <div className="max-h-[520px] space-y-4 overflow-y-auto pt-3 pr-2">
                     {notifications.length === 0 ? (
                       <div className="text-sm text-zinc-500">
                         No hay notificaciones.
                       </div>
                     ) : (
-                      notifications.map((item) => (
-                        <div
-                          key={item.id}
-                          className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-[12px] bg-zinc-50 px-4 py-3"
-                        >
-                          <UserAvatar
-                            src={item.avatar}
-                            alt="avatar"
-                            sizeClassName="h-10 w-10"
-                            iconClassName="h-4 w-4"
-                          />
-                          <div className="min-w-0 text-sm text-zinc-700">
-                            <div className="leading-[1.3] font-medium text-zinc-900">
-                              {item.text}
+                      ([
+                        {
+                          key: "unread",
+                          label: "New",
+                          items: groupedNotifications.unread,
+                        },
+                        {
+                          key: "today",
+                          label: "Today",
+                          items: groupedNotifications.today,
+                        },
+                        {
+                          key: "yesterday",
+                          label: "Yesterday",
+                          items: groupedNotifications.yesterday,
+                        },
+                        {
+                          key: "older",
+                          label: "Earlier",
+                          items: groupedNotifications.older,
+                        },
+                      ] as const).map((group) =>
+                        group.items.length ? (
+                          <div key={group.key}>
+                            <div className="mb-2 text-sm font-semibold text-zinc-900">
+                              {group.label}
                             </div>
-                            <div className="mt-1 text-xs text-zinc-400">
-                              {item.date}
+                            <div className="space-y-0.5">
+                              {group.items.map((item) => {
+                                const meta = getNotificationMeta(item.type, item.text);
+                                const MetaIcon = meta.icon;
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className="grid grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3 rounded-[12px] px-1 py-1.5"
+                                  >
+                                    <div className="pt-0.5">
+                                      {item.avatar ? (
+                                        <UserAvatar
+                                          src={item.avatar}
+                                          alt="avatar"
+                                          sizeClassName="h-10 w-10"
+                                          iconClassName="h-4 w-4"
+                                        />
+                                      ) : (
+                                        <div
+                                          className={`flex h-10 w-10 items-center justify-center rounded-full ${meta.iconTone}`}
+                                        >
+                                          <MetaIcon className="h-4.5 w-4.5" />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 border-b border-zinc-100 pb-2.5 text-sm text-zinc-700">
+                                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}
+                                        >
+                                          {meta.label}
+                                        </span>
+                                        <span className="text-[11px] text-zinc-400">
+                                          {item.date}
+                                        </span>
+                                      </div>
+                                      <div className="leading-[1.25] font-medium text-zinc-900">
+                                        {item.text}
+                                      </div>
+                                      {item.action && !item.text.startsWith("FanPush ") ? (
+                                        <div className="mt-1.5">
+                                          <Link
+                                            href={item.action.href}
+                                            className="inline-flex rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                          >
+                                            {item.action.label}
+                                          </Link>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
-                            {item.action && !item.text.startsWith("FanPush ") ? (
-                              <div className="mt-2">
-                                <Link
-                                  href={item.action.href}
-                                  className="inline-flex rounded-full bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white"
-                                >
-                                  {item.action.label}
-                                </Link>
-                              </div>
-                            ) : null}
                           </div>
-                        </div>
-                      ))
+                        ) : null,
+                      )
                     )}
                   </div>
                 </div>

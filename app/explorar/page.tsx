@@ -1,54 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
+import UserAvatar from "@/components/UserAvatar";
+import { buildUserProfileHref } from "@/lib/profileRoute";
+import { getSupabaseClient } from "@/lib/supabase";
 
-const exploreItems = [
-  {
-    id: 1,
-    type: "video",
-    poster: "https://picsum.photos/seed/explore-1/600/800",
-    video: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-  },
-  {
-    id: 2,
-    type: "video",
-    poster: "https://picsum.photos/seed/explore-2/600/800",
-    video: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm",
-  },
-  { id: 3, type: "photo", src: "https://picsum.photos/seed/explore-3/600/800" },
-  { id: 4, type: "photo", src: "https://picsum.photos/seed/explore-4/600/800" },
-  { id: 5, type: "photo", src: "https://picsum.photos/seed/explore-5/600/800" },
-  {
-    id: 6,
-    type: "video",
-    poster: "https://picsum.photos/seed/explore-6/600/800",
-    video: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-  },
-  { id: 7, type: "photo", src: "https://picsum.photos/seed/explore-7/600/800" },
-  {
-    id: 8,
-    type: "video",
-    poster: "https://picsum.photos/seed/explore-8/600/800",
-    video: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm",
-  },
-  { id: 9, type: "photo", src: "https://picsum.photos/seed/explore-9/600/800" },
-  { id: 10, type: "photo", src: "https://picsum.photos/seed/explore-10/600/800" },
-  {
-    id: 11,
-    type: "video",
-    poster: "https://picsum.photos/seed/explore-11/600/800",
-    video: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-  },
-  { id: 12, type: "photo", src: "https://picsum.photos/seed/explore-12/600/800" },
-];
+type ExploreItem = {
+  id: string;
+  mediaUrl: string | null;
+  mediaType: string;
+  username: string;
+  avatar: string | null;
+  description: string;
+  createdAt: string;
+};
 
 export default function ExplorarPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [items, setItems] = useState<ExploreItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadExplore = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
+        const { data } = await supabase
+          .from("albums")
+          .select(
+            "id,description,created_at,price,users(username,avatar_url),album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
+          )
+          .lte("price", 0)
+          .order("created_at", { ascending: false })
+          .limit(60);
+
+        const resolvePublicUrl = (value: string | null) => {
+          if (!value) return null;
+          if (value.startsWith("http")) return value;
+          return supabase.storage.from("Imagenes").getPublicUrl(value).data.publicUrl;
+        };
+
+        const mapped: ExploreItem[] = (data ?? [])
+          .flatMap((album) => {
+            const owner = Array.isArray(album.users) ? album.users[0] : album.users;
+            const username = owner?.username ?? "usuario";
+            const avatar = resolvePublicUrl(owner?.avatar_url ?? null);
+            const description = album.description ?? "";
+
+            return Array.isArray(album.album_posts)
+              ? album.album_posts
+                  .map((link) => {
+                    const post = Array.isArray(link.post) ? link.post[0] : link.post;
+                    if (!post?.media_url) return null;
+                    if (post.is_locked) return null;
+                    return {
+                      id: post.id ?? link.post_id,
+                      mediaUrl: resolvePublicUrl(post.media_url ?? null),
+                      mediaType: post.media_type ?? "image",
+                      username,
+                      avatar,
+                      description,
+                      createdAt: post.created_at ?? album.created_at,
+                    };
+                  })
+                  .filter(Boolean) as ExploreItem[]
+              : [];
+          })
+          .filter((item) => Boolean(item.mediaUrl));
+
+        setItems(mapped);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadExplore();
+  }, []);
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -76,50 +110,76 @@ export default function ExplorarPage() {
             <div>
               <h1 className="text-2xl font-semibold">Explorar</h1>
               <p className="text-sm text-zinc-500">
-                Descubre fotos y videos destacados.
+                Descubre perfiles y contenido gratuito publicado en FanPush.
               </p>
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto pb-8">
-            <div className="grid w-full grid-cols-[repeat(4,minmax(0,1fr))] gap-4">
-              {exploreItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="group relative aspect-[3/4] overflow-hidden rounded-[5px] bg-zinc-200"
-                >
-                  {item.type === "video" ? (
-                    <video
-                      className="h-full w-full object-cover"
-                      poster={item.poster}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      onMouseEnter={(event) => {
-                        event.currentTarget.play();
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.pause();
-                        event.currentTarget.currentTime = 0;
-                      }}
-                    >
-                      <source src={item.video} />
-                    </video>
-                  ) : (
-                    <img
-                      src={item.src}
-                      alt="Explorar"
-                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                    />
-                  )}
-                  {item.type === "video" ? (
-                    <div className="pointer-events-none absolute right-3 top-3 rounded-[5px] bg-white/90 p-1 shadow">
-                      <Play className="h-4 w-4 text-zinc-900" />
-                    </div>
-                  ) : null}
+            {loading ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500">
+                Cargando contenido gratuito...
+              </div>
+            ) : items.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white px-6 py-10 text-center">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Aún no hay contenido gratuito para explorar
                 </div>
-              ))}
-            </div>
+                <p className="mt-2 text-sm text-zinc-500">
+                  Cuando los creadores publiquen fotos o videos públicos, los verás acá sin blur ni bloqueo.
+                </p>
+              </div>
+            ) : (
+              <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                {items.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={buildUserProfileHref(item.username)}
+                    className="group overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
+                      {item.mediaType === "video" ? (
+                        <>
+                          <video
+                            src={item.mediaUrl ?? undefined}
+                            className="h-full w-full object-cover"
+                            muted
+                            playsInline
+                            preload="metadata"
+                          />
+                          <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow">
+                            <Play className="h-4 w-4 text-zinc-900" />
+                          </div>
+                        </>
+                      ) : (
+                        <img
+                          src={item.mediaUrl ?? undefined}
+                          alt={item.description || item.username}
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3">
+                      <UserAvatar
+                        src={item.avatar}
+                        alt={item.username}
+                        sizeClassName="h-10 w-10"
+                        iconClassName="h-4 w-4"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-950">
+                          @{item.username}
+                        </div>
+                        <div className="truncate text-xs text-zinc-500">
+                          {item.description || "Contenido gratuito"}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

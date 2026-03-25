@@ -851,6 +851,60 @@ export default function FeedLayout() {
           </div>
         </div>
       ) : null}
+      {!loading ? (
+        <div className="rounded-[16px] border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-400">
+            FanPush
+          </div>
+          <div className="mt-2 text-lg font-semibold text-zinc-900">
+            Compra, apoya y descubre contenido exclusivo
+          </div>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">
+            Explora perfiles, desbloquea publicaciones con Mercado Pago y apoya
+            a creadores con propinas. Si quieres vender, puedes solicitar tu
+            verificación de autor desde la parte superior del sitio.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a
+              href="/explorar"
+              className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Explorar creadores
+            </a>
+            <a
+              href="/ayuda"
+              className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+            >
+              Cómo funciona
+            </a>
+          </div>
+        </div>
+      ) : null}
+      {!loading && posts.length === 0 ? (
+        <div className="rounded-[16px] border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="text-lg font-semibold text-zinc-900">
+            Todavía no hay publicaciones para mostrar
+          </div>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">
+            Cuando los creadores publiquen contenido, lo verás aquí en tu feed.
+            Mientras tanto, puedes explorar perfiles o revisar la ayuda rápida de FanPush.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a
+              href="/explorar"
+              className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Ir a explorar
+            </a>
+            <a
+              href="/faq"
+              className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+            >
+              Ver preguntas frecuentes
+            </a>
+          </div>
+        </div>
+      ) : null}
       {posts.map((post) => (
         <article
           key={post.id}

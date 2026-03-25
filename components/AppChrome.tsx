@@ -14,7 +14,9 @@ export default function AppChrome({
     pathname?.startsWith("/auth") ||
     pathname?.startsWith("/admin") ||
     pathname?.startsWith("/terminos") ||
-    pathname?.startsWith("/privacidad");
+    pathname?.startsWith("/privacidad") ||
+    pathname?.startsWith("/ayuda") ||
+    pathname?.startsWith("/faq");
 
   return (
     <AuthGate>

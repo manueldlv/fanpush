@@ -12,6 +12,24 @@ Mapear todos los endpoints detectados, su propósito, nivel de sensibilidad y re
 - requisitos: sesión válida, ownership estricto, auditoría, rate limit
 - observación: toca datos personales, contenido y auth user
 
+### `POST /api/auth/register`
+- propósito: crear cuenta y enviar email de confirmación por Mailtrap
+- sensibilidad: alta
+- riesgo: medio
+- requisitos: validación de email, username, password y términos
+
+### `POST /api/auth/register/resend`
+- propósito: reenviar email de confirmación o acceso por Mailtrap
+- sensibilidad: media
+- riesgo: medio
+- requisitos: validación de email, rate limit recomendado
+
+### `POST /api/auth/password/recovery`
+- propósito: generar link de recuperación y enviarlo por Mailtrap
+- sensibilidad: alta
+- riesgo: medio
+- requisitos: validación de email, rate limit recomendado
+
 ### `GET /api/admin/access`
 - propósito: validar acceso al panel admin
 - sensibilidad: alta

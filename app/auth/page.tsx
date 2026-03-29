@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import Image from "next/image";
 import type { CSSProperties } from "react";
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from "lucide-react";
 import {
   clearPendingCheckout,
   readPendingCheckout,
@@ -22,18 +21,158 @@ const isRecoveryUrl = () => {
   );
 };
 
+const normalizeEmail = (value: string) =>
+  value.replace(/\s+/g, "").toLowerCase();
+
+const normalizeUsername = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9._]/g, "");
+
+const extractApiErrorMessage = async (response: Response) => {
+  const data = (await response.json().catch(() => null)) as
+    | { error?: string; message?: string }
+    | null;
+
+  return data?.error || data?.message || "Ocurrió un error.";
+};
+
+const formatAuthErrorMessage = (value: unknown) => {
+  const message =
+    value instanceof Error
+      ? value.message
+      : typeof value === "string"
+        ? value
+        : "Ocurrió un error.";
+
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("email not confirmed")) {
+    return "Tu correo todavía no fue confirmado. Revisa tu bandeja de entrada y spam antes de iniciar sesión.";
+  }
+  if (
+    normalized.includes("invalid login credentials") ||
+    normalized.includes("invalid email or password")
+  ) {
+    return "Correo o contraseña incorrectos.";
+  }
+  if (
+    normalized.includes("already registered") ||
+    normalized.includes("already been registered")
+  ) {
+    return "Ya existe una cuenta con ese correo.";
+  }
+  if (normalized.includes("signup is disabled")) {
+    return "El registro por correo no está habilitado en este momento.";
+  }
+
+  return message;
+};
+
+const hasPasswordLetter = (value: string) => /[a-z]/i.test(value);
+const hasPasswordNumber = (value: string) => /\d/.test(value);
+
+const getPasswordValidationError = ({
+  value,
+  confirmation,
+}: {
+  value: string;
+  confirmation?: string;
+}) => {
+  if (value.length < 6) {
+    return "La contraseña debe tener al menos 6 caracteres.";
+  }
+  if (!hasPasswordLetter(value)) {
+    return "La contraseña debe incluir al menos una letra.";
+  }
+  if (!hasPasswordNumber(value)) {
+    return "La contraseña debe incluir al menos un número.";
+  }
+  if (confirmation !== undefined && value !== confirmation) {
+    return "Las contraseñas no coinciden.";
+  }
+  return null;
+};
+
+const getPasswordChecks = ({
+  value,
+  confirmation,
+}: {
+  value: string;
+  confirmation?: string;
+}) => [
+  {
+    label: "Al menos 6 caracteres",
+    passed: value.length >= 6,
+  },
+  {
+    label: "Al menos una letra",
+    passed: hasPasswordLetter(value),
+  },
+  {
+    label: "Al menos un número",
+    passed: hasPasswordNumber(value),
+  },
+  ...(confirmation !== undefined
+    ? [
+        {
+          label: "Las contraseñas coinciden",
+          passed: confirmation.length > 0 && value === confirmation,
+        },
+      ]
+    : []),
+];
+
+function PasswordChecklist({
+  title,
+  checks,
+}: {
+  title: string;
+  checks: Array<{ label: string; passed: boolean }>;
+}) {
+  return (
+    <div className="rounded-[14px] border border-zinc-200 bg-zinc-50 px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+        {title}
+      </div>
+      <div className="mt-3 space-y-2">
+        {checks.map((check) => (
+          <div
+            key={check.label}
+            className={`flex items-center gap-2 text-xs ${
+              check.passed ? "text-emerald-700" : "text-zinc-500"
+            }`}
+          >
+            {check.passed ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+            ) : (
+              <XCircle className="h-4 w-4 shrink-0 text-zinc-300" />
+            )}
+            <span>{check.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [forgot, setForgot] = useState(false);
   const [reset, setReset] = useState(false);
-  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -43,6 +182,15 @@ export default function AuthPage() {
   >("idle");
   const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
+
+  const showRegisterFields = mode === "register" && !forgot && !reset;
+  const showLoginPasswordField = !forgot && !reset;
+  const registerPasswordChecks = getPasswordChecks({ value: password });
+  const resetPasswordChecks = getPasswordChecks({
+    value: newPassword,
+    confirmation: confirmPassword,
+  });
 
   const resumePendingCheckout = () => {
     const pendingCheckout = readPendingCheckout();
@@ -103,10 +251,10 @@ export default function AuthPage() {
   const formStyle: CSSProperties = {
     marginTop: "16px",
     border: "1px solid #e4e4e7",
-    borderRadius: "12px",
+    borderRadius: "20px",
     background: "#ffffff",
-    padding: isMobile ? "20px" : "24px",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+    padding: isMobile ? "22px" : "28px",
+    boxShadow: "0 12px 30px rgba(15,23,42,0.06)",
   };
 
   const segmentedStyle: CSSProperties = {
@@ -117,7 +265,7 @@ export default function AuthPage() {
   const inputStyle: CSSProperties = {
     width: "100%",
     height: "52px",
-    borderRadius: "10px",
+    borderRadius: "14px",
     border: "1px solid #e4e4e7",
     padding: "12px 16px",
     fontSize: "14px",
@@ -129,7 +277,7 @@ export default function AuthPage() {
 
   const primaryButtonStyle: CSSProperties = {
     width: "100%",
-    borderRadius: "9999px",
+    borderRadius: "14px",
     background: "#3b82f6",
     color: "#ffffff",
     padding: "12px 16px",
@@ -141,7 +289,7 @@ export default function AuthPage() {
 
   const secondaryButtonStyle: CSSProperties = {
     width: "100%",
-    borderRadius: "9999px",
+    borderRadius: "14px",
     border: "1px solid #e4e4e7",
     background: "#ffffff",
     color: "#18181b",
@@ -157,25 +305,12 @@ export default function AuthPage() {
     setMode("login");
   };
 
-  const normalizeEmail = (value: string) =>
-    value.replace(/\s+/g, "").toLowerCase();
-
-  const normalizeUsername = (value: string) =>
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "")
-      .replace(/[^a-z0-9._]/g, "");
-
   const validate = () => {
     if (reset) {
-      if (newPassword.length < 6) {
-        return "La contraseña debe tener al menos 6 caracteres.";
-      }
-      if (newPassword !== confirmPassword) {
-        return "Las contraseñas no coinciden.";
-      }
-      return null;
+      return getPasswordValidationError({
+        value: newPassword,
+        confirmation: confirmPassword,
+      });
     }
     if (forgot) {
       const normalizedEmail = normalizeEmail(email);
@@ -185,10 +320,10 @@ export default function AuthPage() {
       }
       return null;
     }
-    if (mode === "register" && fullName.trim().length < 2) {
+    if (showRegisterFields && fullName.trim().length < 2) {
       return "El nombre completo es obligatorio.";
     }
-    if (mode === "register") {
+    if (showRegisterFields) {
       const normalizedUsername = normalizeUsername(username);
       if (normalizedUsername.length < 3) {
         return "El nombre de usuario debe tener al menos 3 caracteres.";
@@ -208,8 +343,11 @@ export default function AuthPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       return "El correo no es válido.";
     }
-    if (password.length < 6) {
-      return "La contraseña debe tener al menos 6 caracteres.";
+    if (mode === "register") {
+      return getPasswordValidationError({ value: password });
+    }
+    if (showLoginPasswordField && password.length === 0) {
+      return "La contraseña es obligatoria.";
     }
     return null;
   };
@@ -217,6 +355,7 @@ export default function AuthPage() {
   const handleSubmit = async () => {
     setError(null);
     setSuccess(null);
+    setCanResendConfirmation(false);
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -243,36 +382,54 @@ export default function AuthPage() {
       }
       if (forgot) {
         const normalizedEmail = normalizeEmail(email);
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-          normalizedEmail,
-          { redirectTo: `${window.location.origin}/auth?reset=1` },
+        const response = await fetch("/api/auth/password/recovery", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: normalizedEmail,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await extractApiErrorMessage(response));
+        }
+
+        const result = (await response.json()) as { message?: string };
+        setSuccess(
+          result.message ??
+            "Si existe una cuenta con ese correo, te enviamos un enlace para restablecer la contraseña.",
         );
-        if (resetError) throw resetError;
-        setSuccess("Te enviamos un mail para recuperar tu contraseña.");
         return;
       }
 
       if (mode === "register") {
         const normalizedEmail = normalizeEmail(email);
         const normalizedUsername = normalizeUsername(username);
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: normalizedEmail,
-          password,
-          options: {
-            data: {
-              full_name: fullName.trim(),
-              username: normalizedUsername,
-              accepted_terms: true,
-              accepted_terms_at: new Date().toISOString(),
-            },
-            emailRedirectTo: `${window.location.origin}/auth`,
+        const response = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            fullName: fullName.trim(),
+            username: normalizedUsername,
+            email: normalizedEmail,
+            password,
+            acceptedTerms: acceptedTerms,
+          }),
         });
 
-        if (signUpError) throw signUpError;
+        if (!response.ok) {
+          throw new Error(await extractApiErrorMessage(response));
+        }
+
+        const result = (await response.json()) as { message?: string };
 
         setSuccess(
-          "Cuenta creada. Revisa tu correo para confirmar si es necesario.",
+          result.message ??
+            "Cuenta creada. Revisa tu correo para confirmar tu dirección antes de iniciar sesión.",
         );
         setMode("login");
       } else {
@@ -295,9 +452,52 @@ export default function AuthPage() {
         window.location.assign("/");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ocurrió un error.");
+      const nextError = formatAuthErrorMessage(err);
+      setCanResendConfirmation(
+        nextError.toLowerCase().includes("todavía no fue confirmado"),
+      );
+      setError(nextError);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      setError("Escribe tu correo para reenviar la confirmación.");
+      return;
+    }
+
+    setResendingConfirmation(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch("/api/auth/register/resend", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: normalizedEmail,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await extractApiErrorMessage(response));
+      }
+
+      const result = (await response.json()) as { message?: string };
+      setSuccess(
+        result.message ??
+          "Te reenviamos el correo de confirmación. Revisa también la carpeta de spam.",
+      );
+      setCanResendConfirmation(false);
+    } catch (err) {
+      setError(formatAuthErrorMessage(err));
+    } finally {
+      setResendingConfirmation(false);
     }
   };
 
@@ -670,6 +870,18 @@ export default function AuthPage() {
                 <div className="mt-4 rounded-[8px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
                   {error}
                 </div>
+              ) : null}
+              {canResendConfirmation && mode === "login" && !forgot && !reset ? (
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  disabled={resendingConfirmation}
+                  className="mt-3 w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {resendingConfirmation
+                    ? "Reenviando..."
+                    : "Reenviar correo de confirmación"}
+                </button>
               ) : null}
               {success ? (
                 <div className="mt-4 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">

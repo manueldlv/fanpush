@@ -39,6 +39,9 @@ Referencia de acceso según [AuthGate.tsx](/Users/devforce/Documents/GitHub/fanp
 
 ### Cuenta y perfil
 - `POST /api/account/delete`: borrar la cuenta autenticada y su data asociada.
+- `POST /api/auth/register`: crear cuenta y enviar email de confirmación por Mailtrap.
+- `POST /api/auth/register/resend`: reenviar email de confirmación/acceso por Mailtrap.
+- `POST /api/auth/password/recovery`: generar y enviar email de recuperación por Mailtrap.
 
 ### Autor y contenido
 - `POST /api/author/apply`: enviar o actualizar solicitud de autor.

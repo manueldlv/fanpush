@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  getAuthenticatedUser,
   isPublicHttpsUrl,
   mercadopagoFetch,
   resolveAppBaseUrl,
 } from "@/lib/mercadopago";
-import { ensureUserRow } from "@/lib/supabase";
+import { getAuthenticatedUser } from "@/lib/server/auth/session";
+import { getPurchaseAlbumTarget } from "@/lib/server/repositories/payments";
 
 type PreferenceBody =
   | {
@@ -27,18 +27,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
     }
 
-    await ensureUserRow(admin, user);
-
     const body = (await request.json()) as PreferenceBody;
     const baseUrl = resolveAppBaseUrl(request);
     const hasPublicBase = isPublicHttpsUrl(baseUrl);
 
     if (body.kind === "purchase") {
-      const { data: album } = await admin
-        .from("albums")
-        .select("id,user_id,description,price")
-        .eq("id", body.albumId)
-        .maybeSingle();
+      const album = await getPurchaseAlbumTarget(admin, body.albumId);
 
       if (!album) {
         return NextResponse.json(
@@ -47,7 +41,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (album.user_id === user.id) {
+      if (album.userId === user.id) {
         return NextResponse.json(
           { error: "No puedes comprar tu propio contenido." },
           { status: 400 },

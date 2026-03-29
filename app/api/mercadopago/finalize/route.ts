@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  finalizeMercadoPagoPayment,
-  getAuthenticatedUser,
-} from "@/lib/mercadopago";
+import { finalizeMercadoPagoPayment } from "@/lib/mercadopago";
+import { getAuthenticatedUser } from "@/lib/server/auth/session";
 
 type FinalizeBody = {
   paymentId?: string | number | null;

@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import {
-  serializeAuthorApplication,
-  type AuthorApplicationRecord,
-} from "@/lib/authorApplications";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { type AuthorApplicationRecord } from "@/lib/authorApplications";
+import { saveAuthorApplication } from "@/lib/server/repositories/author-applications";
+import { getAuthenticatedUser } from "@/lib/server/auth/session";
 
 const getFileExtension = (fileName: string) => {
   const normalized = fileName.trim().toLowerCase();
@@ -172,39 +170,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: existing } = await admin
-      .from("notifications")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("type", "author_application")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existing?.id) {
-      const { error: updateError } = await admin
-        .from("notifications")
-        .update({
-          message: serializeAuthorApplication(payload),
-          is_read: false,
-        })
-        .eq("id", existing.id);
-      if (updateError) {
-        throw new Error(`No se pudo actualizar la solicitud: ${updateError.message}`);
-      }
-    } else {
-      const { error: insertError } = await admin.from("notifications").insert({
-        user_id: user.id,
-        actor_id: user.id,
-        entity_id: user.id,
-        type: "author_application",
-        message: serializeAuthorApplication(payload),
-        is_read: false,
-      });
-      if (insertError) {
-        throw new Error(`No se pudo guardar la solicitud: ${insertError.message}`);
-      }
-    }
+    await saveAuthorApplication({ admin, userId: user.id, record: payload });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

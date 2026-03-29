@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/admin";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAdminAccess } from "@/lib/server/auth/authorization";
 
 export async function GET(request: Request) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
-    if (error || !admin || !user) {
+    const { user, error, isAdmin } = await requireAdminAccess(request);
+    if (error || !user) {
       return NextResponse.json(
         { ok: false, isAdmin: false, error: error ?? "No autorizado." },
-        { status: 401 },
+        { status: error === "Solo admins." ? 403 : 401 },
       );
     }
-
-    const isAdmin = await isAdminUser(admin, user);
 
     return NextResponse.json({
       ok: true,

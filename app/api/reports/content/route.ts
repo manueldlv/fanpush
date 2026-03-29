@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
-import { serializeContentReport } from "@/lib/reports";
+import { getAuthenticatedUser } from "@/lib/server/auth/session";
+import { createContentReport } from "@/lib/server/repositories/moderation";
 
 type ReportBody = {
   albumId?: string;
@@ -30,22 +30,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const payload = serializeContentReport({
+    await createContentReport({
+      admin,
+      ownerId: body.ownerId,
+      actorId: user.id,
       albumId: body.albumId,
       reason: body.reason.trim(),
-      reportedAt: new Date().toISOString(),
     });
-
-    const { error: insertError } = await admin.from("notifications").insert({
-      user_id: body.ownerId,
-      actor_id: user.id,
-      type: "content_report",
-      entity_id: body.albumId,
-      message: payload,
-      is_read: true,
-    });
-
-    if (insertError) throw insertError;
 
     return NextResponse.json({ ok: true });
   } catch (error) {

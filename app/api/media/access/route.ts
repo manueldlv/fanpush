@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { getAuthenticatedUser } from "@/lib/server/auth/session";
 import {
   buildPremiumMediaPath,
   inferDisplayKind,

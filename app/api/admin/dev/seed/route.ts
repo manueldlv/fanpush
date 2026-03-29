@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/admin";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import { serializeContentReport } from "@/lib/reports";
 import { serializeWithdrawalHistory, serializeWithdrawalRecord } from "@/lib/withdrawals";
 
@@ -44,13 +43,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Solo disponible en desarrollo." }, { status: 403 });
     }
 
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(request, "dev.seed");
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
-    }
-
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
     const [{ data: users }, { data: albums }, { data: links }] = await Promise.all([

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  finalizeMercadoPagoPayment,
-  getAdminSupabase,
-} from "@/lib/mercadopago";
+import { finalizeMercadoPagoPayment } from "@/lib/mercadopago";
+import { getAdminSupabase } from "@/lib/server/auth/session";
 
 const getPaymentIdFromRequest = async (request: Request) => {
   const url = new URL(request.url);

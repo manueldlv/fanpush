@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/admin";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
-  parseContentReport,
-  serializeContentReport,
-  serializeModerationAction,
   type ContentReport,
 } from "@/lib/reports";
+import {
+  createModerationAction,
+  getContentReportById,
+  updateContentReportRecord,
+} from "@/lib/server/repositories/moderation";
 
 type UpdateBody = {
   status: "reviewed" | "dismissed" | "removed";
@@ -17,25 +18,20 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "content.moderate",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
-    }
-
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
     const body = (await request.json()) as UpdateBody;
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,user_id,actor_id,entity_id,message")
-      .eq("id", params.id)
-      .eq("type", "content_report")
-      .maybeSingle();
-
-    const current = parseContentReport(row?.message);
-    if (!row || !current) {
+    const current = await getContentReportById(admin, params.id);
+    if (!current) {
       return NextResponse.json(
         { error: "No se encontró el reporte." },
         { status: 404 },
@@ -43,33 +39,25 @@ export async function PATCH(
     }
 
     const nextRecord: ContentReport = {
-      ...current,
+      ...current.record,
       status: body.status,
     };
 
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({ message: serializeContentReport(nextRecord) })
-      .eq("id", params.id);
-
-    if (updateError) throw updateError;
-
-    const { error: historyError } = await admin.from("notifications").insert({
-      user_id: row.user_id,
-      actor_id: user.id,
-      entity_id: row.entity_id,
-      type: "moderation_action",
-      message: serializeModerationAction({
-        reportId: row.id,
-        albumId: current.albumId,
-        action: body.status,
-        reason: current.reason,
-        actedAt: new Date().toISOString(),
-      }),
-      is_read: true,
+    await updateContentReportRecord({
+      admin,
+      id: params.id,
+      record: nextRecord,
     });
 
-    if (historyError) throw historyError;
+    await createModerationAction({
+      admin,
+      userId: current.userId,
+      actorId: user.id,
+      albumId: current.record.albumId,
+      reportId: current.id,
+      action: body.status,
+      reason: current.record.reason,
+    });
 
     return NextResponse.json({ ok: true, report: nextRecord });
   } catch (error) {
@@ -90,42 +78,34 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "content.moderate",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
-    }
-
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,message")
-      .eq("id", params.id)
-      .eq("type", "content_report")
-      .maybeSingle();
-
-    const current = parseContentReport(row?.message);
-    if (!row || !current) {
+    const current = await getContentReportById(admin, params.id);
+    if (!current) {
       return NextResponse.json({ error: "No se encontró el reporte." }, { status: 404 });
     }
 
-    if ((current.status ?? "open") === "open") {
+    if ((current.record.status ?? "open") === "open") {
       return NextResponse.json(
         { error: "Solo puedes archivar reportes ya procesados." },
         { status: 400 },
       );
     }
 
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({
-        message: serializeContentReport({ ...current, archived: true }),
-      })
-      .eq("id", params.id);
-
-    if (updateError) throw updateError;
+    await updateContentReportRecord({
+      admin,
+      id: params.id,
+      record: { ...current.record, archived: true },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -144,35 +124,27 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "content.moderate",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
-    }
-
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,message")
-      .eq("id", params.id)
-      .eq("type", "content_report")
-      .maybeSingle();
-
-    const current = parseContentReport(row?.message);
-    if (!row || !current) {
+    const current = await getContentReportById(admin, params.id);
+    if (!current) {
       return NextResponse.json({ error: "No se encontró el reporte." }, { status: 404 });
     }
 
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({
-        message: serializeContentReport({ ...current, archived: false }),
-      })
-      .eq("id", params.id);
-
-    if (updateError) throw updateError;
+    await updateContentReportRecord({
+      admin,
+      id: params.id,
+      record: { ...current.record, archived: false },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

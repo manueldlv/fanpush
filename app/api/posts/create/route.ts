@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  getAuthenticatedUser,
-  getAdminSupabase,
-} from "@/lib/mercadopago";
+import { requireApprovedAuthor } from "@/lib/server/auth/authorization";
+import { getAdminSupabase } from "@/lib/server/auth/session";
 import {
   buildLockedPreviewPath,
   buildPremiumMediaPath,
@@ -72,9 +70,12 @@ const uploadWithBucketRetry = async ({
 
 export async function POST(request: Request) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireApprovedAuthor(request);
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Necesitas aprobación como autor para publicar." ? 403 : 401 },
+      );
     }
 
     await ensureMediaBuckets();

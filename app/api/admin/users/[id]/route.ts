@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/admin";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import { serializeUserCommissionProfile } from "@/lib/userCommission";
 
 type UpdateBody = {
@@ -12,13 +11,15 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "commissions.manage",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
-    }
-
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
     const body = (await request.json()) as UpdateBody;

@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/admin";
 import {
-  parseAuthorApplication,
-  serializeAuthorApplication,
-  serializeAuthorApplicationHistory,
   type AuthorApplicationStatus,
 } from "@/lib/authorApplications";
-import { ensureServerUserRows, getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAdminAccess } from "@/lib/server/auth/authorization";
+import {
+  grantRoleByCode,
+  revokeRoleByCode,
+} from "@/lib/server/auth/roles";
+import {
+  createAuthorApplicationHistory,
+  getAuthorApplicationById,
+  notifyAuthorApplicationUpdate,
+  updateAuthorApplicationRecord,
+} from "@/lib/server/repositories/author-applications";
+import {
+  ensureServerUserRows,
+} from "@/lib/server/auth/session";
 
 type UpdateBody = {
   status: AuthorApplicationStatus;
@@ -35,25 +44,20 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "authors.review",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
-    }
-
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
     const body = (await request.json()) as UpdateBody;
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,user_id,message")
-      .eq("id", params.id)
-      .eq("type", "author_application")
-      .maybeSingle();
-
-    const current = parseAuthorApplication(row?.message);
-    if (!row || !current) {
+    const row = await getAuthorApplicationById(admin, params.id);
+    if (!row || !row.record) {
       return NextResponse.json(
         { error: "No se encontró la solicitud de autor." },
         { status: 404 },
@@ -61,7 +65,7 @@ export async function PATCH(
     }
 
     const { data: targetAuthUser, error: targetAuthError } = await admin.auth.admin.getUserById(
-      row.user_id,
+      row.userId,
     );
     if (targetAuthError) {
       throw new Error(`No se pudo validar al solicitante: ${targetAuthError.message}`);
@@ -70,45 +74,37 @@ export async function PATCH(
       await ensureServerUserRows(admin, targetAuthUser.user);
     }
 
-    const nextRecord = { ...current, status: body.status };
+    const nextRecord = { ...row.record, status: body.status };
 
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({
-        message: serializeAuthorApplication(nextRecord),
-        is_read: false,
-      })
-      .eq("id", params.id);
-    if (updateError) throw new Error(`No se pudo actualizar la solicitud: ${updateError.message}`);
-
-    const { error: historyError } = await admin.from("notifications").insert({
-      user_id: row.user_id,
-      actor_id: user.id,
-      entity_id: params.id,
-      type: "author_application_history",
-      message: serializeAuthorApplicationHistory({
-        applicationId: params.id,
-        action: body.status,
-        actedAt: new Date().toISOString(),
-        reason: body.reason?.trim() || undefined,
-      }),
-      is_read: true,
+    await updateAuthorApplicationRecord({
+      admin,
+      id: params.id,
+      record: nextRecord,
+      markUnread: true,
     });
-    if (historyError) {
-      throw new Error(`No se pudo guardar el historial de la solicitud: ${historyError.message}`);
+
+    if (body.status === "approved") {
+      await grantRoleByCode(admin, row.userId, "author", user.id);
+    } else {
+      await revokeRoleByCode(admin, row.userId, "author");
     }
 
-    const { error: notifyError } = await admin.from("notifications").insert({
-      user_id: row.user_id,
-      actor_id: user.id,
-      entity_id: params.id,
-      type: "author_application_update",
+    await createAuthorApplicationHistory({
+      admin,
+      userId: row.userId,
+      actorId: user.id,
+      applicationId: params.id,
+      action: body.status,
+      reason: body.reason,
+    });
+
+    await notifyAuthorApplicationUpdate({
+      admin,
+      userId: row.userId,
+      actorId: user.id,
+      applicationId: params.id,
       message: buildAuthorMessage(body.status, body.reason),
-      is_read: false,
     });
-    if (notifyError) {
-      throw new Error(`No se pudo notificar al usuario: ${notifyError.message}`);
-    }
 
     return NextResponse.json({ ok: true, record: nextRecord });
   } catch (error) {
@@ -129,46 +125,37 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "authors.review",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
-    }
-
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,message")
-      .eq("id", params.id)
-      .eq("type", "author_application")
-      .maybeSingle();
-
-    const current = parseAuthorApplication(row?.message);
-    if (!row || !current) {
+    const row = await getAuthorApplicationById(admin, params.id);
+    if (!row || !row.record) {
       return NextResponse.json(
         { error: "No se encontró la solicitud de autor." },
         { status: 404 },
       );
     }
 
-    if (current.status === "pending") {
+    if (row.record.status === "pending") {
       return NextResponse.json(
         { error: "Solo puedes archivar solicitudes ya procesadas." },
         { status: 400 },
       );
     }
 
-    const nextRecord = { ...current, archived: true };
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({
-        message: serializeAuthorApplication(nextRecord),
-      })
-      .eq("id", params.id);
-
-    if (updateError) throw updateError;
+    await updateAuthorApplicationRecord({
+      admin,
+      id: params.id,
+      record: { ...row.record, archived: true },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -189,39 +176,30 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "authors.review",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
-    }
-
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,message")
-      .eq("id", params.id)
-      .eq("type", "author_application")
-      .maybeSingle();
-
-    const current = parseAuthorApplication(row?.message);
-    if (!row || !current) {
+    const row = await getAuthorApplicationById(admin, params.id);
+    if (!row || !row.record) {
       return NextResponse.json(
         { error: "No se encontró la solicitud de autor." },
         { status: 404 },
       );
     }
 
-    const nextRecord = { ...current, archived: false };
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({
-        message: serializeAuthorApplication(nextRecord),
-      })
-      .eq("id", params.id);
-
-    if (updateError) throw updateError;
+    await updateAuthorApplicationRecord({
+      admin,
+      id: params.id,
+      record: { ...row.record, archived: false },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

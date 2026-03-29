@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/admin";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
-  parseWithdrawalRecord,
-  serializeWithdrawalHistory,
-  serializeWithdrawalRecord,
+  createWithdrawalHistory,
+  getWithdrawalRequestById,
+  notifyWithdrawalUpdate,
+  updateWithdrawalRequest,
+} from "@/lib/server/repositories/withdrawals";
+import {
   type WithdrawalStatus,
 } from "@/lib/withdrawals";
 
@@ -35,66 +37,49 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAdminAccess(
+      request,
+      "withdrawals.review",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
-    }
-
-    if (!(await isAdminUser(admin, user))) {
-      return NextResponse.json({ error: "Solo admins." }, { status: 403 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: error === "Solo admins." ? 403 : 401 },
+      );
     }
 
     const body = (await request.json()) as UpdateBody;
-    const { data: row } = await admin
-      .from("notifications")
-      .select("id,user_id,message")
-      .eq("id", params.id)
-      .eq("type", "withdrawal_request")
-      .maybeSingle();
-
-    const current = parseWithdrawalRecord(row?.message);
-    if (!row || !current) {
+    const row = await getWithdrawalRequestById(admin, params.id);
+    if (!row || !row.record) {
       return NextResponse.json(
         { error: "No se encontró la solicitud de retiro." },
         { status: 404 },
       );
     }
 
-    const nextRecord = { ...current, status: body.status };
-    const { error: updateError } = await admin
-      .from("notifications")
-      .update({ message: serializeWithdrawalRecord(nextRecord) })
-      .eq("id", params.id);
-
-    if (updateError) throw updateError;
-
-    const { error: historyError } = await admin.from("notifications").insert({
-      user_id: user.id,
-      actor_id: user.id,
-      entity_id: params.id,
-      type: "withdrawal_history",
-      message: serializeWithdrawalHistory({
-        withdrawalId: params.id,
-        status: body.status,
-        amount: current.amount,
-        actedAt: new Date().toISOString(),
-        reason: body.reason?.trim() || undefined,
-      }),
-      is_read: true,
+    const nextRecord = { ...row.record, status: body.status };
+    await updateWithdrawalRequest({
+      admin,
+      id: params.id,
+      record: nextRecord,
     });
 
-    if (historyError) throw historyError;
+    await createWithdrawalHistory({
+      admin,
+      actorId: user.id,
+      withdrawalId: params.id,
+      amount: row.record.amount,
+      status: body.status,
+      reason: body.reason,
+    });
 
-    const { error: notifyError } = await admin.from("notifications").insert({
-      user_id: row.user_id,
-      actor_id: user.id,
-      entity_id: params.id,
-      type: "withdrawal_update",
+    await notifyWithdrawalUpdate({
+      admin,
+      userId: row.userId,
+      actorId: user.id,
+      withdrawalId: params.id,
       message: buildWithdrawalUpdateMessage(body.status, body.reason),
-      is_read: false,
     });
-
-    if (notifyError) throw notifyError;
 
     return NextResponse.json({ ok: true, record: nextRecord });
   } catch (error) {

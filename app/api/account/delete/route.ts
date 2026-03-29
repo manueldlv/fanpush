@@ -1,43 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const getBearerToken = (header: string | null) => {
-  if (!header?.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
-};
+import { getAuthenticatedUser } from "@/lib/server/auth/session";
 
 export async function POST(request: Request) {
   try {
-    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
-      return NextResponse.json(
-        {
-          error:
-            "Falta configurar SUPABASE_SERVICE_ROLE_KEY para borrar cuentas.",
-        },
-        { status: 500 },
-      );
-    }
-
-    const accessToken = getBearerToken(request.headers.get("authorization"));
-    if (!accessToken) {
-      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-    }
-
-    const admin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const {
-      data: { user },
-      error: authError,
-    } = await admin.auth.getUser(accessToken);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Sesion invalida." }, { status: 401 });
+    const { admin, user, error } = await getAuthenticatedUser(request);
+    if (error || !admin || !user) {
+      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
     }
 
     const userId = user.id;

@@ -28,15 +28,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       inPublicFaq,
   );
   const [allowed, setAllowed] = useState(allowWithoutSession);
+  const [configError, setConfigError] = useState(false);
 
   useEffect(() => {
     setAllowed(allowWithoutSession);
+    setConfigError(false);
 
     const supabase = inAdmin
       ? getSupabaseAdminBrowserClient()
       : getSupabaseClient();
     if (!supabase) {
-      setAllowed(true);
+      if (!allowWithoutSession) {
+        setAllowed(false);
+        setConfigError(true);
+      }
       return;
     }
 
@@ -127,7 +132,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
         <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-5 text-sm text-zinc-600 shadow-sm">
-          Verificando sesión...
+          {configError
+            ? "Falta configurar la autenticación para acceder a esta sección."
+            : "Verificando sesión..."}
         </div>
       </div>
     );

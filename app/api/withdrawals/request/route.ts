@@ -1,20 +1,34 @@
 import { NextResponse } from "next/server";
 import { loadCreatorEarnings } from "@/lib/earnings";
-import { getAuthenticatedUser } from "@/lib/mercadopago";
+import { requireAuthorPermission } from "@/lib/server/auth/authorization";
+import {
+  createWithdrawalRequest,
+  listWithdrawalRequestsByUserId,
+} from "@/lib/server/repositories/withdrawals";
 import { parsePayoutProfile } from "@/lib/payouts";
 import {
   getCurrentMonthKey,
   getWithdrawalReservedAmount,
-  parseWithdrawalRecord,
-  serializeWithdrawalRecord,
 } from "@/lib/withdrawals";
 import { FANPUSH_WITHDRAWAL_MIN_ARS } from "@/lib/utils";
 
 export async function POST(request: Request) {
   try {
-    const { admin, user, error } = await getAuthenticatedUser(request);
+    const { admin, user, error } = await requireAuthorPermission(
+      request,
+      "withdrawals.request",
+      "Necesitas aprobación como autor para solicitar retiros.",
+    );
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        {
+          status:
+            error === "Necesitas aprobación como autor para solicitar retiros."
+              ? 403
+              : 401,
+        },
+      );
     }
 
     const earnings = await loadCreatorEarnings(admin, user.id);
@@ -38,27 +52,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: rows } = await admin
-      .from("notifications")
-      .select("id,message,created_at")
-      .eq("user_id", user.id)
-      .eq("type", "withdrawal_request")
-      .order("created_at", { ascending: false });
-
-    const normalizedRecords = (rows ?? [])
-      .map((row) => {
-        const parsed = parseWithdrawalRecord(row.message);
-        return parsed ? { id: row.id, ...parsed } : null;
-      })
-      .filter(
-        (value): value is {
-          id: string;
-          amount: number;
-          status: "requested" | "sent" | "rejected";
-          requestedAt: string;
-          monthKey: string;
-        } => Boolean(value),
-      );
+    const normalizedRecords = (await listWithdrawalRequestsByUserId(admin, user.id)).map(
+      (row) => ({
+        id: row.id,
+        ...row.record,
+      }),
+    );
 
     const monthKey = getCurrentMonthKey();
     const existingThisMonth = normalizedRecords.find(
@@ -91,16 +90,7 @@ export async function POST(request: Request) {
       monthKey,
     };
 
-    const { error: insertError } = await admin.from("notifications").insert({
-      user_id: user.id,
-      actor_id: user.id,
-      type: "withdrawal_request",
-      entity_id: user.id,
-      message: serializeWithdrawalRecord(record),
-      is_read: true,
-    });
-
-    if (insertError) throw insertError;
+    await createWithdrawalRequest({ admin, userId: user.id, record });
 
     return NextResponse.json({ ok: true, record });
   } catch (error) {

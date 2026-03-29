@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { type AuthorApplicationRecord } from "@/lib/authorApplications";
+import { ALLOWED_IMAGE_TYPES, MAX_DOCUMENT_IMAGE_BYTES } from "@/lib/imageFiles";
 import { saveAuthorApplication } from "@/lib/server/repositories/author-applications";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
 
@@ -22,8 +23,10 @@ export async function POST(request: Request) {
     const birthDate = String(formData.get("birthDate") ?? "").trim();
     const documentType = String(formData.get("documentType") ?? "").trim();
     const documentNumber = String(formData.get("documentNumber") ?? "")
-      .replace(/\D/g, "")
-      .slice(0, 8);
+      .trim()
+      .replace(/[^0-9a-zA-Z]/g, "")
+      .slice(0, 20)
+      .toUpperCase();
     const country = String(formData.get("country") ?? "").trim();
     const province = String(formData.get("province") ?? "").trim();
     const city = String(formData.get("city") ?? "").trim();
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
 
     if (requiredFields.some((field) => !field)) {
       return NextResponse.json(
-        { error: "Completa todos los datos y sube ambas fotos del DNI." },
+        { error: "Completa todos los datos y sube ambas fotos del documento." },
         { status: 400 },
       );
     }
@@ -51,14 +54,27 @@ export async function POST(request: Request) {
     const backFile = formData.get("documentBack");
     if (!(frontFile instanceof File) || !(backFile instanceof File)) {
       return NextResponse.json(
-        { error: "Debes subir frente y dorso del DNI." },
+        { error: "Debes subir frente y dorso del documento." },
         { status: 400 },
       );
     }
 
-    if (documentType === "DNI" && documentNumber.length !== 8) {
+    if (
+      !ALLOWED_IMAGE_TYPES.includes(frontFile.type) ||
+      !ALLOWED_IMAGE_TYPES.includes(backFile.type)
+    ) {
       return NextResponse.json(
-        { error: "El DNI debe tener exactamente 8 números." },
+        { error: "Las imágenes del documento deben ser JPG, PNG o WEBP." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      frontFile.size > MAX_DOCUMENT_IMAGE_BYTES ||
+      backFile.size > MAX_DOCUMENT_IMAGE_BYTES
+    ) {
+      return NextResponse.json(
+        { error: "Cada imagen del documento puede pesar hasta 10 MB." },
         { status: 400 },
       );
     }

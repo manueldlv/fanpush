@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bookmark, CheckCircle2, Grid, Lock, User } from "lucide-react";
+import MediaImage from "@/components/MediaImage";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
+import UserAvatar from "@/components/UserAvatar";
 import {
   getSessionAccessTokenWithRetry,
   PURCHASE_REFRESH_FLAG,
@@ -89,6 +91,50 @@ const resolveFallbackUsername = (email?: string | null, metadata?: unknown) => {
   return "usuario";
 };
 
+function ProfileHeaderSkeleton() {
+  return (
+    <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
+      <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 md:flex-row md:items-start md:gap-8">
+        <div className="fanpush-skeleton h-20 w-20 rounded-full md:h-28 md:w-28" />
+        <div className="flex-1 md:max-w-[500px]">
+          <div className="fanpush-skeleton h-8 w-44 rounded-full" />
+          <div className="mt-3 fanpush-skeleton h-5 w-28 rounded-full" />
+          <div className="mt-4 space-y-2">
+            <div className="fanpush-skeleton h-4 w-full rounded-full" />
+            <div className="fanpush-skeleton h-4 w-[82%] rounded-full" />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <div className="fanpush-skeleton h-4 w-24 rounded-full" />
+            <div className="fanpush-skeleton h-4 w-24 rounded-full" />
+            <div className="fanpush-skeleton h-4 w-24 rounded-full" />
+            <div className="fanpush-skeleton h-4 w-24 rounded-full" />
+          </div>
+          <div className="mt-5 fanpush-skeleton h-11 w-full max-w-[460px] rounded-[14px]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePostsSkeleton() {
+  return (
+    <div className="rounded-[12px] border border-zinc-200 bg-white">
+      <div className="flex items-center justify-center gap-8 border-b border-zinc-200 px-6 pt-4">
+        <div className="fanpush-skeleton mb-3 h-5 w-24 rounded-full" />
+        <div className="fanpush-skeleton mb-3 h-5 w-28 rounded-full" />
+      </div>
+      <div className="grid grid-cols-2 gap-[2px] p-2 sm:grid-cols-3 md:grid-cols-5 md:gap-[2px] md:p-4">
+        {Array.from({ length: 10 }).map((_, index) => (
+          <div
+            key={`profile-post-skeleton-${index}`}
+            className="fanpush-skeleton aspect-[3/4] rounded-[4px]"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function PerfilPage({
   forcedUsername,
 }: {
@@ -129,6 +175,8 @@ export default function PerfilPage({
     searchParams.get("avatar") ?? "",
   );
   const [profileLoading, setProfileLoading] = useState(true);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [profileBio, setProfileBio] = useState("");
   const [profileWebsite, setProfileWebsite] = useState("");
   const [profileInstagram, setProfileInstagram] = useState("");
@@ -188,6 +236,7 @@ export default function PerfilPage({
     const userParam = forcedUsername ?? searchParams.get("user");
     const fullParam = searchParams.get("full");
     const avatarParam = searchParams.get("avatar");
+    setProfileLoading(true);
     if (idParam || userParam || fullParam || avatarParam) {
       if (userParam) setProfileName(userParam);
       if (fullParam) setProfileFullName(fullParam);
@@ -198,10 +247,16 @@ export default function PerfilPage({
 
     const loadProfile = async () => {
       const supabase = getSupabaseClient();
-      if (!supabase) return;
+      if (!supabase) {
+        setProfileLoading(false);
+        return;
+      }
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
-      if (!userId) return;
+      if (!userId) {
+        setProfileLoading(false);
+        return;
+      }
       await ensureUserRow(supabase, authData?.user);
       setViewedUserId(userId);
 
@@ -247,7 +302,9 @@ export default function PerfilPage({
       setProfileLoading(false);
     };
 
-    loadProfile();
+    loadProfile().catch(() => {
+      setProfileLoading(false);
+    });
   }, [forcedUsername, searchParams]);
 
   useEffect(() => {
@@ -277,7 +334,13 @@ export default function PerfilPage({
   useEffect(() => {
     const loadPosts = async () => {
       const supabase = getSupabaseClient();
-      if (!supabase) return;
+      setPostsLoading(true);
+      setStatsLoading(true);
+      if (!supabase) {
+        setPostsLoading(false);
+        setStatsLoading(false);
+        return;
+      }
 
       const { data: authData } = await supabase.auth.getUser();
       setCurrentUserId(authData?.user?.id ?? null);
@@ -314,7 +377,11 @@ export default function PerfilPage({
       }
 
 
-      if (!userId) return;
+      if (!userId) {
+        setPostsLoading(false);
+        setStatsLoading(false);
+        return;
+      }
       setViewedUserId(userId);
       if (!userRow) {
         const { data } = await supabase
@@ -438,6 +505,7 @@ export default function PerfilPage({
         } else {
           setProfilePosts(mapped);
         }
+        setPostsLoading(false);
       } else {
         const { data: legacyPosts } = await supabase
           .from("posts")
@@ -481,6 +549,7 @@ export default function PerfilPage({
         } else {
           setProfilePosts(mapped);
         }
+        setPostsLoading(false);
       }
 
       const { count: postsCount } = await supabase
@@ -501,6 +570,7 @@ export default function PerfilPage({
         followers: followersCount ?? 0,
         following: followingCount ?? 0,
       });
+      setStatsLoading(false);
 
       if (authData?.user?.id && userId && authData.user.id !== userId) {
         const { data: followRow } = await supabase
@@ -516,9 +586,13 @@ export default function PerfilPage({
 
       const earningsSummary = await loadCreatorEarnings(supabase, userId);
       setEarnings(earningsSummary.creatorNet);
+      setStatsLoading(false);
     };
 
-    loadPosts();
+    loadPosts().catch(() => {
+      setPostsLoading(false);
+      setStatsLoading(false);
+    });
   }, [forcedUsername, searchParams]);
 
   const openPostFromProfile = async (post: Post) => {
@@ -1017,20 +1091,18 @@ export default function PerfilPage({
 
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-none flex-col gap-4 px-4 py-4 md:max-w-[1240px] md:gap-5 md:px-6 md:py-5">
+          {profileLoading ? (
+            <ProfileHeaderSkeleton />
+          ) : (
           <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
             <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 md:flex-row md:items-start md:gap-8">
               <div className="flex flex-1 items-start gap-4 md:gap-6">
-                {profileAvatar ? (
-                  <img
-                    src={profileAvatar}
-                    alt={profileName}
-                    className="h-20 w-20 rounded-full object-cover md:h-28 md:w-28"
-                  />
-                ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500 md:h-28 md:w-28">
-                    <User className="h-8 w-8 md:h-10 md:w-10" />
-                  </div>
-                )}
+                <UserAvatar
+                  src={profileAvatar}
+                  alt={profileName || "Perfil"}
+                  sizeClassName="h-20 w-20 md:h-28 md:w-28"
+                  iconClassName="h-8 w-8 md:h-10 md:w-10"
+                />
                 <div className="flex-1 md:max-w-[500px]">
                   <div className="flex items-center gap-2">
                     <h1 className="text-[22px] font-semibold leading-none md:text-[28px]">
@@ -1055,25 +1127,25 @@ export default function PerfilPage({
                   <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-zinc-600 md:gap-x-6 md:text-[14px]">
                     <span className="whitespace-nowrap">
                       <span className="font-semibold text-zinc-900">
-                        {stats.posts}
+                        {statsLoading ? "..." : stats.posts}
                       </span>{" "}
                       publicaciones
                     </span>
                     <span className="whitespace-nowrap">
                       <span className="font-semibold text-zinc-900">
-                        {stats.followers}
+                        {statsLoading ? "..." : stats.followers}
                       </span>{" "}
                       seguidores
                     </span>
                     <span className="whitespace-nowrap">
                       <span className="font-semibold text-zinc-900">
-                        {stats.following}
+                        {statsLoading ? "..." : stats.following}
                       </span>{" "}
                       seguidos
                     </span>
                     <span className="whitespace-nowrap">
                       <span className="font-semibold text-zinc-900">
-                        {formatARS(earnings)}
+                        {statsLoading ? "..." : formatARS(earnings)}
                       </span>{" "}
                       ventas
                     </span>
@@ -1109,7 +1181,7 @@ export default function PerfilPage({
                       <button
                         type="button"
                         onClick={() => router.push("/settings")}
-                        className="w-full rounded-[14px] bg-zinc-100 px-4 py-2.5 text-[14px] font-semibold text-zinc-900"
+                        className="w-full rounded-[10px] bg-zinc-100 px-4 py-2 text-[14px] font-semibold text-zinc-900"
                       >
                         Editar perfil
                       </button>
@@ -1118,7 +1190,7 @@ export default function PerfilPage({
                         <button
                           type="button"
                           onClick={toggleFollow}
-                          className={`w-full rounded-[14px] px-4 py-2.5 text-[14px] font-semibold transition-colors ${
+                          className={`w-full rounded-[10px] px-4 py-2 text-[14px] font-semibold transition-colors ${
                             isFollowing
                               ? "bg-zinc-100 text-zinc-900"
                               : "bg-indigo-600 text-white hover:bg-indigo-500"
@@ -1132,7 +1204,7 @@ export default function PerfilPage({
                             setTipSent(null);
                             setTipOpen(true);
                           }}
-                          className="w-full rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                          className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
                         >
                           Propina
                         </button>
@@ -1144,7 +1216,11 @@ export default function PerfilPage({
 
             </div>
           </div>
+          )}
 
+          {postsLoading ? (
+            <ProfilePostsSkeleton />
+          ) : (
           <div className="rounded-[12px] border border-zinc-200 bg-white">
             <div className="flex items-center justify-center gap-8 border-b border-zinc-200 px-6 pt-4 text-sm font-semibold text-zinc-500">
               <button
@@ -1182,10 +1258,12 @@ export default function PerfilPage({
                       className="relative aspect-[3/4] cursor-pointer overflow-hidden border border-zinc-200"
                       onClick={() => openPostFromProfile(post)}
                     >
-                      <img
+                      <MediaImage
                         src={firstMedia.url}
-                        alt={profileName}
+                        alt={profileName || "Post"}
                         className="h-full w-full object-cover"
+                        fallbackClassName="h-full w-full border-0"
+                        iconClassName="h-7 w-7"
                       />
                       {firstMedia.locked ? (
                         <div className="absolute right-2 top-2 rounded-[5px] bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
@@ -1203,6 +1281,7 @@ export default function PerfilPage({
               )}
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

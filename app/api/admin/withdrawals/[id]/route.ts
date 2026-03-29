@@ -62,6 +62,8 @@ export async function PATCH(
       admin,
       id: params.id,
       record: nextRecord,
+      actorId: user.id,
+      reason: body.reason,
     });
 
     await createWithdrawalHistory({

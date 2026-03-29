@@ -1,6 +1,7 @@
 "use client";
 
 import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
+import MediaImage from "@/components/MediaImage";
 import { usePostsStore } from "@/lib/store";
 import type { Post } from "@/lib/store";
 import { useEffect, useMemo, useState } from "react";
@@ -61,6 +62,54 @@ const normalizeSingleRelation = <T,>(
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
 };
+
+function FeedHeroSkeleton() {
+  return (
+    <div className="rounded-[16px] border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="fanpush-skeleton h-3 w-20 rounded-full" />
+      <div className="mt-3 fanpush-skeleton h-7 w-[68%] rounded-full" />
+      <div className="mt-4 space-y-2">
+        <div className="fanpush-skeleton h-4 w-full rounded-full" />
+        <div className="fanpush-skeleton h-4 w-[92%] rounded-full" />
+        <div className="fanpush-skeleton h-4 w-[72%] rounded-full" />
+      </div>
+      <div className="mt-5 flex gap-3">
+        <div className="fanpush-skeleton h-11 w-40 rounded-[12px]" />
+        <div className="fanpush-skeleton h-11 w-32 rounded-[12px]" />
+      </div>
+    </div>
+  );
+}
+
+function FeedPostSkeleton() {
+  return (
+    <article className="rounded-[16px] border border-zinc-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="fanpush-skeleton h-10 w-10 rounded-full" />
+          <div className="space-y-2">
+            <div className="fanpush-skeleton h-4 w-32 rounded-full" />
+            <div className="fanpush-skeleton h-3 w-24 rounded-full" />
+          </div>
+        </div>
+        <div className="fanpush-skeleton h-4 w-14 rounded-full" />
+      </div>
+      <div className="fanpush-skeleton aspect-[4/5] w-full" />
+      <div className="px-5 py-4">
+        <div className="flex items-center gap-4">
+          <div className="fanpush-skeleton h-5 w-5 rounded-full" />
+          <div className="fanpush-skeleton h-5 w-5 rounded-full" />
+          <div className="fanpush-skeleton h-5 w-5 rounded-full" />
+        </div>
+        <div className="mt-4 space-y-2">
+          <div className="fanpush-skeleton h-4 w-full rounded-full" />
+          <div className="fanpush-skeleton h-4 w-[88%] rounded-full" />
+          <div className="fanpush-skeleton h-4 w-[54%] rounded-full" />
+        </div>
+      </div>
+    </article>
+  );
+}
 
 export default function FeedLayout() {
   const posts = usePostsStore((state) => state.posts);
@@ -607,9 +656,11 @@ export default function FeedLayout() {
   return (
     <section className="flex w-full max-w-none flex-col gap-6 md:max-w-[630px] md:pr-2">
       {loading ? (
-        <div className="rounded-[5px] border border-zinc-200 bg-white px-4 py-6 text-sm text-zinc-500">
-          Cargando contenido...
-        </div>
+        <>
+          <FeedHeroSkeleton />
+          <FeedPostSkeleton />
+          <FeedPostSkeleton />
+        </>
       ) : null}
       {openPost ? (
         <PostModal
@@ -908,7 +959,7 @@ export default function FeedLayout() {
       {posts.map((post) => (
         <article
           key={post.id}
-          className="rounded-[5px] border border-zinc-200 bg-white shadow-sm"
+          className="rounded-[16px] border border-zinc-200 bg-white shadow-sm"
         >
           <div className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-3">
@@ -987,12 +1038,16 @@ export default function FeedLayout() {
                   }`}
                 >
                   {item.kind === "image" ? (
-                    <img
+                    <MediaImage
                       src={item.url}
                       alt={`Media de ${post.author}`}
                       className={`h-full w-full object-cover ${
                         item.locked ? "blur-[6px]" : ""
                       }`}
+                      fallbackClassName={`h-full w-full ${
+                        item.locked ? "blur-[6px]" : ""
+                      }`}
+                      iconClassName="h-7 w-7"
                     />
                   ) : (
                     <video
@@ -1006,8 +1061,8 @@ export default function FeedLayout() {
                   )}
                   {item.locked ? (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="rounded-[5px] bg-white/95 px-6 py-5 text-center shadow-md">
-                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[5px] bg-zinc-100">
+                      <div className="w-full max-w-[240px] rounded-[14px] bg-white/95 px-6 py-5 text-center shadow-md">
+                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-zinc-100">
                           <Lock className="h-5 w-5 text-zinc-600" />
                         </div>
                         <div className="mt-3 text-sm font-semibold text-zinc-900">
@@ -1016,8 +1071,13 @@ export default function FeedLayout() {
                         <div className="text-xs text-zinc-500">
                           {lockedCount} contenido bloqueado
                         </div>
-                        <div className="mt-3 rounded-[5px] bg-zinc-900 px-5 py-2 text-sm font-semibold text-white">
-                          {formatARS(post.price ?? 0)}
+                        <div className="mt-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                            Pago único
+                          </div>
+                          <div className="mt-1 text-center text-[18px] font-semibold text-zinc-900">
+                            {formatARS(post.price ?? 0)}
+                          </div>
                         </div>
                         {post.userId !== currentUserId ? (
                           <button
@@ -1026,7 +1086,7 @@ export default function FeedLayout() {
                               event.stopPropagation();
                               setSelectedPost(post.id);
                             }}
-                            className="mt-3 w-full rounded-[5px] bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+                            className="mt-3 w-full rounded-[10px] bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
                           >
                             Comprar
                           </button>

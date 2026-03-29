@@ -20,11 +20,16 @@ export default function SidebarRight() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
       const supabase = getSupabaseClient();
-      if (!supabase) return;
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
       setCurrentUserId(userId ?? null);
@@ -68,9 +73,12 @@ export default function SidebarRight() {
       );
 
       setSuggestions(mapped);
+      setLoading(false);
     };
 
-    load();
+    load().catch(() => {
+      setLoading(false);
+    });
   }, []);
 
   const openProfile = (profile: Suggestion) => {
@@ -131,6 +139,23 @@ export default function SidebarRight() {
           </div>
 
           <div className="mt-4 space-y-4">
+            {loading
+              ? Array.from({ length: 5 }).map((_, index) => (
+                  <div
+                    key={`suggestion-skeleton-${index}`}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="fanpush-skeleton h-10 w-10 rounded-full" />
+                      <div className="space-y-2">
+                        <div className="fanpush-skeleton h-4 w-24 rounded-full" />
+                        <div className="fanpush-skeleton h-3 w-20 rounded-full" />
+                      </div>
+                    </div>
+                    <div className="fanpush-skeleton h-4 w-14 rounded-full" />
+                  </div>
+                ))
+              : null}
             {suggestions.map((profile) => (
               <div
                 key={profile.id}

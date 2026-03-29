@@ -22,6 +22,18 @@ type SearchPanelProps = {
 
 const RECENT_SEARCHES_KEY = "fanpush_recent_searches";
 
+function SearchResultSkeleton() {
+  return (
+    <div className="flex items-center gap-4 rounded-[12px] p-2">
+      <div className="fanpush-skeleton h-12 w-12 rounded-full" />
+      <div className="min-w-0 flex-1">
+        <div className="fanpush-skeleton h-4 w-28 rounded-full" />
+        <div className="mt-2 fanpush-skeleton h-3 w-40 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
 export default function SearchPanel({ open, onClose }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -313,6 +325,23 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
               )
             ) : (
               <div className="space-y-4">
+                {loading
+                  ? Array.from({ length: 4 }).map((_, index) => (
+                      <SearchResultSkeleton
+                        key={`search-result-skeleton-${index}`}
+                      />
+                    ))
+                  : null}
+                {!loading && results.length === 0 ? (
+                  <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-5 text-center">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      No encontramos resultados para "{query.trim()}"
+                    </div>
+                    <p className="mt-2 text-xs leading-6 text-zinc-500">
+                      Prueba con otro nombre de usuario o revisa si está escrito correctamente.
+                    </p>
+                  </div>
+                ) : null}
                 {results.map((item) => (
                   <button
                     key={item.id}

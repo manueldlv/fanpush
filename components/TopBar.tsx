@@ -15,8 +15,12 @@ import {
   Search,
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
-import { getAuthorApplicationForUser } from "@/lib/authorApplications";
-import { loadCreatorEarnings } from "@/lib/earnings";
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import {
+  hydrateNotificationsState,
+  markNotificationsAsRead,
+  type AppNotificationItem,
+} from "@/lib/redux/slices/notificationsSlice";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
@@ -28,26 +32,6 @@ type SearchResult = {
   detail: string;
   avatar: string | null;
 };
-
-type NotificationItem = {
-  id: string;
-  text: string;
-  date: string;
-  createdAt: string;
-  avatar: string | null;
-  type: string;
-  isRead?: boolean;
-  action?: { label: string; href: string };
-};
-
-const USER_VISIBLE_NOTIFICATION_TYPES = new Set([
-  "follow",
-  "tip",
-  "purchase",
-  "withdrawal_update",
-  "author_application_update",
-  "content_removed_update",
-]);
 
 function getNotificationMeta(type: string, text: string): {
   label: string;
@@ -122,24 +106,22 @@ function getNotificationMeta(type: string, text: string): {
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profile, setProfile] = useState<{
-    username: string | null;
-    avatarUrl: string | null;
-  }>({ username: null, avatarUrl: null });
-  const [balance, setBalance] = useState(0);
-  const [canCreate, setCanCreate] = useState(false);
-  const [authorStatus, setAuthorStatus] = useState<
-    "idle" | "pending" | "approved" | "rejected"
-  >("idle");
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const profile = useAppSelector((state) => state.viewer.profile);
+  const balance = useAppSelector((state) => state.viewer.commerce.balance);
+  const canCreate = useAppSelector((state) => state.viewer.access.canCreate);
+  const authorStatus = useAppSelector((state) => state.viewer.access.authorStatus);
+  const viewerHydrated = useAppSelector((state) => state.viewer.hydrated);
+  const notifications = useAppSelector((state) => state.notifications.items);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
+  const showViewerSkeleton = !viewerHydrated;
 
   useEffect(() => {
     const load = async () => {
@@ -179,149 +161,6 @@ export default function TopBar() {
     const handle = setTimeout(load, 300);
     return () => clearTimeout(handle);
   }, [query]);
-
-  useEffect(() => {
-    const loadProfile = async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) {
-        setProfile({ username: null, avatarUrl: null });
-        setBalance(0);
-        return;
-      }
-
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("username, avatar_url")
-        .eq("id", userId)
-        .maybeSingle();
-
-      let avatarUrl = userRow?.avatar_url ?? null;
-      if (avatarUrl && !avatarUrl.startsWith("http")) {
-        const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
-          .getPublicUrl(avatarUrl);
-        avatarUrl = publicUrl.publicUrl;
-      }
-
-      setProfile({
-        username: userRow?.username ?? null,
-        avatarUrl,
-      });
-
-      const earnings = await loadCreatorEarnings(supabase, userId);
-      setBalance(earnings.creatorNet);
-      const application = await getAuthorApplicationForUser(supabase, userId);
-      const nextAuthorStatus = application?.record?.status ?? "idle";
-      setAuthorStatus(nextAuthorStatus);
-      setCanCreate(nextAuthorStatus === "approved");
-
-      const { data: notifRows } = await supabase
-        .from("notifications")
-        .select("id,actor_id,message,created_at,type,entity_id,is_read")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      const actorIds = Array.from(
-        new Set((notifRows ?? []).map((n) => n.actor_id).filter(Boolean)),
-      );
-      const { data: actors } = actorIds.length
-        ? await supabase
-            .from("users")
-            .select("id,avatar_url,username")
-            .in("id", actorIds)
-        : { data: [] };
-
-      const resolveAvatar = async (value: string | null) => {
-        if (!value) return null;
-        if (value.startsWith("http")) return value;
-        const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
-          .getPublicUrl(value);
-        return publicUrl.publicUrl;
-      };
-
-      const actorMap = new Map(
-        (actors ?? []).map((actor) => [actor.id, actor]),
-      );
-      const mapped = await Promise.all(
-        (notifRows ?? [])
-          .filter((row) => USER_VISIBLE_NOTIFICATION_TYPES.has(row.type ?? ""))
-          .map(async (row) => ({
-          id: row.id,
-          type: row.type ?? "generic",
-          text:
-            row.type === "withdrawal_update" ||
-            row.type === "author_application_update" ||
-            row.type === "content_removed_update"
-              ? `FanPush ${row.message ?? ""}`
-              : `${actorMap.get(row.actor_id)?.username ?? "alguien"} ${
-                  row.message ?? ""
-                }`,
-          date: new Date(row.created_at).toLocaleDateString("es-AR", {
-            day: "2-digit",
-            month: "short",
-          }),
-          createdAt: row.created_at,
-          avatar:
-            row.type === "withdrawal_update" ||
-            row.type === "author_application_update" ||
-            row.type === "content_removed_update"
-              ? null
-              : await resolveAvatar(actorMap.get(row.actor_id)?.avatar_url ?? null),
-          isRead: row.is_read ?? false,
-          action:
-            row.type === "purchase"
-              ? { label: "Ver venta", href: "/ventas" }
-              : row.type === "withdrawal_update"
-                ? { label: "Ver venta", href: "/ventas" }
-                : undefined,
-        })),
-      );
-      setNotifications(mapped);
-    };
-
-    loadProfile();
-    const interval = window.setInterval(loadProfile, 15000);
-
-    const refreshBalance = () => {
-      loadProfile();
-    };
-    window.addEventListener("purchases-updated", refreshBalance);
-    window.addEventListener("earnings-updated", refreshBalance);
-    window.addEventListener("creator-status-updated", refreshBalance);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("purchases-updated", refreshBalance);
-      window.removeEventListener("earnings-updated", refreshBalance);
-      window.removeEventListener("creator-status-updated", refreshBalance);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail as {
-        username?: string;
-        fullName?: string;
-        avatarUrl?: string | null;
-      };
-      if (detail?.avatarUrl !== undefined || detail?.username) {
-        setProfile({
-          username: detail?.username ?? profile.username,
-          avatarUrl:
-            detail?.avatarUrl !== undefined
-              ? detail.avatarUrl
-              : profile.avatarUrl,
-        });
-      }
-    };
-    window.addEventListener("profile-updated", handler as EventListener);
-    return () =>
-      window.removeEventListener("profile-updated", handler as EventListener);
-  }, [profile.avatarUrl, profile.username]);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -373,10 +212,10 @@ export default function TopBar() {
     startOfYesterday.setDate(startOfYesterday.getDate() - 1);
 
     const groups = {
-      unread: [] as NotificationItem[],
-      today: [] as NotificationItem[],
-      yesterday: [] as NotificationItem[],
-      older: [] as NotificationItem[],
+      unread: [] as AppNotificationItem[],
+      today: [] as AppNotificationItem[],
+      yesterday: [] as AppNotificationItem[],
+      older: [] as AppNotificationItem[],
     };
 
     for (const item of notifications) {
@@ -427,7 +266,9 @@ export default function TopBar() {
           </div>
 
           <div className="flex items-center gap-4">
-            {!canCreate ? (
+            {showViewerSkeleton ? (
+              <div className="hidden h-10 w-48 rounded-full bg-zinc-100 lg:block" />
+            ) : !canCreate ? (
               authorStatus === "pending" ? (
                 <div className="hidden rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 lg:inline-flex">
                   Solicitud en revisión
@@ -517,16 +358,8 @@ export default function TopBar() {
                       .filter((item) => !item.isRead)
                       .map((item) => item.id);
                     if (unreadIds.length > 0) {
-                      const supabase = getSupabaseClient();
-                      if (supabase) {
-                        await supabase
-                          .from("notifications")
-                          .update({ is_read: true })
-                          .in("id", unreadIds);
-                      }
-                      setNotifications((prev) =>
-                        prev.map((item) => ({ ...item, isRead: true })),
-                      );
+                      await dispatch(markNotificationsAsRead(unreadIds));
+                      void dispatch(hydrateNotificationsState());
                     }
                   }
                 }}
@@ -650,12 +483,16 @@ export default function TopBar() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Link
-                href="/ventas"
-                className="cursor-pointer text-sm font-semibold text-zinc-900"
-              >
-                {formatARS(balance)}
-              </Link>
+              {showViewerSkeleton ? (
+                <div className="fanpush-skeleton h-5 w-16 rounded" />
+              ) : (
+                <Link
+                  href="/ventas"
+                  className="cursor-pointer text-sm font-semibold text-zinc-900"
+                >
+                  {formatARS(balance)}
+                </Link>
+              )}
               <div className="relative" ref={profileRef}>
                 <button
                   type="button"
@@ -663,12 +500,16 @@ export default function TopBar() {
                   className="rounded-full"
                   aria-label="Abrir menu de perfil"
                 >
-                  <UserAvatar
-                    src={profile.avatarUrl}
-                    alt={profile.username ?? "Perfil"}
-                    sizeClassName="h-9 w-9"
-                    iconClassName="h-4 w-4"
-                  />
+                  {showViewerSkeleton ? (
+                    <div className="fanpush-skeleton h-9 w-9 rounded-full" />
+                  ) : (
+                    <UserAvatar
+                      src={profile.avatarUrl}
+                      alt={profile.username ?? "Perfil"}
+                      sizeClassName="h-9 w-9"
+                      iconClassName="h-4 w-4"
+                    />
+                  )}
                 </button>
                 {profileOpen ? (
                   <div className="absolute right-0 top-12 z-50 w-48 rounded-[10px] border border-zinc-200 bg-white p-2 shadow-xl">
@@ -684,7 +525,7 @@ export default function TopBar() {
                       className="block rounded-[6px] px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
                       onClick={() => setProfileOpen(false)}
                     >
-                      Settings
+                      Configuración
                     </Link>
                     <button
                       type="button"

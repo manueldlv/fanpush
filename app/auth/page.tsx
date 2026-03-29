@@ -67,6 +67,16 @@ const formatAuthErrorMessage = (value: unknown) => {
   if (normalized.includes("signup is disabled")) {
     return "El registro por correo no está habilitado en este momento.";
   }
+  if (
+    normalized.includes("mailtrap") ||
+    normalized.includes("correo de confirmación") ||
+    normalized.includes("no se pudo conectar")
+  ) {
+    return "No pudimos enviarte el correo en este momento. Intenta de nuevo en unos minutos.";
+  }
+  if (normalized.includes("failed to fetch")) {
+    return "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo otra vez.";
+  }
 
   return message;
 };
@@ -158,6 +168,40 @@ function PasswordChecklist({
   );
 }
 
+function PasswordField({
+  value,
+  placeholder,
+  visible,
+  onChange,
+  onToggle,
+}: {
+  value: string;
+  placeholder: string;
+  visible: boolean;
+  onChange: (value: string) => void;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type={visible ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 pr-12 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        className="absolute right-3 top-0 flex h-[52px] items-center justify-center text-zinc-400 transition hover:text-zinc-700"
+        aria-label={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
+      >
+        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
+
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [forgot, setForgot] = useState(false);
@@ -191,6 +235,20 @@ export default function AuthPage() {
     value: newPassword,
     confirmation: confirmPassword,
   });
+  const title = forgot
+    ? "Recuperar contraseña"
+    : reset
+      ? "Crea una nueva contraseña"
+      : mode === "login"
+        ? "Iniciar sesión en Fanpush"
+        : "Crear cuenta en Fanpush";
+  const subtitle = forgot
+    ? "Te enviaremos un enlace seguro para recuperar el acceso."
+    : reset
+      ? "Elige una contraseña segura para volver a entrar."
+      : mode === "login"
+        ? "Accede a tus compras, creadores y contenido desbloqueado."
+        : "Crea tu cuenta para comprar, apoyar creadores y publicar contenido.";
 
   const resumePendingCheckout = () => {
     const pendingCheckout = readPendingCheckout();
@@ -431,6 +489,8 @@ export default function AuthPage() {
           result.message ??
             "Cuenta creada. Revisa tu correo para confirmar tu dirección antes de iniciar sesión.",
         );
+        setPassword("");
+        setAcceptedTerms(false);
         setMode("login");
       } else {
         const normalizedEmail = normalizeEmail(email);
@@ -681,17 +741,12 @@ export default function AuthPage() {
         >
           <div className="w-full max-w-[420px]" style={contentStyle}>
             <div className="mb-6 text-left">
-              <div className="text-sm font-semibold text-zinc-900">
-                {forgot
-                  ? "Recuperar contraseña"
-                  : mode === "login"
-                    ? "Iniciar sesión en Fanpush"
-                    : "Crear cuenta en Fanpush"}
-              </div>
+              <div className="text-xl font-semibold text-zinc-900">{title}</div>
+              <p className="mt-2 text-sm leading-6 text-zinc-500">{subtitle}</p>
             </div>
 
             <form
-              className="rounded-[12px] border border-zinc-200 bg-white p-6 shadow-sm"
+              className="rounded-[20px] border border-zinc-200 bg-white p-6 shadow-sm"
               style={formStyle}
               onSubmit={(event) => {
                 event.preventDefault();
@@ -705,14 +760,14 @@ export default function AuthPage() {
                     onClick={() => setMode("login")}
                     style={{
                       ...secondaryButtonStyle,
-                      borderRadius: "8px",
+                      borderRadius: "12px",
                       width: "100%",
                       background: mode === "login" ? "#18181b" : "#f4f4f5",
                       color: mode === "login" ? "#ffffff" : "#3f3f46",
                       border: "none",
                       padding: "10px 12px",
                     }}
-                    className={`flex-1 rounded-[8px] px-3 py-2 text-sm font-semibold ${
+                    className={`flex-1 rounded-[12px] px-3 py-2 text-sm font-semibold transition ${
                       mode === "login"
                         ? "bg-zinc-900 text-white"
                         : "bg-zinc-100 text-zinc-700"
@@ -725,14 +780,14 @@ export default function AuthPage() {
                     onClick={() => setMode("register")}
                     style={{
                       ...secondaryButtonStyle,
-                      borderRadius: "8px",
+                      borderRadius: "12px",
                       width: "100%",
                       background: mode === "register" ? "#18181b" : "#f4f4f5",
                       color: mode === "register" ? "#ffffff" : "#3f3f46",
                       border: "none",
                       padding: "10px 12px",
                     }}
-                    className={`flex-1 rounded-[8px] px-3 py-2 text-sm font-semibold ${
+                    className={`flex-1 rounded-[12px] px-3 py-2 text-sm font-semibold transition ${
                       mode === "register"
                         ? "bg-zinc-900 text-white"
                         : "bg-zinc-100 text-zinc-700"
@@ -745,6 +800,16 @@ export default function AuthPage() {
 
               <div className="mt-6 space-y-4">
                 {mode === "register" && !forgot && !reset ? (
+                  <input
+                    type="text"
+                    placeholder="Nombre completo"
+                    value={fullName}
+                    onChange={(event) => setFullName(event.target.value)}
+                    style={inputStyle}
+                    className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
+                  />
+                ) : null}
+                {mode === "register" && !forgot && !reset ? (
                   <div className="relative">
                     <input
                       type="text"
@@ -754,7 +819,7 @@ export default function AuthPage() {
                         setUsername(normalizeUsername(event.target.value))
                       }
                       style={{ ...inputStyle, paddingRight: "44px" }}
-                      className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 pr-11 text-sm"
+                      className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 pr-11 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
                     />
                     <span className="pointer-events-none absolute right-3 top-0 flex h-[52px] items-center justify-center text-zinc-400">
                       {usernameStatus === "checking" ? (
@@ -782,18 +847,59 @@ export default function AuthPage() {
                     ) : null}
                   </div>
                 ) : null}
-                {mode === "register" && !forgot && !reset ? (
+                {!reset ? (
                   <input
-                    type="text"
-                    placeholder="Nombre completo"
-                    value={fullName}
-                    onChange={(event) => setFullName(event.target.value)}
+                    type="email"
+                    placeholder="Correo electrónico"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
                     style={inputStyle}
-                    className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
+                    className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
                   />
                 ) : null}
+                {!forgot && !reset ? (
+                  <>
+                    <PasswordField
+                      value={password}
+                      placeholder="Contraseña"
+                      visible={showPassword}
+                      onChange={setPassword}
+                      onToggle={() => setShowPassword((current) => !current)}
+                    />
+                    {mode === "register" ? (
+                      <PasswordChecklist
+                        title="Tu contraseña debe cumplir esto"
+                        checks={registerPasswordChecks}
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+                {reset ? (
+                  <>
+                    <PasswordField
+                      value={newPassword}
+                      placeholder="Nueva contraseña"
+                      visible={showNewPassword}
+                      onChange={setNewPassword}
+                      onToggle={() => setShowNewPassword((current) => !current)}
+                    />
+                    <PasswordField
+                      value={confirmPassword}
+                      placeholder="Confirmar contraseña"
+                      visible={showConfirmPassword}
+                      onChange={setConfirmPassword}
+                      onToggle={() =>
+                        setShowConfirmPassword((current) => !current)
+                      }
+                    />
+                    <PasswordChecklist
+                      title="Requisitos para la nueva contraseña"
+                      checks={resetPasswordChecks}
+                    />
+                  </>
+                ) : null}
                 {mode === "register" && !forgot && !reset ? (
-                  <label className="flex items-start gap-3 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                  <label className="flex items-start gap-3 rounded-[14px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-600">
                     <input
                       type="checkbox"
                       checked={acceptedTerms}
@@ -824,50 +930,10 @@ export default function AuthPage() {
                     </span>
                   </label>
                 ) : null}
-                {!reset ? (
-                  <input
-                    type="email"
-                    placeholder="Correo electrónico"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    style={inputStyle}
-                    className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
-                  />
-                ) : null}
-                {!forgot && !reset ? (
-                  <input
-                    type="password"
-                    placeholder="Contraseña"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    style={inputStyle}
-                    className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
-                  />
-                ) : null}
-                {reset ? (
-                  <>
-                    <input
-                      type="password"
-                      placeholder="Nueva contraseña"
-                      value={newPassword}
-                      onChange={(event) => setNewPassword(event.target.value)}
-                      style={inputStyle}
-                      className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
-                    />
-                    <input
-                      type="password"
-                      placeholder="Confirmar contraseña"
-                      value={confirmPassword}
-                      onChange={(event) => setConfirmPassword(event.target.value)}
-                      style={inputStyle}
-                      className="h-[52px] w-full rounded-[10px] border border-zinc-200 px-4 py-3 text-sm"
-                    />
-                  </>
-                ) : null}
               </div>
 
               {error ? (
-                <div className="mt-4 rounded-[8px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                <div className="mt-4 rounded-[14px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
                   {error}
                 </div>
               ) : null}
@@ -876,7 +942,7 @@ export default function AuthPage() {
                   type="button"
                   onClick={handleResendConfirmation}
                   disabled={resendingConfirmation}
-                  className="mt-3 w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-3 w-full rounded-[14px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:border-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {resendingConfirmation
                     ? "Reenviando..."
@@ -884,14 +950,13 @@ export default function AuthPage() {
                 </button>
               ) : null}
               {success ? (
-                <div className="mt-4 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                <div className="mt-4 rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-700">
                   {success}
                 </div>
               ) : null}
 
               <button
                 type="submit"
-                onClick={handleSubmit}
                 disabled={
                   submitting ||
                   (mode === "register" &&
@@ -900,7 +965,7 @@ export default function AuthPage() {
                     usernameStatus !== "available")
                 }
                 style={primaryButtonStyle}
-                className="mt-6 w-full rounded-[999px] bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-70"
+                className="mt-6 w-full rounded-[14px] bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {submitting
                   ? "Procesando..."
@@ -917,7 +982,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => setForgot(true)}
-                  className="mt-4 w-full text-center text-sm font-semibold text-zinc-700"
+                  className="mt-4 w-full text-center text-sm font-semibold text-zinc-700 transition hover:text-zinc-900"
                 >
                   ¿Has olvidado la contraseña?
                 </button>
@@ -925,7 +990,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => setForgot(false)}
-                  className="mt-4 w-full text-center text-sm font-semibold text-zinc-700"
+                  className="mt-4 w-full text-center text-sm font-semibold text-zinc-700 transition hover:text-zinc-900"
                 >
                   Volver a iniciar sesión
                 </button>
@@ -933,7 +998,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => setReset(false)}
-                  className="mt-4 w-full text-center text-sm font-semibold text-zinc-700"
+                  className="mt-4 w-full text-center text-sm font-semibold text-zinc-700 transition hover:text-zinc-900"
                 >
                   Volver a iniciar sesión
                 </button>
@@ -944,7 +1009,7 @@ export default function AuthPage() {
                   type="button"
                   onClick={() => setMode("register")}
                   style={secondaryButtonStyle}
-                  className="mt-4 w-full rounded-[999px] border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900"
+                  className="mt-4 w-full rounded-[14px] border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-300"
                 >
                   Crear una cuenta
                 </button>

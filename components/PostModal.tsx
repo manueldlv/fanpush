@@ -139,7 +139,7 @@ export default function PostModal({
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-6 top-6 rounded-[5px] bg-white/90 p-2"
+        className="absolute right-6 top-6 rounded-[5px] bg-white/90 p-2 cursor-pointer"
         aria-label="Cerrar"
       >
         <X className="h-5 w-5" />
@@ -176,7 +176,7 @@ export default function PostModal({
                     (prev - 1 + post.media.length) % post.media.length,
                   )
                 }
-                className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
+                className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700 cursor-pointer"
               >
                 ‹
               </button>
@@ -189,7 +189,7 @@ export default function PostModal({
                 onClick={() =>
                   setIndex((prev) => (prev + 1) % post.media.length)
                 }
-                className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
+                className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700 cursor-pointer"
               >
                 ›
               </button>
@@ -222,8 +222,8 @@ export default function PostModal({
           ) : null}
           {unlockedCurrent.locked && !isOwner ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <div className="rounded-[5px] bg-white/95 px-8 py-6 text-center shadow-md">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[5px] bg-zinc-100">
+              <div className="w-full max-w-[260px] rounded-[14px] bg-white/95 px-8 py-6 text-center shadow-md">
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-zinc-100">
                   <Lock className="h-5 w-5 text-zinc-600" />
                 </div>
                 <div className="mt-3 text-sm font-semibold text-zinc-900">
@@ -231,6 +231,14 @@ export default function PostModal({
                 </div>
                 <div className="text-xs text-zinc-500">
                   {unlockedLockedCount} contenido bloqueado
+                </div>
+                <div className="mt-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    Pago único
+                  </div>
+                  <div className="mt-1 text-center text-[18px] font-semibold text-zinc-900">
+                    {formatARS(post.price ?? 0)}
+                  </div>
                 </div>
                 {!isOwner ? (
                   <button
@@ -245,15 +253,13 @@ export default function PostModal({
                       }
                       setPurchaseLoading(false);
                     }}
-                    className="mt-3 w-full rounded-[5px] bg-zinc-900 px-6 py-2 text-sm font-semibold text-white"
+                    className="mt-3 w-full rounded-[10px] bg-blue-600 px-6 py-2 text-sm font-semibold text-white cursor-pointer"
                   >
-                    {purchaseLoading
-                      ? "Procesando..."
-                      : `Desbloquear por ${formatARS(post.price ?? 0)}`}
+                    {purchaseLoading ? "Procesando..." : "Comprar"}
                   </button>
                 ) : (
-                  <div className="mt-3 rounded-[5px] bg-zinc-900 px-6 py-2 text-sm font-semibold text-white">
-                    {formatARS(post.price ?? 0)}
+                  <div className="mt-3 rounded-[10px] border border-zinc-200 bg-zinc-100 px-6 py-2 text-sm font-semibold text-zinc-700">
+                    Contenido propio
                   </div>
                 )}
               </div>

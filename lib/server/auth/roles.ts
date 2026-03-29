@@ -5,7 +5,12 @@ const enforcePersistedRoles =
   (process.env.AUTH_ENFORCE_PERSISTED_ROLES ?? "").trim().toLowerCase() === "true";
 
 const isMissingRelationError = (message?: string | null) =>
-  Boolean(message && /relation .* does not exist/i.test(message));
+  Boolean(
+    message &&
+      (/relation .* does not exist/i.test(message) ||
+        /could not find the table .* in the schema cache/i.test(message) ||
+        /could not find (?:a )?relationship .* in the schema cache/i.test(message)),
+  );
 
 const normalizeRoleRelation = (
   role: { code?: string | null } | Array<{ code?: string | null }> | null,
@@ -90,6 +95,10 @@ export const grantRoleByCode = async (
     granted_by: grantedBy ?? userId,
   });
 
+  if (insertError && isMissingRelationError(insertError.message)) {
+    return false;
+  }
+
   if (insertError && !/duplicate key/i.test(insertError.message)) {
     throw new Error(`No se pudo asignar el rol ${roleCode}: ${insertError.message}`);
   }
@@ -111,6 +120,10 @@ export const revokeRoleByCode = async (
     .eq("user_id", userId)
     .eq("role_id", roleId)
     .is("revoked_at", null);
+
+  if (error && isMissingRelationError(error.message)) {
+    return false;
+  }
 
   if (error) {
     throw new Error(`No se pudo revocar el rol ${roleCode}: ${error.message}`);
@@ -158,6 +171,86 @@ const LEGACY_ADMIN_PERMISSIONS = new Set([
   "roles.manage",
   "dev.seed",
 ]);
+
+export type UserAccessSnapshot = {
+  roles: string[];
+  permissions: string[];
+  isAdmin: boolean;
+};
+
+export const getUserAccessSnapshot = async (
+  admin: SupabaseClient,
+  user: User,
+): Promise<UserAccessSnapshot> => {
+  const roles = await getUserActiveRoles(admin, user.id);
+
+  if (roles.available) {
+    let permissionCodes: string[] = [];
+
+    if (roles.roleIds.length > 0) {
+      const { data, error } = await admin
+        .from("role_permissions")
+        .select("permission:permissions!inner(code)")
+        .in("role_id", roles.roleIds);
+
+      if (error) {
+        if (!isMissingRelationError(error.message)) {
+          throw new Error(`No se pudieron leer los permisos del usuario: ${error.message}`);
+        }
+      } else {
+        const rows = (data ?? []) as Array<{
+          permission:
+            | { code?: string | null }
+            | Array<{ code?: string | null }>
+            | null;
+        }>;
+
+        permissionCodes = rows
+          .map((row) => normalizePermissionRelation(row.permission))
+          .filter((value): value is string => Boolean(value));
+      }
+    }
+
+    if (!enforcePersistedRoles) {
+      const legacyAdmin = await isAdminUser(admin, user);
+      if (legacyAdmin) {
+        return {
+          roles: Array.from(new Set([...roles.roleCodes, "admin"])),
+          permissions: Array.from(
+            new Set([...permissionCodes, ...Array.from(LEGACY_ADMIN_PERMISSIONS)]),
+          ),
+          isAdmin: true,
+        };
+      }
+    }
+
+    return {
+      roles: roles.roleCodes,
+      permissions: Array.from(new Set(permissionCodes)),
+      isAdmin:
+        roles.roleCodes.includes("admin") ||
+        roles.roleCodes.includes("super_admin") ||
+        permissionCodes.includes("admin.access"),
+    };
+  }
+
+  if (!enforcePersistedRoles) {
+    const legacyAdmin = await isAdminUser(admin, user);
+    if (legacyAdmin) {
+      return {
+        roles: ["admin"],
+        permissions: Array.from(LEGACY_ADMIN_PERMISSIONS),
+        isAdmin: true,
+      };
+    }
+  }
+
+  return {
+    roles: [],
+    permissions: [],
+    isAdmin: false,
+  };
+};
 
 export const hasPermission = async (
   admin: SupabaseClient,

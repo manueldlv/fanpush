@@ -1,13 +1,119 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import SidebarLeft from "@/components/SidebarLeft";
-import SearchPanel from "@/components/SearchPanel";
+import { useEffect, useState, type ChangeEvent } from "react";
+import AvatarCropModal from "@/components/AvatarCropModal";
 import NotificationsPanel from "@/components/NotificationsPanel";
+import SearchPanel from "@/components/SearchPanel";
+import SidebarLeft from "@/components/SidebarLeft";
+import { useAppDispatch } from "@/lib/redux/hooks";
+import { setViewerAuthorStatus } from "@/lib/redux/slices/viewerSlice";
+import {
+  DOCUMENT_IMAGE_ACCEPT,
+  MAX_DOCUMENT_IMAGE_BYTES,
+  validateImageFile,
+} from "@/lib/imageFiles";
 import { getSupabaseClient } from "@/lib/supabase";
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 
+type DocumentSide = "front" | "back";
+
+function AuthorApplicationSkeleton() {
+  return (
+    <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+      <div className="mb-6">
+        <div className="fanpush-skeleton h-8 w-36 rounded-full" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={`author-skeleton-input-${index}`} className="space-y-2">
+            <div className="fanpush-skeleton h-4 w-24 rounded" />
+            <div className="fanpush-skeleton h-[50px] w-full rounded-[16px]" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <div
+            key={`author-skeleton-upload-${index}`}
+            className="rounded-[20px] border border-zinc-200 bg-zinc-50 p-4"
+          >
+            <div className="fanpush-skeleton h-4 w-36 rounded" />
+            <div className="mt-2 fanpush-skeleton h-3 w-28 rounded" />
+            <div className="mt-4 fanpush-skeleton h-[126px] w-full rounded-[14px]" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 fanpush-skeleton h-12 w-40 rounded-[18px]" />
+    </div>
+  );
+}
+
+function DocumentUploadCard({
+  title,
+  previewUrl,
+  fileName,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  previewUrl: string | null;
+  fileName: string | null;
+  disabled?: boolean;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <label
+      className={`block rounded-[20px] border border-dashed p-4 transition ${
+        disabled
+          ? "cursor-not-allowed border-zinc-200 bg-zinc-100 opacity-70"
+          : "cursor-pointer border-zinc-300 bg-zinc-50 hover:border-zinc-400 hover:bg-white"
+      }`}
+    >
+      <input
+        type="file"
+        accept={DOCUMENT_IMAGE_ACCEPT}
+        className="hidden"
+        onChange={onChange}
+        disabled={disabled}
+      />
+      <div className="text-sm font-semibold text-zinc-700">{title}</div>
+      <p className="mt-1 text-xs text-zinc-500">JPG, PNG o WEBP. Hasta 10 MB.</p>
+
+      {previewUrl ? (
+        <div className="mt-4 flex items-center gap-4">
+          <div className="h-[92px] w-[146px] overflow-hidden rounded-[14px] border border-zinc-200 bg-white">
+            <img
+              src={previewUrl}
+              alt={title}
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-zinc-900">
+              {fileName ?? "Documento listo"}
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Haz click para ajustar o reemplazar esta imagen.
+            </div>
+            <div className="mt-3 inline-flex rounded-[10px] border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
+              Ajustar imagen
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[14px] border border-zinc-200 bg-white px-4 py-5 text-sm text-zinc-500">
+          Sube una foto nítida, completa y bien iluminada.
+        </div>
+      )}
+    </label>
+  );
+}
+
 export default function AutorSolicitudPage() {
+  const dispatch = useAppDispatch();
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -27,6 +133,14 @@ export default function AutorSolicitudPage() {
   const [address, setAddress] = useState("");
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
+  const [frontPreviewUrl, setFrontPreviewUrl] = useState<string | null>(null);
+  const [backPreviewUrl, setBackPreviewUrl] = useState<string | null>(null);
+  const [documentCrop, setDocumentCrop] = useState<{
+    side: DocumentSide;
+    imageSrc: string;
+    fileName: string;
+    mimeType: string;
+  } | null>(null);
   const maxBirthDate = new Date(
     new Date().getFullYear() - 18,
     new Date().getMonth(),
@@ -38,10 +152,16 @@ export default function AutorSolicitudPage() {
   useEffect(() => {
     const load = async () => {
       const supabase = getSupabaseClient();
-      if (!supabase) return;
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
       const { data } = await supabase.auth.getUser();
       const userId = data.user?.id;
-      if (!userId) return;
+      if (!userId) {
+        setLoading(false);
+        return;
+      }
       const application = await getAuthorApplicationForUser(supabase, userId);
       const current = application?.record;
       if (current) {
@@ -54,11 +174,89 @@ export default function AutorSolicitudPage() {
         setProvince(current.province);
         setCity(current.city);
         setAddress(current.address);
+        setFrontPreviewUrl(current.documentFrontUrl);
+        setBackPreviewUrl(current.documentBackUrl);
       }
       setLoading(false);
     };
     load();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (documentCrop?.imageSrc?.startsWith("blob:")) {
+        URL.revokeObjectURL(documentCrop.imageSrc);
+      }
+      if (frontPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(frontPreviewUrl);
+      }
+      if (backPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(backPreviewUrl);
+      }
+    };
+  }, [backPreviewUrl, documentCrop, frontPreviewUrl]);
+
+  const resetFeedback = () => {
+    if (error) setError(null);
+    if (success) setSuccess(null);
+  };
+
+  const handleDocumentSelected =
+    (side: DocumentSide) => (event: ChangeEvent<HTMLInputElement>) => {
+      try {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        validateImageFile(file, {
+          label:
+            side === "front"
+              ? "El frente del documento"
+              : "El dorso del documento",
+          maxBytes: MAX_DOCUMENT_IMAGE_BYTES,
+        });
+        if (documentCrop?.imageSrc?.startsWith("blob:")) {
+          URL.revokeObjectURL(documentCrop.imageSrc);
+        }
+        resetFeedback();
+        setDocumentCrop({
+          side,
+          imageSrc: URL.createObjectURL(file),
+          fileName: file.name || `${side}-documento.jpg`,
+          mimeType: file.type || "image/jpeg",
+        });
+      } catch (uploadError) {
+        setError(
+          uploadError instanceof Error
+            ? uploadError.message
+            : "No se pudo cargar la imagen del documento.",
+        );
+      } finally {
+        event.target.value = "";
+      }
+    };
+
+  const handleDocumentConfirmed = async (file: File) => {
+    if (!documentCrop) return;
+
+    const nextPreviewUrl = URL.createObjectURL(file);
+    if (documentCrop.side === "front") {
+      if (frontPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(frontPreviewUrl);
+      }
+      setFrontFile(file);
+      setFrontPreviewUrl(nextPreviewUrl);
+    } else {
+      if (backPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(backPreviewUrl);
+      }
+      setBackFile(file);
+      setBackPreviewUrl(nextPreviewUrl);
+    }
+
+    if (documentCrop.imageSrc.startsWith("blob:")) {
+      URL.revokeObjectURL(documentCrop.imageSrc);
+    }
+    setDocumentCrop(null);
+  };
 
   const handleSubmit = async () => {
     try {
@@ -75,7 +273,7 @@ export default function AutorSolicitudPage() {
         throw new Error("Necesitas iniciar sesión.");
       }
       if (!frontFile || !backFile) {
-        throw new Error("Debes subir frente y dorso del DNI.");
+        throw new Error("Debes subir frente y dorso del documento.");
       }
 
       const formData = new FormData();
@@ -101,6 +299,7 @@ export default function AutorSolicitudPage() {
       if (!response.ok) throw new Error(result.error ?? "No se pudo enviar la solicitud.");
 
       setStatus("pending");
+      dispatch(setViewerAuthorStatus("pending"));
       setSuccess("Solicitud enviada. El equipo de FanPush va a revisar tu identidad.");
       window.dispatchEvent(new Event("creator-status-updated"));
     } catch (err) {
@@ -112,6 +311,33 @@ export default function AutorSolicitudPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+      <AvatarCropModal
+        open={Boolean(documentCrop)}
+        imageSrc={documentCrop?.imageSrc ?? ""}
+        fileName={documentCrop?.fileName ?? "documento.jpg"}
+        mimeType={documentCrop?.mimeType ?? "image/jpeg"}
+        title={
+          documentCrop?.side === "back"
+            ? "Ajustar dorso del documento"
+            : "Ajustar frente del documento"
+        }
+        description="Recorta la imagen para que el documento quede centrado, completo y bien legible."
+        aspect={1.58}
+        cropShape="rect"
+        previewShape="rect"
+        previewLabel="Recorte"
+        confirmLabel="Usar esta imagen"
+        outputWidth={1600}
+        outputHeight={1000}
+        onCancel={() => {
+          if (documentCrop?.imageSrc?.startsWith("blob:")) {
+            URL.revokeObjectURL(documentCrop.imageSrc);
+          }
+          setDocumentCrop(null);
+        }}
+        onConfirm={handleDocumentConfirmed}
+      />
+
       <SidebarLeft
         searchOpen={searchOpen}
         onSearchClick={() => {
@@ -139,14 +365,12 @@ export default function AutorSolicitudPage() {
             <h1 className="mt-3 text-3xl font-semibold">Convertirme en autor</h1>
             <p className="mt-2 max-w-[720px] text-sm text-zinc-500">
               Para vender contenido debes verificar tu identidad, ser mayor de 18 años
-              y subir frente y dorso de tu DNI.
+              y subir frente y dorso de tu documento.
             </p>
           </div>
 
           {loading ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
-              Cargando estado...
-            </div>
+            <AuthorApplicationSkeleton />
           ) : (
             <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
               <div className="mb-5 flex flex-wrap gap-2">
@@ -169,40 +393,56 @@ export default function AutorSolicitudPage() {
               ) : (
                 <>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" type="date" max={maxBirthDate} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Nombre completo" value={fullName} onChange={(e) => { resetFeedback(); setFullName(e.target.value); }} />
+                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" type="date" max={maxBirthDate} value={birthDate} onChange={(e) => { resetFeedback(); setBirthDate(e.target.value); }} />
                     <select
                       className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm"
                       value={documentType}
-                      onChange={(e) => setDocumentType(e.target.value)}
+                      onChange={(e) => {
+                        resetFeedback();
+                        setDocumentType(e.target.value);
+                      }}
                     >
                       <option value="DNI">DNI</option>
+                      <option value="Pasaporte">Pasaporte</option>
+                      <option value="Documento extranjero">Documento extranjero</option>
                     </select>
                     <input
                       className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm"
                       placeholder="Número de documento"
-                      inputMode="numeric"
-                      maxLength={8}
+                      maxLength={20}
                       value={documentNumber}
-                      onChange={(e) =>
-                        setDocumentNumber(e.target.value.replace(/\D/g, "").slice(0, 8))
-                      }
+                      onChange={(e) => {
+                        resetFeedback();
+                        setDocumentNumber(
+                          e.target.value
+                            .replace(/[^0-9a-zA-Z]/g, "")
+                            .slice(0, 20)
+                            .toUpperCase(),
+                        );
+                      }}
                     />
-                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="País" value={country} onChange={(e) => setCountry(e.target.value)} />
-                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Provincia" value={province} onChange={(e) => setProvince(e.target.value)} />
-                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Ciudad" value={city} onChange={(e) => setCity(e.target.value)} />
-                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Dirección" value={address} onChange={(e) => setAddress(e.target.value)} />
+                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="País" value={country} onChange={(e) => { resetFeedback(); setCountry(e.target.value); }} />
+                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Provincia" value={province} onChange={(e) => { resetFeedback(); setProvince(e.target.value); }} />
+                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Ciudad" value={city} onChange={(e) => { resetFeedback(); setCity(e.target.value); }} />
+                    <input className="rounded-[16px] border border-zinc-200 px-4 py-3 text-sm" placeholder="Dirección" value={address} onChange={(e) => { resetFeedback(); setAddress(e.target.value); }} />
                   </div>
 
                   <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <label className="rounded-[20px] border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      Frente del DNI
-                      <input type="file" accept="image/*" className="mt-3 block w-full text-xs" onChange={(e) => setFrontFile(e.target.files?.[0] ?? null)} />
-                    </label>
-                    <label className="rounded-[20px] border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      Dorso del DNI
-                      <input type="file" accept="image/*" className="mt-3 block w-full text-xs" onChange={(e) => setBackFile(e.target.files?.[0] ?? null)} />
-                    </label>
+                    <DocumentUploadCard
+                      title="Frente del documento"
+                      previewUrl={frontPreviewUrl}
+                      fileName={frontFile?.name ?? null}
+                      disabled={submitting || status === "pending"}
+                      onChange={handleDocumentSelected("front")}
+                    />
+                    <DocumentUploadCard
+                      title="Dorso del documento"
+                      previewUrl={backPreviewUrl}
+                      fileName={backFile?.name ?? null}
+                      disabled={submitting || status === "pending"}
+                      onChange={handleDocumentSelected("back")}
+                    />
                   </div>
 
                   {error ? (

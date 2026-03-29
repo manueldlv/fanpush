@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { User } from "lucide-react";
 
 type UserAvatarProps = {
@@ -17,11 +18,18 @@ export default function UserAvatar({
   iconClassName = "h-5 w-5",
   className = "",
 }: UserAvatarProps) {
-  if (src) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  if (src && !failed) {
     return (
       <img
         src={src}
         alt={alt}
+        onError={() => setFailed(true)}
         className={`${sizeClassName} rounded-full object-cover ${className}`.trim()}
       />
     );

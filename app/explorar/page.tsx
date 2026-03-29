@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
+import MediaImage from "@/components/MediaImage";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -19,6 +20,21 @@ type ExploreItem = {
   description: string;
   createdAt: string;
 };
+
+function ExploreCardSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-sm">
+      <div className="fanpush-skeleton aspect-[3/4] w-full bg-zinc-100" />
+      <div className="flex items-center gap-3 p-3">
+        <div className="fanpush-skeleton h-10 w-10 rounded-full" />
+        <div className="min-w-0 flex-1">
+          <div className="fanpush-skeleton h-4 w-24 rounded-full" />
+          <div className="mt-2 fanpush-skeleton h-3 w-36 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ExplorarPage() {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -117,8 +133,10 @@ export default function ExplorarPage() {
 
           <div className="min-h-0 flex-1 overflow-y-auto pb-8">
             {loading ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500">
-                Cargando contenido gratuito...
+              <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                {Array.from({ length: 12 }).map((_, index) => (
+                  <ExploreCardSkeleton key={`explore-skeleton-${index}`} />
+                ))}
               </div>
             ) : items.length === 0 ? (
               <div className="rounded-[24px] border border-zinc-200 bg-white px-6 py-10 text-center">
@@ -152,10 +170,12 @@ export default function ExplorarPage() {
                           </div>
                         </>
                       ) : (
-                        <img
+                        <MediaImage
                           src={item.mediaUrl ?? undefined}
                           alt={item.description || item.username}
                           className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                          fallbackClassName="h-full w-full"
+                          iconClassName="h-7 w-7"
                         />
                       )}
                     </div>

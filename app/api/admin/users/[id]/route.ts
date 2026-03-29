@@ -47,6 +47,21 @@ export async function PATCH(
       updatedAt: new Date().toISOString(),
     };
 
+    const { error: commissionInsertError } = await admin
+      .from("user_commission_profiles")
+      .insert({
+        user_id: params.id,
+        creator_share_rate: profile.creatorShare,
+        platform_share_rate: profile.platformShare,
+        updated_by: user.id,
+      });
+
+    if (commissionInsertError) {
+      throw new Error(
+        `No se pudo guardar la comisión en tabla: ${commissionInsertError.message}`,
+      );
+    }
+
     const { error: insertError } = await admin.from("notifications").insert({
       user_id: params.id,
       actor_id: user.id,

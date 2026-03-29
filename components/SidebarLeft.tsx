@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -12,7 +11,7 @@ import {
   SquarePlus,
   User,
 } from "lucide-react";
-import { getAuthorApplicationForUser } from "@/lib/authorApplications";
+import { useAppSelector } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
 
 type SidebarLeftProps = {
@@ -28,28 +27,7 @@ export default function SidebarLeft({
   onNotificationsClick,
   notificationsOpen,
 }: SidebarLeftProps) {
-  const [canCreate, setCanCreate] = useState(false);
-
-  useEffect(() => {
-    const load = async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-      const { data } = await supabase.auth.getUser();
-      const userId = data.user?.id;
-      if (!userId) return;
-      const application = await getAuthorApplicationForUser(supabase, userId);
-      const approved = application?.record?.status === "approved";
-      setCanCreate(approved);
-    };
-    load();
-    const interval = window.setInterval(load, 15000);
-    const refresh = () => load();
-    window.addEventListener("creator-status-updated", refresh);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("creator-status-updated", refresh);
-    };
-  }, []);
+  const canCreate = useAppSelector((state) => state.viewer.access.canCreate);
 
   return (
     <>
@@ -140,7 +118,7 @@ export default function SidebarLeft({
               className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
             >
               <Settings className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
-              <span>Settings</span>
+              <span>Configuración</span>
             </Link>
             <Link
               href="/perfil"

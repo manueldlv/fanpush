@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useAppSelector } from "@/lib/redux/hooks";
 import {
   getSupabaseAdminBrowserClient,
   getSupabaseClient,
@@ -10,6 +11,7 @@ import {
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const auth = useAppSelector((state) => state.auth);
   const inAuth = pathname?.startsWith("/auth");
   const inAdmin = pathname?.startsWith("/admin");
   const inAdminLogin = pathname?.startsWith("/admin/login");
@@ -31,8 +33,34 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [configError, setConfigError] = useState(false);
 
   useEffect(() => {
-    setAllowed(allowWithoutSession);
     setConfigError(false);
+
+    if (allowWithoutSession) {
+      setAllowed(true);
+      return;
+    }
+
+    if (!inAdmin) {
+      if (!auth.hydrated) {
+        setAllowed(false);
+        return;
+      }
+
+      if (auth.error) {
+        setAllowed(false);
+        setConfigError(true);
+        return;
+      }
+
+      if (auth.isAuthenticated) {
+        setAllowed(true);
+        return;
+      }
+
+      setAllowed(false);
+      router.replace("/auth");
+      return;
+    }
 
     const supabase = inAdmin
       ? getSupabaseAdminBrowserClient()
@@ -125,7 +153,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       cancelled = true;
       sub?.subscription?.unsubscribe();
     };
-  }, [allowWithoutSession, inAdmin, inAuth, pathname, router]);
+  }, [
+    allowWithoutSession,
+    auth.error,
+    auth.hydrated,
+    auth.isAuthenticated,
+    inAdmin,
+    inAuth,
+    pathname,
+    router,
+  ]);
 
   if (allowWithoutSession) return <>{children}</>;
   if (!allowed) {

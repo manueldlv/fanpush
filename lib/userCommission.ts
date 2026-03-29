@@ -6,6 +6,13 @@ export type UserCommissionProfile = {
   updatedAt: string;
 };
 
+type UserCommissionProfileRow = {
+  id: string;
+  creator_share_rate: number | string;
+  platform_share_rate: number | string;
+  created_at: string;
+};
+
 const PREFIX = "user_commission_profile:";
 const DEFAULT_CREATOR_SHARE = 0.7;
 
@@ -50,10 +57,50 @@ export const getPlatformShareFromProfile = (
   profile?: UserCommissionProfile | null,
 ) => 1 - getCreatorShareFromProfile(profile);
 
+export const coerceUserCommissionProfile = (
+  row?: UserCommissionProfileRow | null,
+): UserCommissionProfile | null => {
+  if (!row) return null;
+
+  const creatorShare = Number(row.creator_share_rate);
+  const platformShare = Number(row.platform_share_rate);
+  if (
+    Number.isNaN(creatorShare) ||
+    Number.isNaN(platformShare) ||
+    typeof row.created_at !== "string" ||
+    !row.created_at
+  ) {
+    return null;
+  }
+
+  return {
+    creatorShare,
+    platformShare,
+    updatedAt: row.created_at,
+  };
+};
+
 export const getLatestUserCommissionProfile = async (
   supabase: SupabaseClient,
   userId: string,
 ) => {
+  const { data: tableRow } = await supabase
+    .from("user_commission_profiles")
+    .select("id,creator_share_rate,platform_share_rate,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const recordFromTable = coerceUserCommissionProfile(tableRow);
+  if (tableRow && recordFromTable) {
+    return {
+      id: tableRow.id,
+      createdAt: tableRow.created_at,
+      record: recordFromTable,
+    };
+  }
+
   const { data } = await supabase
     .from("notifications")
     .select("id,message,created_at")

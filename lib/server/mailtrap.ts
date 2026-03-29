@@ -1,10 +1,41 @@
 const defaultMailtrapApiUrl = "https://send.api.mailtrap.io/api/send";
 
-const mailtrapApiUrl = process.env.MAILTRAP_API_URL || defaultMailtrapApiUrl;
-const mailtrapAccessToken = process.env.MAILTRAP_ACCESS_TOKEN;
+const readTrimmedEnv = (key: string) => {
+  const value = process.env[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+const normalizeMailtrapApiUrl = (value?: string) => {
+  if (!value) {
+    return defaultMailtrapApiUrl;
+  }
+
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    throw new Error("MAILTRAP_API_URL no es válida.");
+  }
+
+  if (!parsed.pathname || parsed.pathname === "/") {
+    parsed.pathname = "/api/send";
+  }
+
+  return parsed.toString();
+};
+
+const mailtrapApiUrl = normalizeMailtrapApiUrl(readTrimmedEnv("MAILTRAP_API_URL"));
+const mailtrapAccessToken = readTrimmedEnv("MAILTRAP_ACCESS_TOKEN");
 const mailtrapSenderEmail =
-  process.env.MAILTRAP_SENDER_EMAIL || "hello@fanpush.app";
-const mailtrapSenderName = process.env.MAILTRAP_SENDER_NAME || "FanPush";
+  readTrimmedEnv("MAILTRAP_SENDER_EMAIL") || "hello@fanpush.app";
+const mailtrapSenderName = readTrimmedEnv("MAILTRAP_SENDER_NAME") || "FanPush";
 
 type SendMailtrapEmailArgs = {
   to: string | string[];
@@ -34,26 +65,33 @@ export const sendMailtrapEmail = async ({
     throw new Error("Falta al menos un destinatario para enviar el email.");
   }
 
-  const response = await fetch(mailtrapApiUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${mailtrapAccessToken}`,
-      "Api-Token": mailtrapAccessToken,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: {
-        email: mailtrapSenderEmail,
-        name: mailtrapSenderName,
+  let response: Response;
+  try {
+    response = await fetch(mailtrapApiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${mailtrapAccessToken}`,
+        "Api-Token": mailtrapAccessToken,
+        "Content-Type": "application/json",
       },
-      to: recipients,
-      subject,
-      text,
-      ...(html ? { html } : {}),
-      ...(category ? { category } : {}),
-    }),
-    cache: "no-store",
-  });
+      body: JSON.stringify({
+        from: {
+          email: mailtrapSenderEmail,
+          name: mailtrapSenderName,
+        },
+        to: recipients,
+        subject,
+        text,
+        ...(html ? { html } : {}),
+        ...(category ? { category } : {}),
+      }),
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error(
+      "No se pudo conectar con Mailtrap. Revisa MAILTRAP_API_URL y las credenciales configuradas.",
+    );
+  }
 
   const json = await response.json().catch(() => null);
 

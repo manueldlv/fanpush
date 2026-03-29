@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordMercadoPagoCreatorCreditTransaction } from "@/lib/server/repositories/ledger";
 
 export type PurchaseAlbumTarget = {
   id: string;
@@ -59,6 +60,7 @@ export const creditApprovedAlbumPurchase = async ({
   paymentId,
   amount,
   sellerUserId,
+  externalReference,
 }: {
   admin: SupabaseClient;
   buyerUserId: string;
@@ -66,6 +68,7 @@ export const creditApprovedAlbumPurchase = async ({
   paymentId: string | number;
   amount: number;
   sellerUserId: string;
+  externalReference?: string | null;
 }) => {
   const postIds = await getAlbumPostIds(admin, albumId);
   if (postIds.length === 0) {
@@ -98,6 +101,18 @@ export const creditApprovedAlbumPurchase = async ({
     throwRepositoryError(insertError, "No se pudo acreditar la compra");
   }
 
+  await recordMercadoPagoCreatorCreditTransaction({
+    admin,
+    kind: "purchase",
+    providerPaymentId: paymentId,
+    buyerUserId,
+    recipientUserId: sellerUserId,
+    transactionAmount: amount,
+    sourceType: "album",
+    sourceId: albumId,
+    externalReference,
+  });
+
   if (existingPaymentIds.size === 0) {
     const { error: notificationError } = await admin.from("notifications").insert({
       user_id: sellerUserId,
@@ -124,12 +139,14 @@ export const creditApprovedTip = async ({
   buyerUserId,
   paymentId,
   amount,
+  externalReference,
 }: {
   admin: SupabaseClient;
   targetUserId: string;
   buyerUserId: string;
   paymentId: string | number;
   amount: number;
+  externalReference?: string | null;
 }) => {
   const normalizedPaymentId = String(paymentId);
   const { data: existingTip, error: existingError } = await admin
@@ -141,6 +158,18 @@ export const creditApprovedTip = async ({
     .maybeSingle();
 
   throwRepositoryError(existingError, "No se pudo validar la propina");
+
+  await recordMercadoPagoCreatorCreditTransaction({
+    admin,
+    kind: "tip",
+    providerPaymentId: paymentId,
+    buyerUserId,
+    recipientUserId: targetUserId,
+    transactionAmount: amount,
+    sourceType: "user",
+    sourceId: targetUserId,
+    externalReference,
+  });
 
   if (!existingTip) {
     const { error: insertError } = await admin.from("notifications").insert({

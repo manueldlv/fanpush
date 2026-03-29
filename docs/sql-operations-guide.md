@@ -16,9 +16,9 @@ Las cuentas deben crearse por signup normal, Dashboard de Supabase o Admin API. 
 
 ## Pre-requisitos
 Aplicar estas migraciones en este orden:
-- [20260328_000001_access_control.sql](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations/20260328_000001_access_control.sql)
-- [20260328_000002_default_user_role.sql](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations/20260328_000002_default_user_role.sql)
-- [20260328_000003_roles_manage_permission.sql](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations/20260328_000003_roles_manage_permission.sql)
+- [20260328000001_access_control.sql](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations/20260328000001_access_control.sql)
+- [20260328000002_default_user_role.sql](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations/20260328000002_default_user_role.sql)
+- [20260328000003_roles_manage_permission.sql](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations/20260328000003_roles_manage_permission.sql)
 
 ## 1. Verificar que el usuario existe
 ```sql

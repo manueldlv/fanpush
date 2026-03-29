@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Image as ImageIcon, Lock, X } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import MediaImage from "@/components/MediaImage";
 import NotificationsPanel from "@/components/NotificationsPanel";
 import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -292,10 +293,12 @@ export default function ComprasPage() {
                   playsInline
                 />
               ) : (
-                <img
+                <MediaImage
                   src={openPurchase.media[openIndex]?.url}
                   alt={openPurchase.title}
                   className="h-full w-full object-contain"
+                  fallbackClassName="h-full w-full bg-zinc-950 text-zinc-500"
+                  iconClassName="h-8 w-8"
                 />
               )}
               {openPurchase.media.length > 1 ? (
@@ -405,10 +408,12 @@ export default function ComprasPage() {
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <div className="relative h-20 w-20 overflow-hidden rounded-[5px] border border-zinc-200 bg-zinc-100">
-                      <img
+                      <MediaImage
                         src={purchase.cover}
                         alt={purchase.title}
                         className="h-full w-full object-cover"
+                        fallbackClassName="h-full w-full"
+                        iconClassName="h-5 w-5"
                       />
                       {purchase.status === "Pendiente" ? (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
@@ -419,11 +424,13 @@ export default function ComprasPage() {
                     {purchase.covers.length > 1 ? (
                       <div className="flex gap-1">
                         {purchase.covers.slice(1, 3).map((cover, index) => (
-                          <img
+                          <MediaImage
                             key={`${purchase.id}-thumb-${index}`}
                             src={cover}
                             alt={purchase.title}
                             className="h-10 w-10 rounded-[5px] object-cover"
+                            fallbackClassName="h-10 w-10 rounded-[5px]"
+                            iconClassName="h-4 w-4"
                           />
                         ))}
                       </div>

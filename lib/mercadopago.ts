@@ -144,6 +144,7 @@ export const finalizeMercadoPagoPayment = async ({
       paymentId: payment.id,
       amount: Number(reference.amount || album.price || 0),
       sellerUserId: album.userId,
+      externalReference: payment.external_reference ?? null,
     });
 
     return { ok: true, kind: "purchase" };
@@ -159,6 +160,7 @@ export const finalizeMercadoPagoPayment = async ({
       buyerUserId: buyerUser.id,
       paymentId: payment.id,
       amount,
+      externalReference: payment.external_reference ?? null,
     });
 
     return { ok: true, kind: "tip", amount };

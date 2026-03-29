@@ -9,12 +9,14 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, "&#39;");
 
 const buildEmailHtml = ({
+  eyebrow,
   title,
   intro,
   actionLabel,
   actionUrl,
   note,
 }: {
+  eyebrow: string;
   title: string;
   intro: string;
   actionLabel: string;
@@ -22,22 +24,50 @@ const buildEmailHtml = ({
   note: string;
 }) => `<!doctype html>
 <html lang="es">
-  <body style="margin:0;background:#f4f4f5;font-family:Inter,Arial,sans-serif;color:#18181b;">
-    <div style="margin:0 auto;max-width:560px;padding:32px 16px;">
-      <div style="border:1px solid #e4e4e7;border-radius:20px;background:#ffffff;padding:32px;">
-        <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;">FanPush</div>
-        <h1 style="margin:16px 0 12px;font-size:28px;line-height:1.2;color:#18181b;">${escapeHtml(title)}</h1>
-        <p style="margin:0 0 20px;font-size:15px;line-height:1.7;color:#3f3f46;">${escapeHtml(intro)}</p>
-        <a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:999px;background:#2563eb;color:#ffffff;padding:14px 22px;font-size:15px;font-weight:700;text-decoration:none;">
-          ${escapeHtml(actionLabel)}
-        </a>
-        <p style="margin:24px 0 8px;font-size:13px;line-height:1.6;color:#71717a;">
-          Si el botón no funciona, copia y pega este enlace en tu navegador:
-        </p>
-        <p style="margin:0 0 24px;word-break:break-all;font-size:13px;line-height:1.6;color:#2563eb;">
-          ${escapeHtml(actionUrl)}
-        </p>
-        <p style="margin:0;font-size:13px;line-height:1.7;color:#71717a;">${escapeHtml(note)}</p>
+  <body style="margin:0;background:#f5f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#18181b;">
+    <div style="margin:0 auto;max-width:620px;padding:28px 16px 40px;">
+      <div style="margin-bottom:16px;text-align:center;font-size:12px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;color:#71717a;">
+        FanPush
+      </div>
+      <div style="overflow:hidden;border:1px solid #e4e4e7;border-radius:28px;background:#ffffff;box-shadow:0 20px 45px rgba(15,23,42,0.08);">
+        <div style="padding:28px 32px;background:linear-gradient(135deg,#18181b 0%,#2563eb 62%,#ec4899 100%);color:#ffffff;">
+          <div style="display:inline-block;border-radius:999px;background:rgba(255,255,255,0.14);padding:8px 12px;font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;">
+            ${escapeHtml(eyebrow)}
+          </div>
+          <h1 style="margin:18px 0 10px;font-size:34px;line-height:1.12;font-weight:800;color:#ffffff;">
+            ${escapeHtml(title)}
+          </h1>
+          <p style="margin:0;max-width:440px;font-size:16px;line-height:1.7;color:rgba(255,255,255,0.9);">
+            ${escapeHtml(intro)}
+          </p>
+        </div>
+        <div style="padding:30px 32px 32px;">
+          <div style="border:1px solid #e4e4e7;border-radius:22px;background:#fafafa;padding:22px;">
+            <div style="font-size:13px;line-height:1.7;color:#52525b;">
+              Este enlace abre FanPush de forma segura y está asociado a tu cuenta.
+            </div>
+            <a href="${escapeHtml(actionUrl)}" style="display:inline-block;margin-top:18px;border-radius:16px;background:#18181b;color:#ffffff;padding:15px 22px;font-size:15px;font-weight:700;text-decoration:none;">
+              ${escapeHtml(actionLabel)}
+            </a>
+          </div>
+          <div style="margin-top:20px;border-radius:18px;background:#eff6ff;padding:16px 18px;">
+            <div style="font-size:12px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#2563eb;">
+              Seguridad
+            </div>
+            <p style="margin:8px 0 0;font-size:13px;line-height:1.7;color:#334155;">
+              Si el botón no funciona, copia y pega este enlace en tu navegador.
+            </p>
+            <p style="margin:12px 0 0;word-break:break-all;font-size:13px;line-height:1.7;color:#1d4ed8;">
+              ${escapeHtml(actionUrl)}
+            </p>
+          </div>
+          <p style="margin:22px 0 0;font-size:13px;line-height:1.8;color:#71717a;">
+            ${escapeHtml(note)}
+          </p>
+        </div>
+      </div>
+      <div style="margin-top:16px;text-align:center;font-size:12px;line-height:1.7;color:#a1a1aa;">
+        FanPush · hello@fanpush.app
       </div>
     </div>
   </body>
@@ -61,7 +91,9 @@ ${intro}
 
 ${actionLabel}: ${actionUrl}
 
-${note}`;
+${note}
+
+FanPush · hello@fanpush.app`;
 
 export const sendSignupConfirmationEmail = async ({
   to,
@@ -72,9 +104,9 @@ export const sendSignupConfirmationEmail = async ({
 }) => {
   const title = "Confirma tu cuenta en FanPush";
   const intro =
-    "Para activar tu cuenta y poder iniciar sesión, confirma tu correo con el siguiente enlace.";
+    "Activa tu cuenta para iniciar sesión, desbloquear contenido y completar tu perfil.";
   const note =
-    "Si no creaste esta cuenta, puedes ignorar este mensaje.";
+    "Si no creaste esta cuenta, puedes ignorar este mensaje sin hacer nada.";
 
   await sendMailtrapEmail({
     to,
@@ -87,6 +119,7 @@ export const sendSignupConfirmationEmail = async ({
       note,
     }),
     html: buildEmailHtml({
+      eyebrow: "Activación de cuenta",
       title,
       intro,
       actionLabel: "Confirmar cuenta",
@@ -106,7 +139,7 @@ export const sendPasswordRecoveryEmail = async ({
 }) => {
   const title = "Restablece tu contraseña";
   const intro =
-    "Recibimos una solicitud para cambiar tu contraseña. Usa el siguiente enlace para continuar.";
+    "Recibimos una solicitud para cambiar tu contraseña. Usa este acceso seguro para continuar.";
   const note =
     "Si no pediste este cambio, ignora este correo y tu contraseña actual seguirá funcionando.";
 
@@ -121,6 +154,7 @@ export const sendPasswordRecoveryEmail = async ({
       note,
     }),
     html: buildEmailHtml({
+      eyebrow: "Recuperación de acceso",
       title,
       intro,
       actionLabel: "Cambiar contraseña",

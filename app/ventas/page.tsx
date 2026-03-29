@@ -49,15 +49,18 @@ export default function VentasPage() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sales, setSales] = useState<SaleItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
   const [payoutProfile, setPayoutProfile] = useState<PayoutProfile | null>(null);
   const load = useCallback(async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
       setLoading(true);
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
       try {
         const { data: authData } = await supabase.auth.getUser();
         const userId = authData?.user?.id;
@@ -266,6 +269,10 @@ export default function VentasPage() {
       reserved,
       canRequest,
       hasRequestThisMonth,
+      amountMissing: Math.max(
+        FANPUSH_WITHDRAWAL_MIN_ARS - withdrawable,
+        0,
+      ),
     };
   }, [sales, withdrawals]);
 
@@ -365,13 +372,13 @@ export default function VentasPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <a
                   href="/crear"
-                  className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+                  className="rounded-[12px] bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white"
                 >
                   Crear mi primera publicación
                 </a>
                 <a
                   href="/settings"
-                  className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+                  className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700"
                 >
                   Completar datos de cobro
                 </a>
@@ -380,111 +387,158 @@ export default function VentasPage() {
           ) : null}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+            <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
               <div className="text-xs text-zinc-500">Ventas totales</div>
               <div className="mt-2 text-2xl font-semibold">
                 {formatARS(totals.totalSales)}
               </div>
             </div>
-            <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+            <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
               <div className="text-xs text-zinc-500">Comision (30%)</div>
               <div className="mt-2 text-2xl font-semibold">
                 {formatARS(totals.platform)}
               </div>
             </div>
-            <div className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-5">
-              <div className="text-xs text-emerald-700">Tu ganancia (70%)</div>
-              <div className="mt-2 text-2xl font-semibold text-emerald-900">
+            <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
+              <div className="text-xs text-zinc-500">Tu ganancia (70%)</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-900">
                 {formatARS(totals.creator)}
               </div>
             </div>
           </div>
 
-          <div className="rounded-[5px] border border-zinc-200 bg-white">
-            <div className="grid grid-cols-8 border-b border-zinc-200 px-4 py-3 text-xs font-semibold text-zinc-500">
-              <span>Tipo</span>
-              <span className="col-span-2">Contenido</span>
-              <span>Comprador</span>
-              <span className="text-right">Ventas</span>
-              <span className="text-right">Total</span>
-              <span className="col-span-2 text-right">Desglose</span>
+          <div className="overflow-hidden rounded-[16px] border border-zinc-200 bg-white">
+            <div className="border-b border-zinc-200 px-4 py-3">
+              <div className="text-sm font-semibold text-zinc-900">Detalle de ventas</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Cada compra o propina aparece aquí con su desglose.
+              </div>
             </div>
-            {loading ? (
-              <div className="px-4 py-4 text-sm text-zinc-500">
-                Cargando ventas...
-              </div>
-            ) : null}
-            {!loading && sales.length === 0 ? (
-              <div className="px-4 py-4 text-sm text-zinc-500">
-                Aún no tienes ventas registradas.
-              </div>
-            ) : null}
-            {sales.map((sale) => (
-              <div
-                key={sale.id}
-                className="grid grid-cols-8 items-center px-4 py-3 text-sm text-zinc-700"
-              >
-                <span>{sale.type}</span>
-                <span className="col-span-2">{sale.title}</span>
-                <a
-                  href={buildUserProfileHref(sale.buyer.name)}
-                  className="text-sm font-semibold text-blue-600 hover:underline"
-                >
-                  {sale.buyer.name}
-                </a>
-                <span className="text-right">{sale.count}</span>
-                <span className="text-right font-semibold">
-                  {formatARS(sale.total)}
-                </span>
-                <span className="col-span-2 text-right text-xs text-zinc-500">
-                  {formatARS(sale.total * 0.7)} (70%) · {formatARS(sale.total * 0.3)} (30%)
-                </span>
-              </div>
-            ))}
+            <div className="overflow-x-auto">
+              <table className="min-w-full table-fixed">
+                <thead className="bg-zinc-50">
+                  <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
+                    <th className="px-4 py-3 text-left">Tipo</th>
+                    <th className="px-4 py-3 text-left">Contenido</th>
+                    <th className="px-4 py-3 text-left">Comprador</th>
+                    <th className="px-4 py-3 text-right">Ventas</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3 text-right">Desglose</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr className="border-t border-zinc-100">
+                      <td
+                        colSpan={6}
+                        className="px-4 py-5"
+                      >
+                        <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
+                          Cargando ventas...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {!loading && sales.length === 0 ? (
+                    <tr className="border-t border-zinc-100">
+                      <td
+                        colSpan={6}
+                        className="px-4 py-5"
+                      >
+                        <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
+                          <span className="font-medium text-zinc-700">
+                            No hay datos para mostrar.
+                          </span>
+                          <span className="ml-2">
+                            Cuando se registre una compra o propina, aparecerá aquí.
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {sales.map((sale) => (
+                    <tr
+                      key={sale.id}
+                      className="border-t border-zinc-100 text-sm text-zinc-700"
+                    >
+                      <td className="px-4 py-3">{sale.type}</td>
+                      <td className="px-4 py-3">{sale.title}</td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={buildUserProfileHref(sale.buyer.name)}
+                          className="text-sm font-semibold text-blue-600 hover:underline"
+                        >
+                          {sale.buyer.name}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-right">{sale.count}</td>
+                      <td className="px-4 py-3 text-right font-semibold">
+                        {formatARS(sale.total)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-zinc-500">
+                        {formatARS(sale.total * 0.7)} (70%) · {formatARS(sale.total * 0.3)} (30%)
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 p-5">
+          <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-sm font-semibold text-emerald-900">
+                <div className="text-sm font-semibold text-zinc-900">
                   Retirar fondos con MercadoPago
                 </div>
-                <div className="text-xs text-emerald-700">
+                <div className="text-xs text-zinc-600">
                   Disponible para retirar: {formatARS(totals.withdrawable)}
                 </div>
-                <div className="mt-1 text-xs text-emerald-700">
+                <div className="mt-1 text-xs text-zinc-600">
                   Mínimo para retirar: {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}
                 </div>
-                <div className="mt-1 text-xs text-emerald-700">
+                <div className="mt-1 text-xs text-zinc-600">
                   Los retiros se procesan una vez por mes y pueden demorar hasta 72 hs.
                 </div>
-                <div className="mt-1 text-xs text-emerald-700">
+                <div className="mt-1 text-xs text-zinc-600">
                   Próxima ventana estimada de pago: entre el 1 y el 3 del próximo ciclo mensual.
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleRequestWithdrawal}
-                disabled={
-                  requesting ||
-                  !totals.canRequest ||
-                  totals.hasRequestThisMonth ||
-                  !payoutProfile
-                }
-                className="rounded-[8px] bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {requesting
-                  ? "Solicitando..."
-                  : totals.hasRequestThisMonth
-                    ? "Retiro ya solicitado este mes"
-                    : totals.canRequest
-                      ? payoutProfile
-                        ? `Solicitar retiro de ${formatARS(totals.withdrawable)}`
-                        : "Completa tus datos de cobro"
-                      : `Necesitas al menos ${formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}`}
-              </button>
+              <div className="flex flex-col items-start gap-3 sm:items-end">
+                {totals.canRequest && payoutProfile && !totals.hasRequestThisMonth ? (
+                  <button
+                    type="button"
+                    onClick={handleRequestWithdrawal}
+                    disabled={requesting}
+                    className="rounded-[12px] bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {requesting
+                      ? "Solicitando..."
+                      : `Solicitar retiro de ${formatARS(totals.withdrawable)}`}
+                  </button>
+                ) : null}
+                {totals.hasRequestThisMonth ? (
+                  <div className="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-700">
+                    Ya solicitaste un retiro este mes
+                  </div>
+                ) : null}
+                {!totals.canRequest ? (
+                  <div className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">
+                    Te faltan {formatARS(totals.amountMissing)} para llegar al mínimo de{" "}
+                    {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}
+                  </div>
+                ) : null}
+                {totals.canRequest && !payoutProfile ? (
+                  <a
+                    href="/settings"
+                    className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-300 hover:bg-zinc-50"
+                  >
+                    Completar datos de cobro
+                  </a>
+                ) : null}
+              </div>
             </div>
-            <div className="mt-4 rounded-[8px] border border-zinc-200 bg-white px-4 py-3 text-xs text-zinc-600">
+            <div className="mt-4 rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
               {payoutProfile ? (
                 <>
                   <div className="font-semibold text-zinc-900">Datos de cobro cargados</div>
@@ -502,53 +556,84 @@ export default function VentasPage() {
               )}
             </div>
             {requestError ? (
-              <div className="mt-4 rounded-[8px] border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+              <div className="mt-4 rounded-[12px] border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
                 {requestError}
               </div>
             ) : null}
             {requestSuccess ? (
-              <div className="mt-4 rounded-[8px] border border-emerald-200 bg-white px-4 py-3 text-xs text-emerald-700">
+              <div className="mt-4 rounded-[12px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
                 {requestSuccess}
               </div>
             ) : null}
           </div>
 
-          <div className="rounded-[5px] border border-zinc-200 bg-white">
-            <div className="border-b border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900">
-              Historial de retiros
-            </div>
-            {withdrawals.length === 0 ? (
-              <div className="px-4 py-4 text-sm text-zinc-500">
-                Aún no solicitaste retiros.
+          <div className="overflow-hidden rounded-[16px] border border-zinc-200 bg-white">
+            <div className="border-b border-zinc-200 px-4 py-3">
+              <div className="text-sm font-semibold text-zinc-900">Historial de retiros</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Seguimiento de cada solicitud de retiro y su estado.
               </div>
-            ) : (
-              withdrawals.map((item) => (
-                <div
-                  key={item.id}
-                  className="grid grid-cols-1 gap-2 border-t border-zinc-100 px-4 py-4 text-sm text-zinc-700 md:grid-cols-4"
-                >
-                  <div>
-                    <div className="text-xs text-zinc-500">Fecha</div>
-                    <div>{new Date(item.requestedAt).toLocaleString("es-AR")}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500">Período</div>
-                    <div>{item.monthKey}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500">Monto</div>
-                    <div className="font-semibold">{formatARS(item.amount)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500">Estado</div>
-                    <div>{item.statusLabel}</div>
-                  </div>
-                </div>
-              ))
-            )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full table-fixed">
+                <thead className="bg-zinc-50">
+                  <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
+                    <th className="px-4 py-3 text-left">Fecha</th>
+                    <th className="px-4 py-3 text-left">Período</th>
+                    <th className="px-4 py-3 text-right">Monto</th>
+                    <th className="px-4 py-3 text-right">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr className="border-t border-zinc-100">
+                      <td
+                        colSpan={4}
+                        className="px-4 py-5"
+                      >
+                        <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
+                          Cargando retiros...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {!loading && withdrawals.length === 0 ? (
+                    <tr className="border-t border-zinc-100">
+                      <td
+                        colSpan={4}
+                        className="px-4 py-5"
+                      >
+                        <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
+                          <span className="font-medium text-zinc-700">
+                            No hay datos para mostrar.
+                          </span>
+                          <span className="ml-2">Aún no solicitaste retiros.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    withdrawals.map((item) => (
+                      <tr
+                        key={item.id}
+                        className="border-t border-zinc-100 text-sm text-zinc-700"
+                      >
+                        <td className="px-4 py-4">
+                          {new Date(item.requestedAt).toLocaleString("es-AR")}
+                        </td>
+                        <td className="px-4 py-4">{item.monthKey}</td>
+                        <td className="px-4 py-4 text-right font-semibold">
+                          {formatARS(item.amount)}
+                        </td>
+                        <td className="px-4 py-4 text-right">{item.statusLabel}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+          <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
             Recibes el 70% de cada venta. La plataforma retiene el 30% en
             concepto de comision. Los retiros se agrupan mensualmente para no
             saturar pagos individuales.

@@ -26,6 +26,7 @@ import {
   parseWithdrawalRecord,
 } from "@/lib/withdrawals";
 import {
+  coerceUserCommissionProfile,
   getCreatorShareFromProfile,
   parseUserCommissionProfile,
 } from "@/lib/userCommission";
@@ -153,9 +154,8 @@ export async function GET(request: Request) {
         )
         .order("created_at", { ascending: false }),
       admin
-        .from("notifications")
-        .select("user_id,message,created_at")
-        .eq("type", "user_commission_profile")
+        .from("user_commission_profiles")
+        .select("user_id,creator_share_rate,platform_share_rate,created_at")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -184,7 +184,18 @@ export async function GET(request: Request) {
     );
     const commissionMap = new Map(
       (commissionRowsResult.data ?? [])
-        .map((row) => [row.user_id, parseUserCommissionProfile(row.message)] as const)
+        .map(
+          (row) =>
+            [
+              row.user_id,
+              coerceUserCommissionProfile({
+                id: "",
+                creator_share_rate: row.creator_share_rate,
+                platform_share_rate: row.platform_share_rate,
+                created_at: row.created_at,
+              }),
+            ] as const,
+        )
         .filter((entry) => Boolean(entry[1])),
     );
 

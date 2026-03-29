@@ -20,6 +20,9 @@ const normalizeUsername = (value: string) =>
     .replace(/\s+/g, "")
     .replace(/[^a-z0-9._]/g, "");
 
+const hasPasswordLetter = (value: string) => /[a-z]/i.test(value);
+const hasPasswordNumber = (value: string) => /\d/.test(value);
+
 const resolveRedirectTo = (request: Request) => {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
   return configured || new URL(request.url).origin.replace(/\/$/, "");
@@ -65,6 +68,18 @@ export async function POST(request: Request) {
     if (password.length < 6) {
       return NextResponse.json(
         { error: "La contraseña debe tener al menos 6 caracteres." },
+        { status: 400 },
+      );
+    }
+    if (!hasPasswordLetter(password)) {
+      return NextResponse.json(
+        { error: "La contraseña debe incluir al menos una letra." },
+        { status: 400 },
+      );
+    }
+    if (!hasPasswordNumber(password)) {
+      return NextResponse.json(
+        { error: "La contraseña debe incluir al menos un número." },
         { status: 400 },
       );
     }

@@ -2,11 +2,10 @@
 
 import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
-import { usePostsStore } from "@/lib/store";
-import type { Post } from "@/lib/store";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
 import UserAvatar from "@/components/UserAvatar";
+import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import {
   getSessionAccessTokenWithRetry,
   PURCHASE_REFRESH_FLAG,
@@ -17,8 +16,16 @@ import {
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import {
+  applyResolvedMediaAccess,
+  buildInitialPostMediaState,
+  type ResolvedAccessMedia,
+} from "@/lib/postMediaState";
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { setFeedPosts } from "@/lib/redux/slices/postsSlice";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import type { Post } from "@/lib/store/posts";
 import { formatARS } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
@@ -112,8 +119,8 @@ function FeedPostSkeleton() {
 }
 
 export default function FeedLayout() {
-  const posts = usePostsStore((state) => state.posts);
-  const setPosts = usePostsStore((state) => state.setPosts);
+  const dispatch = useAppDispatch();
+  const posts = useAppSelector((state) => state.posts.items);
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState<Record<string, number>>({});
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
@@ -158,7 +165,7 @@ export default function FeedLayout() {
 
     if (!response.ok) return incomingPosts;
     const result = (await response.json()) as {
-      items?: Record<string, { url: string; kind: "image" | "video"; locked: boolean }>;
+      items?: Record<string, ResolvedAccessMedia>;
     };
 
     const resolvedItems = result.items ?? {};
@@ -167,9 +174,7 @@ export default function FeedLayout() {
       media: post.media.map((item, index): Post["media"][number] => {
         const postId = post.mediaPostIds[index];
         const resolved = postId ? resolvedItems[postId] : null;
-        return resolved
-          ? { ...item, url: resolved.url, kind: resolved.kind, locked: resolved.locked }
-          : item;
+        return applyResolvedMediaAccess(item, resolved);
       }),
     }));
   };
@@ -242,15 +247,17 @@ export default function FeedLayout() {
                 post.users as AlbumUser | AlbumUser[] | null | undefined,
               );
               const mediaWithUrls: Post["media"] = await Promise.all(
-                media.map(async (item) => ({
-                  url: await resolveMediaUrl(item?.media_url ?? ""),
-                  kind: inferDisplayKind(
-                    item?.media_url,
-                    item?.media_type,
-                    item?.is_locked,
-                  ),
-                  locked: item?.is_locked ?? false,
-                })),
+                media.map(async (item) =>
+                  buildInitialPostMediaState({
+                    previewUrl: await resolveMediaUrl(item?.media_url ?? ""),
+                    previewKind: inferDisplayKind(
+                      item?.media_url,
+                      item?.media_type,
+                      item?.is_locked,
+                    ),
+                    locked: item?.is_locked ?? false,
+                  }),
+                ),
               );
               const mediaPostIds = media.map((item) => item.id ?? "");
               const avatarUrl = await resolveAvatarUrl(
@@ -293,7 +300,7 @@ export default function FeedLayout() {
           }
         }
 
-        setPosts(resolvedMapped);
+        dispatch(setFeedPosts(resolvedMapped));
 
         if (userId && allPostIds.length > 0) {
           const { data: likesRows } = await supabase
@@ -329,7 +336,7 @@ export default function FeedLayout() {
     return () => {
       subscription?.subscription?.unsubscribe();
     };
-  }, [setPosts]);
+  }, [dispatch]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -350,7 +357,7 @@ export default function FeedLayout() {
       const accessToken = await getSessionAccessTokenWithRetry(supabase);
       if (accessToken) {
         const resolved = await resolveAccessibleMedia(supabase, accessToken, posts);
-        setPosts(resolved);
+        dispatch(setFeedPosts(resolved));
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
         }
@@ -360,7 +367,7 @@ export default function FeedLayout() {
     return () => {
       window.removeEventListener("purchases-updated", purchasesHandler);
     };
-  }, [currentUserId, posts, setPosts]);
+  }, [currentUserId, dispatch, posts]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -375,7 +382,8 @@ export default function FeedLayout() {
           Boolean(postId) &&
           purchasedPostIds.has(postId) &&
           Boolean(item) &&
-          (item.locked || item.url.includes("locked-previews/"))
+          item.locked &&
+          !item.hasAccess
         );
       }),
     );
@@ -391,7 +399,7 @@ export default function FeedLayout() {
       if (!accessToken) return;
       const resolved = await resolveAccessibleMedia(supabase, accessToken, posts);
       if (cancelled) return;
-      setPosts(resolved);
+      dispatch(setFeedPosts(resolved));
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
       }
@@ -402,7 +410,7 @@ export default function FeedLayout() {
     return () => {
       cancelled = true;
     };
-  }, [currentUserId, purchasedPostIds, posts, setPosts]);
+  }, [currentUserId, dispatch, purchasedPostIds, posts]);
 
   useEffect(() => {
     if (!menuPostId) return;
@@ -472,9 +480,11 @@ export default function FeedLayout() {
           next.delete(postId);
           return next;
         });
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === albumId ? { ...p, likes: Math.max(p.likes - 1, 0) } : p,
+        dispatch(
+          setFeedPosts(
+            posts.map((p) =>
+              p.id === albumId ? { ...p, likes: Math.max(p.likes - 1, 0) } : p,
+            ),
           ),
         );
       }
@@ -485,8 +495,10 @@ export default function FeedLayout() {
       });
       if (!error) {
         setLikedPostIds((prev) => new Set(prev).add(postId));
-        setPosts((prev) =>
-          prev.map((p) => (p.id === albumId ? { ...p, likes: p.likes + 1 } : p)),
+        dispatch(
+          setFeedPosts(
+            posts.map((p) => (p.id === albumId ? { ...p, likes: p.likes + 1 } : p)),
+          ),
         );
       }
     }
@@ -494,50 +506,22 @@ export default function FeedLayout() {
 
   const handlePurchase = async (albumId: string) => {
     if (!currentUserId) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        alert("Necesitas iniciar sesión para comprar.");
-        return false;
-      }
-
-      const response = await fetch("/api/mercadopago/preference", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          kind: "purchase",
-          albumId,
-          returnPath: window.location.pathname,
-        }),
+      await runBalanceCheckout({
+        kind: "purchase",
+        albumId,
       });
-
-      const result = (await response.json()) as {
-        initPoint?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !result.initPoint) {
-        alert(result.error ?? "No se pudo iniciar el checkout con Mercado Pago.");
-        return false;
-      }
-
-      window.location.assign(result.initPoint);
+      window.dispatchEvent(new Event("purchases-updated"));
+      window.dispatchEvent(new Event("balance-updated"));
+      return true;
     } catch (error) {
       alert(
         error instanceof Error
           ? error.message
-          : "No se pudo iniciar el checkout con Mercado Pago.",
+          : "No se pudo completar la compra con saldo.",
       );
       return false;
     }
-    return false;
   };
 
   const handleDelete = async (albumId: string) => {
@@ -599,7 +583,7 @@ export default function FeedLayout() {
         .eq("user_id", currentUserId);
       if (albumsError) throw albumsError;
 
-      setPosts((prev) => prev.filter((post) => post.id !== albumId));
+      dispatch(setFeedPosts(posts.filter((post) => post.id !== albumId)));
     } catch (err) {
       console.error(err);
       alert("No se pudo eliminar la publicación. Revisa los permisos (RLS).");

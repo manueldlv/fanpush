@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   Bell,
   Compass,
+  Wallet,
   Home,
   LogOut,
   DollarSign,
@@ -111,6 +112,13 @@ export default function SidebarLeft({
             >
               <DollarSign className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
               <span>Mis ventas</span>
+            </Link>
+            <Link
+              href="/saldo"
+              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              <Wallet className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <span>Mi saldo</span>
             </Link>
             <div className="py-2" />
             <Link

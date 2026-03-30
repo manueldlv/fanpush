@@ -18,6 +18,11 @@ type PreferenceBody =
       targetUserId: string;
       amount: number;
       returnPath?: string;
+    }
+  | {
+      kind: "deposit";
+      amount: number;
+      returnPath?: string;
     };
 
 export async function POST(request: Request) {
@@ -78,6 +83,60 @@ export async function POST(request: Request) {
             },
           ],
           external_reference: `purchase:${user.id}:${album.id}:${unitPrice.toFixed(2)}`,
+          back_urls: {
+            success: returnUrl,
+            pending: returnUrl,
+            failure: returnUrl,
+          },
+          auto_return: "approved",
+          payer: {
+            email: user.email,
+          },
+          ...(hasPublicBase
+            ? {
+                notification_url: `${baseUrl}/api/mercadopago/webhook`,
+              }
+            : {}),
+        }),
+      });
+
+      return NextResponse.json({
+        initPoint: preference.init_point || preference.sandbox_init_point,
+        preferenceId: preference.id,
+      });
+    }
+
+    if (body.kind === "deposit") {
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return NextResponse.json(
+          { error: "El saldo a cargar debe tener un monto válido." },
+          { status: 400 },
+        );
+      }
+
+      const returnPath = body.returnPath || "/saldo";
+      const returnUrl = `${baseUrl}/checkout/return?kind=deposit&target=${encodeURIComponent(
+        returnPath,
+      )}`;
+
+      const preference = await mercadopagoFetch<{
+        init_point: string;
+        sandbox_init_point?: string;
+        id: string;
+      }>("/checkout/preferences", {
+        method: "POST",
+        body: JSON.stringify({
+          items: [
+            {
+              id: `deposit-${user.id}`,
+              title: "Recarga de saldo FanPush",
+              quantity: 1,
+              currency_id: "ARS",
+              unit_price: amount,
+            },
+          ],
+          external_reference: `deposit:${user.id}:${user.id}:${amount.toFixed(2)}`,
           back_urls: {
             success: returnUrl,
             pending: returnUrl,

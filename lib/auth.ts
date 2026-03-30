@@ -4,11 +4,12 @@ type BrowserSupabase = SupabaseClient<any, "public", any>;
 
 export const PURCHASE_REFRESH_FLAG = "fanpush-refresh-purchases";
 export const EARNINGS_REFRESH_FLAG = "fanpush-refresh-earnings";
+export const BALANCE_REFRESH_FLAG = "fanpush-refresh-balance";
 export const PENDING_CHECKOUT_KEY = "fanpush-pending-checkout";
 
 export type PendingCheckoutPayload = {
   paymentId: string;
-  kind: "purchase" | "tip" | null;
+  kind: "purchase" | "tip" | "deposit" | null;
   target: string;
   status: string;
   savedAt: number;

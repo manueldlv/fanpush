@@ -8,6 +8,7 @@ import { useAppDispatch } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
 
 const APP_REFRESH_EVENTS = [
+  "balance-updated",
   "purchases-updated",
   "earnings-updated",
   "creator-status-updated",

@@ -9,6 +9,7 @@ import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
 import UserAvatar from "@/components/UserAvatar";
+import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import {
   getSessionAccessTokenWithRetry,
   PURCHASE_REFRESH_FLAG,
@@ -21,6 +22,11 @@ import {
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import {
+  applyResolvedMediaAccess,
+  buildInitialPostMediaState,
+  type ResolvedAccessMedia,
+} from "@/lib/postMediaState";
 import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 import type { Post } from "@/lib/store/posts";
@@ -200,7 +206,7 @@ export default function PerfilPage({
 
     if (!response.ok) return incomingPosts;
     const result = (await response.json()) as {
-      items?: Record<string, { url: string; kind: "image" | "video"; locked: boolean }>;
+      items?: Record<string, ResolvedAccessMedia>;
     };
     const resolvedItems = result.items ?? {};
 
@@ -209,9 +215,7 @@ export default function PerfilPage({
       media: post.media.map((item, index): Post["media"][number] => {
         const postId = post.mediaPostIds[index];
         const resolved = postId ? resolvedItems[postId] : null;
-        return resolved
-          ? { ...item, url: resolved.url, kind: resolved.kind, locked: resolved.locked }
-          : item;
+        return applyResolvedMediaAccess(item, resolved);
       }),
     }));
   };
@@ -220,11 +224,13 @@ export default function PerfilPage({
     const checkoutKind = searchParams.get("checkout");
     if (checkoutKind === "tip") {
       const total = Number(searchParams.get("tip_total") || 0);
+      const creator = Number(searchParams.get("tip_creator") || 0);
+      const platform = Number(searchParams.get("tip_platform") || 0);
       if (total > 0) {
         setTipSent({
           total: total.toFixed(2),
-          creator: (total * 0.7).toFixed(2),
-          platform: (total * 0.3).toFixed(2),
+          creator: (creator > 0 ? creator : total * 0.7).toFixed(2),
+          platform: (platform >= 0 ? platform : total * 0.3).toFixed(2),
         });
         setTipOpen(true);
       }
@@ -457,15 +463,17 @@ export default function PerfilPage({
               album.users as AlbumUser | AlbumUser[] | null | undefined,
             );
             const mediaWithUrls: Post["media"] = await Promise.all(
-              media.map(async (item) => ({
-                url: await resolveMediaUrl(item?.media_url ?? ""),
-                kind: inferDisplayKind(
-                  item?.media_url,
-                  item?.media_type,
-                  item?.is_locked,
-                ),
-                locked: item?.is_locked ?? false,
-              })),
+              media.map(async (item) =>
+                buildInitialPostMediaState({
+                  previewUrl: await resolveMediaUrl(item?.media_url ?? ""),
+                  previewKind: inferDisplayKind(
+                    item?.media_url,
+                    item?.media_type,
+                    item?.is_locked,
+                  ),
+                  locked: item?.is_locked ?? false,
+                }),
+              ),
             );
             const mediaPostIds = media.map((item) => item.id ?? "");
             const avatarUrl = await resolveAvatarUrl(
@@ -527,15 +535,15 @@ export default function PerfilPage({
             avatar: avatarUrl || null,
             price: 0,
             media: [
-              {
-                url: await resolveMediaUrl(post.media_url),
-                kind: inferDisplayKind(
+              buildInitialPostMediaState({
+                previewUrl: await resolveMediaUrl(post.media_url),
+                previewKind: inferDisplayKind(
                   post.media_url,
                   post.media_type,
                   post.is_locked,
                 ),
                 locked: post.is_locked ?? false,
-              },
+              }),
             ],
           } satisfies Post)),
         );
@@ -637,15 +645,17 @@ export default function PerfilPage({
           album.users as AlbumUser | AlbumUser[] | null | undefined,
         );
         const mediaWithUrls: Post["media"] = await Promise.all(
-          media.map(async (item) => ({
-            url: await resolveMediaUrl(item?.media_url ?? ""),
-            kind: inferDisplayKind(
-              item?.media_url,
-              item?.media_type,
-              item?.is_locked,
-            ),
-            locked: item?.is_locked ?? false,
-          })),
+          media.map(async (item) =>
+            buildInitialPostMediaState({
+              previewUrl: await resolveMediaUrl(item?.media_url ?? ""),
+              previewKind: inferDisplayKind(
+                item?.media_url,
+                item?.media_type,
+                item?.is_locked,
+              ),
+              locked: item?.is_locked ?? false,
+            }),
+          ),
         );
         const mediaPostIds = media.map((item) => item.id ?? "");
         const avatarUrl = await resolveAvatarUrl(
@@ -732,8 +742,7 @@ export default function PerfilPage({
   };
 
   const handleSendTip = async () => {
-    const supabase = getSupabaseClient();
-    if (!supabase || !currentUserId || !viewedUserId) return;
+    if (!currentUserId || !viewedUserId) return;
     if (currentUserId === viewedUserId) return;
 
     const amount = Number(tipAmount);
@@ -744,40 +753,18 @@ export default function PerfilPage({
 
     setTipSubmitting(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
-        throw new Error("Necesitas iniciar sesión para enviar una propina.");
-      }
-
-      const response = await fetch("/api/mercadopago/preference", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          kind: "tip",
-          targetUserId: viewedUserId,
-          amount,
-          returnPath: window.location.pathname,
-        }),
+      const result = await runBalanceCheckout({
+        kind: "tip",
+        targetUserId: viewedUserId,
+        amount,
       });
-
-      const result = (await response.json()) as {
-        initPoint?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !result.initPoint) {
-        throw new Error(
-          result.error ?? "No se pudo iniciar el checkout de la propina.",
-        );
-      }
-
-      window.location.assign(result.initPoint);
+      window.dispatchEvent(new Event("balance-updated"));
+      window.dispatchEvent(new Event("earnings-updated"));
+      setTipSent({
+        total: result.amount.toFixed(2),
+        creator: result.creatorAmount.toFixed(2),
+        platform: result.platformFeeAmount.toFixed(2),
+      });
     } catch (error) {
       alert(
         error instanceof Error
@@ -857,50 +844,22 @@ export default function PerfilPage({
 
   const handlePurchase = async (albumId: string) => {
     if (!currentUserId) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        alert("Necesitas iniciar sesión para comprar.");
-        return false;
-      }
-
-      const response = await fetch("/api/mercadopago/preference", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          kind: "purchase",
-          albumId,
-          returnPath: window.location.pathname,
-        }),
+      await runBalanceCheckout({
+        kind: "purchase",
+        albumId,
       });
-
-      const result = (await response.json()) as {
-        initPoint?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !result.initPoint) {
-        alert(result.error ?? "No se pudo iniciar el checkout con Mercado Pago.");
-        return false;
-      }
-
-      window.location.assign(result.initPoint);
+      window.dispatchEvent(new Event("purchases-updated"));
+      window.dispatchEvent(new Event("balance-updated"));
+      return true;
     } catch (error) {
       alert(
         error instanceof Error
           ? error.message
-          : "No se pudo iniciar el checkout con Mercado Pago.",
+          : "No se pudo completar la compra con saldo.",
       );
       return false;
     }
-    return false;
   };
 
   const isOwnProfile = Boolean(
@@ -1014,8 +973,9 @@ export default function PerfilPage({
                   <div>
                     <h2 className="text-2xl font-semibold">Enviar propina</h2>
                     <p className="mt-1 text-sm text-zinc-500">
-                      Apoya a @{profileName || "usuario"} con una propina directa.
-                      Recibe el 70% y la plataforma retiene el 30%.
+                      Apoya a @{profileName || "usuario"} con una propina directa usando tu
+                      saldo disponible. La acreditación final se calcula con la comisión
+                      vigente del creador.
                     </p>
                   </div>
                   <button
@@ -1053,16 +1013,14 @@ export default function PerfilPage({
                     </span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span>Recibe el creador (70%)</span>
+                    <span>Se descuenta de tu saldo</span>
                     <span className="font-semibold text-zinc-900">
-                      {formatARS(Number(tipPayout.creator))}
+                      {formatARS(Number(tipPayout.total))}
                     </span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span>Comisión plataforma (30%)</span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatARS(Number(tipPayout.platform))}
-                    </span>
+                  <div className="mt-2 text-xs leading-5 text-zinc-500">
+                    El reparto exacto entre creador y plataforma se confirma al acreditar la
+                    propina.
                   </div>
                 </div>
 

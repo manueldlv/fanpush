@@ -4,8 +4,12 @@ import { useEffect, useState } from "react";
 import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
+import {
+  applyResolvedMediaAccess,
+  type ResolvedAccessMedia,
+} from "@/lib/postMediaState";
 import { getSupabaseClient } from "@/lib/supabase";
-import type { Post } from "@/lib/store";
+import type { Post } from "@/lib/store/posts";
 import { formatARS } from "@/lib/utils";
 
 type PostModalProps = {
@@ -25,23 +29,17 @@ export default function PostModal({
 }: PostModalProps) {
   const [index, setIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [purchased, setPurchased] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [showPurchaseToast, setShowPurchaseToast] = useState(false);
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState(post.media);
   const lockedCount = resolvedMedia.filter((m) => m.locked).length;
-  const current = resolvedMedia[index];
+  const current = resolvedMedia[index] ?? resolvedMedia[0];
   const isOwner =
     Boolean(post.userId) && Boolean(currentUserId) && post.userId === currentUserId;
-  const unlockedMedia = purchased
-    ? resolvedMedia.map((item) => ({ ...item, locked: false }))
-    : resolvedMedia;
-  const unlockedLockedCount = unlockedMedia.filter((m) => m.locked).length;
-  const unlockedCurrent = unlockedMedia[index];
-  const hasPaidContent = lockedCount > 0;
+  const hasPaidContent = post.media.some((item) => item.locked || !item.hasAccess);
   const showUnlockedStatus =
-    !isOwner && hasPaidContent && unlockedLockedCount === 0;
+    !isOwner && hasPaidContent && lockedCount === 0;
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -54,63 +52,56 @@ export default function PostModal({
   useEffect(() => {
     setIndex(0);
     setMenuOpen(false);
-    setPurchased(false);
     setPurchaseLoading(false);
     setShowPurchaseToast(false);
     setShowUnlockedChip(false);
     setResolvedMedia(post.media);
-  }, [post.id]);
+  }, [post.id, post.media]);
 
-  useEffect(() => {
+  const fetchResolvedMedia = async (forceRetry = false) => {
     const supabase = getSupabaseClient();
-    if (!supabase || !currentUserId || post.mediaPostIds.length === 0) return;
+    if (!supabase || !currentUserId || post.mediaPostIds.length === 0) return null;
 
     const needsResolution = post.media.some(
-      (item) => item.locked || item.url.includes("locked-previews/"),
+      (item) => item.locked && (!item.accessResolved || forceRetry),
     );
-    if (!needsResolution) return;
+    if (!needsResolution) return post.media;
 
+    const accessToken = await getSessionAccessTokenWithRetry(supabase, {
+      forceRetry,
+    });
+    if (!accessToken) return null;
+
+    const response = await fetch("/api/media/access", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ postIds: post.mediaPostIds }),
+    });
+
+    if (!response.ok) return null;
+    const result = (await response.json()) as {
+      items?: Record<string, ResolvedAccessMedia>;
+    };
+    const resolvedItems = result.items ?? {};
+
+    return post.media.map((item, mediaIndex) => {
+      const postId = post.mediaPostIds[mediaIndex];
+      const resolved = postId ? resolvedItems[postId] : null;
+      return applyResolvedMediaAccess(item, resolved);
+    });
+  };
+
+  useEffect(() => {
     let cancelled = false;
 
     const resolvePremiumMedia = async () => {
-      const accessToken = await getSessionAccessTokenWithRetry(supabase, {
-        forceRetry: true,
-      });
-      if (!accessToken) return;
-
-      const response = await fetch("/api/media/access", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ postIds: post.mediaPostIds }),
-      });
-
-      if (!response.ok) return;
-      const result = (await response.json()) as {
-        items?: Record<
-          string,
-          { url: string; kind: "image" | "video"; locked: boolean }
-        >;
-      };
-      const resolvedItems = result.items ?? {};
-
+      const nextMedia = await fetchResolvedMedia(false);
+      if (!nextMedia) return;
       if (cancelled) return;
-      setResolvedMedia(
-        post.media.map((item, mediaIndex) => {
-          const postId = post.mediaPostIds[mediaIndex];
-          const resolved = postId ? resolvedItems[postId] : null;
-          return resolved
-            ? {
-                ...item,
-                url: resolved.url,
-                kind: resolved.kind,
-                locked: resolved.locked,
-              }
-            : item;
-        }),
-      );
+      setResolvedMedia(nextMedia);
     };
 
     resolvePremiumMedia();
@@ -146,24 +137,24 @@ export default function PostModal({
       </button>
       <div className="relative z-10 flex w-full max-w-[1100px] overflow-hidden rounded-[5px] bg-white">
         <div className="relative flex-1 bg-black h-[520px] md:h-[680px]">
-          {unlockedCurrent.kind === "image" ? (
+          {current?.kind === "image" ? (
             <img
-              src={unlockedCurrent.url}
+              src={current.url}
               alt={post.author}
               className={`h-full w-full object-contain ${
-                unlockedCurrent.locked ? "blur-[10px]" : ""
+                current.locked ? "blur-[10px]" : ""
               }`}
-              style={{ filter: unlockedCurrent.locked ? "blur(10px)" : "none" }}
+              style={{ filter: current.locked ? "blur(10px)" : "none" }}
             />
           ) : (
             <video
-              src={unlockedCurrent.url}
+              src={current?.url}
               className={`h-full w-full object-contain ${
-                unlockedCurrent.locked ? "blur-[10px]" : ""
+                current?.locked ? "blur-[10px]" : ""
               }`}
               muted
               playsInline
-              style={{ filter: unlockedCurrent.locked ? "blur(10px)" : "none" }}
+              style={{ filter: current?.locked ? "blur(10px)" : "none" }}
             />
           )}
 
@@ -196,15 +187,15 @@ export default function PostModal({
             </div>
           ) : null}
 
-          {unlockedLockedCount > 0 ? (
+          {lockedCount > 0 ? (
             <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-white/90 px-3 py-1 text-xs font-semibold text-zinc-700">
               <span className="inline-flex items-center gap-2">
                 <Lock className="h-3 w-3" />
-                {unlockedLockedCount} locked
+                {lockedCount} locked
               </span>
             </div>
           ) : null}
-          {showUnlockedChip && unlockedLockedCount === 0 ? (
+          {showUnlockedChip && lockedCount === 0 ? (
             <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-emerald-500/90 px-3 py-1 text-xs font-semibold text-white">
               <span className="inline-flex items-center gap-2">
                 <Unlock className="h-3 w-3" />
@@ -220,7 +211,7 @@ export default function PostModal({
               </span>
             </div>
           ) : null}
-          {unlockedCurrent.locked && !isOwner ? (
+          {current?.locked && !isOwner ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center">
               <div className="w-full max-w-[260px] rounded-[14px] bg-white/95 px-8 py-6 text-center shadow-md">
                 <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-zinc-100">
@@ -230,7 +221,7 @@ export default function PostModal({
                   Desbloquear post completo
                 </div>
                 <div className="text-xs text-zinc-500">
-                  {unlockedLockedCount} contenido bloqueado
+                  {lockedCount} contenido bloqueado
                 </div>
                 <div className="mt-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
@@ -248,7 +239,10 @@ export default function PostModal({
                       setPurchaseLoading(true);
                       const result = await onPurchase(post.id);
                       if (result !== false) {
-                        setPurchased(true);
+                        const nextMedia = await fetchResolvedMedia(true);
+                        if (nextMedia) {
+                          setResolvedMedia(nextMedia);
+                        }
                         setShowPurchaseToast(true);
                       }
                       setPurchaseLoading(false);
@@ -327,13 +321,13 @@ export default function PostModal({
             </div>
           ) : null}
 
-          {unlockedLockedCount > 0 && !isOwner ? (
+          {lockedCount > 0 && !isOwner ? (
             <div className="mt-6 rounded-[5px] border border-zinc-200 p-4">
               <div className="text-sm font-semibold text-zinc-900">
                 Desbloquear post completo
               </div>
               <div className="mt-2 text-xs text-zinc-500">
-                {unlockedLockedCount} contenido bloqueado
+                {lockedCount} contenido bloqueado
               </div>
               {!isOwner ? (
                 <button
@@ -343,7 +337,10 @@ export default function PostModal({
                     setPurchaseLoading(true);
                     const result = await onPurchase(post.id);
                     if (result !== false) {
-                      setPurchased(true);
+                      const nextMedia = await fetchResolvedMedia(true);
+                      if (nextMedia) {
+                        setResolvedMedia(nextMedia);
+                      }
                       setShowPurchaseToast(true);
                     }
                     setPurchaseLoading(false);

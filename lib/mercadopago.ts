@@ -8,6 +8,7 @@ import {
   creditApprovedTip,
   getPurchaseAlbumTarget,
 } from "@/lib/server/repositories/payments";
+import { recordMercadoPagoDepositTransaction } from "@/lib/server/repositories/ledger";
 export {
   ensureServerUserRows,
   getAdminSupabase,
@@ -27,6 +28,7 @@ export type MercadoPagoPayment = {
 export type FinalizedPaymentResult =
   | { ok: true; kind: "purchase" }
   | { ok: true; kind: "tip"; amount: number }
+  | { ok: true; kind: "deposit"; amount: number }
   | { ok: false; status: string; statusDetail?: string | null };
 
 export const getMercadoPagoAccessToken = () => mercadopagoAccessToken;
@@ -164,6 +166,23 @@ export const finalizeMercadoPagoPayment = async ({
     });
 
     return { ok: true, kind: "tip", amount };
+  }
+
+  if (reference.kind === "deposit") {
+    const amount = Number(reference.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("El fondeo recibido no tiene un monto válido.");
+    }
+
+    await recordMercadoPagoDepositTransaction({
+      admin,
+      userId: buyerUser.id,
+      providerPaymentId: payment.id,
+      transactionAmount: amount,
+      externalReference: payment.external_reference ?? null,
+    });
+
+    return { ok: true, kind: "deposit", amount };
   }
 
   throw new Error("Tipo de pago no soportado.");

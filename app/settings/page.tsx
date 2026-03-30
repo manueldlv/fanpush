@@ -32,6 +32,7 @@ import {
   toProfileDetailsMetaValue,
 } from "@/lib/profileDetails";
 import { MAX_AVATAR_IMAGE_BYTES, validateImageFile } from "@/lib/imageFiles";
+import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import {
   getUserMetaEntries,
   upsertUserMetaValue,
@@ -184,7 +185,7 @@ export default function SettingsPage() {
       if (rawAvatar && !rawAvatar.startsWith("http")) {
         setAvatarPath(rawAvatar);
         const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
+          .from(PUBLIC_MEDIA_BUCKET)
           .getPublicUrl(rawAvatar);
         setAvatarUrl(publicUrl.publicUrl ?? null);
       } else {
@@ -249,14 +250,19 @@ export default function SettingsPage() {
         username.trim() || authData?.user?.email?.split("@")[0] || "usuario";
       const path = `avatars/${userId}/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
-        .from("Imagenes")
+        .from(PUBLIC_MEDIA_BUCKET)
         .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
       if (uploadError) {
+        if (/bucket not found/i.test(uploadError.message)) {
+          throw new Error(
+            "El almacenamiento de imágenes todavía no está preparado. Intenta de nuevo en unos minutos.",
+          );
+        }
         throw uploadError;
       }
 
       const uploadedAvatarUrl =
-        supabase.storage.from("Imagenes").getPublicUrl(path).data.publicUrl;
+        supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
       const { error: userError } = await supabase.from("users").upsert(
         {
           id: userId,

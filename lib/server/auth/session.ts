@@ -1,9 +1,21 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { grantRoleByCode } from "@/lib/server/auth/roles";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const readTrimmedEnv = (key: string) => {
+  const value = process.env[key];
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+const supabaseUrl =
+  readTrimmedEnv("SUPABASE_URL") ?? readTrimmedEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey =
+  readTrimmedEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ??
+  readTrimmedEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+const supabaseServiceRoleKey =
+  readTrimmedEnv("SUPABASE_SERVICE_ROLE_KEY") ??
+  readTrimmedEnv("SUPABASE_SECRET_KEY");
 
 export type AuthenticatedUserResult = {
   admin: SupabaseClient | null;

@@ -49,6 +49,16 @@ type LedgerCommissionSplit = {
   platformFeeAmount: number;
 };
 
+type InternalBalanceCheckoutRow = {
+  transaction_id: string;
+  seller_user_id?: string | null;
+  transaction_amount: number | string;
+  bonus_used: number | string;
+  cash_used: number | string;
+  creator_amount: number | string;
+  platform_fee_amount: number | string;
+};
+
 const mapBalanceRow = (row?: UserBalanceRow | null): UserBalanceSnapshot | null => {
   if (!row) return null;
   return {
@@ -99,6 +109,14 @@ const getUserLedgerEntryCount = async (admin: SupabaseClient, userId: string) =>
 
   throwRepositoryError(error, "No se pudo leer el ledger del usuario");
   return count ?? 0;
+};
+
+const ensureUserBalanceRow = async (admin: SupabaseClient, userId: string) => {
+  const { error } = await admin
+    .from("user_balances")
+    .upsert({ user_id: userId }, { onConflict: "user_id" });
+
+  throwRepositoryError(error, "No se pudo preparar el balance del usuario");
 };
 
 export const ensureLegacyCreatorBalanceBaseline = async (
@@ -336,6 +354,166 @@ export const recordMercadoPagoCreatorCreditTransaction = async ({
   });
 
   return { alreadyRecorded: false, transactionId: transaction.id, split };
+};
+
+export const recordMercadoPagoDepositTransaction = async ({
+  admin,
+  userId,
+  providerPaymentId,
+  transactionAmount,
+  externalReference,
+}: {
+  admin: SupabaseClient;
+  userId: string;
+  providerPaymentId: string | number;
+  transactionAmount: number;
+  externalReference?: string | null;
+}) => {
+  const normalizedPaymentId = String(providerPaymentId);
+  const existing = await findLedgerTransactionByProviderPaymentId(
+    admin,
+    "mercadopago",
+    normalizedPaymentId,
+  );
+  if (existing) {
+    return { alreadyRecorded: true, transactionId: existing.id };
+  }
+
+  await ensureUserBalanceRow(admin, userId);
+
+  const roundedAmount = roundMoney(transactionAmount);
+  const { data: transaction, error: transactionError } = await admin
+    .from("ledger_transactions")
+    .insert({
+      kind: "deposit",
+      status: "approved",
+      currency: "ARS",
+      transaction_amount: roundedAmount,
+      buyer_user_id: userId,
+      recipient_user_id: userId,
+      source_type: "user_balance",
+      source_id: userId,
+      external_provider: "mercadopago",
+      provider_payment_id: normalizedPaymentId,
+      external_reference: externalReference ?? null,
+      metadata: { channel: "mercadopago_checkout" },
+    })
+    .select("id")
+    .single();
+
+  throwRepositoryError(transactionError, "No se pudo registrar el fondeo");
+  if (!transaction) {
+    throw new Error("No se recibió la transacción creada para el fondeo.");
+  }
+
+  await insertLedgerEntries(admin, [
+    {
+      transaction_id: transaction.id,
+      user_id: userId,
+      entry_scope: "user",
+      account_code: "user.cash_available",
+      balance_bucket: "cash_available",
+      direction: "credit",
+      amount: roundedAmount,
+      metadata: { stage: "deposit" },
+    },
+    {
+      transaction_id: transaction.id,
+      entry_scope: "provider",
+      account_code: "provider.mercadopago_clearing",
+      direction: "credit",
+      amount: roundedAmount,
+      metadata: { stage: "deposit" },
+    },
+  ]);
+
+  const { error: providerMovementError } = await admin
+    .from("provider_movements")
+    .insert({
+      provider: "mercadopago",
+      movement_kind: "deposit_in",
+      status: "approved",
+      currency: "ARS",
+      amount: roundedAmount,
+      external_reference: normalizedPaymentId,
+      user_id: userId,
+      ledger_transaction_id: transaction.id,
+      payload: {
+        externalReference: externalReference ?? null,
+      },
+    });
+
+  throwRepositoryError(providerMovementError, "No se pudo registrar el movimiento externo");
+
+  await applyUserBalanceDelta(admin, userId, {
+    cashAvailable: roundedAmount,
+    lifetimeDeposited: roundedAmount,
+  });
+
+  return {
+    alreadyRecorded: false,
+    transactionId: transaction.id,
+    amount: roundedAmount,
+  };
+};
+
+const mapInternalBalanceCheckoutRow = (
+  row?: InternalBalanceCheckoutRow | null,
+) => {
+  if (!row?.transaction_id) {
+    throw new Error("La operación interna no devolvió una transacción válida.");
+  }
+
+  return {
+    transactionId: row.transaction_id,
+    sellerUserId: row.seller_user_id ?? null,
+    transactionAmount: Number(row.transaction_amount || 0),
+    bonusUsed: Number(row.bonus_used || 0),
+    cashUsed: Number(row.cash_used || 0),
+    creatorAmount: Number(row.creator_amount || 0),
+    platformFeeAmount: Number(row.platform_fee_amount || 0),
+  };
+};
+
+export const processInternalAlbumPurchase = async ({
+  admin,
+  buyerUserId,
+  albumId,
+}: {
+  admin: SupabaseClient;
+  buyerUserId: string;
+  albumId: string;
+}) => {
+  const { data, error } = await admin.rpc("process_internal_album_purchase", {
+    p_buyer_user_id: buyerUserId,
+    p_album_id: albumId,
+  });
+
+  throwRepositoryError(error, "No se pudo procesar la compra con saldo");
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapInternalBalanceCheckoutRow(row as InternalBalanceCheckoutRow | null);
+};
+
+export const processInternalTipPayment = async ({
+  admin,
+  buyerUserId,
+  recipientUserId,
+  amount,
+}: {
+  admin: SupabaseClient;
+  buyerUserId: string;
+  recipientUserId: string;
+  amount: number;
+}) => {
+  const { data, error } = await admin.rpc("process_internal_tip_payment", {
+    p_buyer_user_id: buyerUserId,
+    p_recipient_user_id: recipientUserId,
+    p_amount: roundMoney(amount),
+  });
+
+  throwRepositoryError(error, "No se pudo procesar la propina con saldo");
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapInternalBalanceCheckoutRow(row as InternalBalanceCheckoutRow | null);
 };
 
 export const reserveWithdrawalLedgerBalance = async ({

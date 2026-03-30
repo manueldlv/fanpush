@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  BALANCE_REFRESH_FLAG,
   clearPendingCheckout,
   EARNINGS_REFRESH_FLAG,
   savePendingCheckout,
@@ -60,7 +61,7 @@ function CheckoutReturnContent() {
         savePendingCheckout({
           paymentId,
           kind:
-            (searchParams.get("kind") as "purchase" | "tip" | null) ?? null,
+            (searchParams.get("kind") as "purchase" | "tip" | "deposit" | null) ?? null,
           target,
           status: status || "approved",
           savedAt: Date.now(),
@@ -83,7 +84,7 @@ function CheckoutReturnContent() {
 
       const result = (await response.json()) as {
         ok?: boolean;
-        kind?: "purchase" | "tip";
+        kind?: "purchase" | "tip" | "deposit";
         status?: string;
         amount?: number;
         error?: string;
@@ -119,11 +120,22 @@ function CheckoutReturnContent() {
         );
         window.dispatchEvent(new Event("earnings-updated"));
       }
+      if (result.kind === "deposit") {
+        clearPendingCheckout();
+        window.sessionStorage.setItem(
+          BALANCE_REFRESH_FLAG,
+          String(Date.now()),
+        );
+        window.dispatchEvent(new Event("balance-updated"));
+      }
 
       const url = new URL(target, window.location.origin);
       url.searchParams.set("checkout", result.kind ?? "ok");
       if (result.kind === "tip" && typeof result.amount === "number") {
         url.searchParams.set("tip_total", result.amount.toFixed(2));
+      }
+      if (result.kind === "deposit" && typeof result.amount === "number") {
+        url.searchParams.set("deposit_total", result.amount.toFixed(2));
       }
       const finalTarget = `${url.pathname}${url.search}${url.hash}`;
       router.replace(finalTarget);

@@ -6,6 +6,7 @@ import { coercePayoutProfile, parsePayoutProfile } from "@/lib/payouts";
 import { coerceProfileDetails, parseProfileDetails } from "@/lib/profileDetails";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
 import { getUserAccessSnapshot } from "@/lib/server/auth/roles";
+import { ensureLegacyCreatorBalanceBaseline } from "@/lib/server/repositories/ledger";
 import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 
 const resolvePublicImageUrl = (
@@ -35,6 +36,7 @@ export async function GET(request: Request) {
       userMetaResult,
       accessSnapshot,
       earnings,
+      balanceSnapshot,
       application,
     ] = await Promise.all([
       admin
@@ -70,6 +72,7 @@ export async function GET(request: Request) {
       ]),
       getUserAccessSnapshot(admin, user),
       loadCreatorEarnings(admin, user.id),
+      ensureLegacyCreatorBalanceBaseline(admin, user.id),
       getAuthorApplicationForUser(admin, user.id),
     ]);
 
@@ -108,6 +111,11 @@ export async function GET(request: Request) {
       !accountState.isBlocked;
     const canAccessAdmin =
       accessSnapshot.isAdmin || permissions.includes("admin.access");
+    const cashAvailable = balanceSnapshot?.cashAvailable ?? 0;
+    const cashPending = balanceSnapshot?.cashPending ?? 0;
+    const cashReserved = balanceSnapshot?.cashReserved ?? 0;
+    const bonusAvailable = balanceSnapshot?.bonusAvailable ?? 0;
+    const availableBalance = cashAvailable + bonusAvailable;
 
     return NextResponse.json({
       auth: {
@@ -141,7 +149,14 @@ export async function GET(request: Request) {
           canAccessAdmin,
         },
         commerce: {
-          balance: earnings.creatorNet,
+          balance: availableBalance,
+          cashAvailable,
+          cashPending,
+          cashReserved,
+          bonusAvailable,
+          lifetimeDeposited: balanceSnapshot?.lifetimeDeposited ?? 0,
+          lifetimeEarned: balanceSnapshot?.lifetimeEarned ?? 0,
+          lifetimeWithdrawn: balanceSnapshot?.lifetimeWithdrawn ?? 0,
           creatorShare: earnings.creatorShare,
           platformFee: earnings.platformFee,
           payoutProfile,

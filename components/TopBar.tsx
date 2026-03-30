@@ -487,7 +487,7 @@ export default function TopBar() {
                 <div className="fanpush-skeleton h-5 w-16 rounded" />
               ) : (
                 <Link
-                  href="/ventas"
+                  href="/saldo"
                   className="cursor-pointer text-sm font-semibold text-zinc-900"
                 >
                   {formatARS(balance)}
@@ -519,6 +519,13 @@ export default function TopBar() {
                       onClick={() => setProfileOpen(false)}
                     >
                       Ver perfil
+                    </Link>
+                    <Link
+                      href="/saldo"
+                      className="block rounded-[6px] px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+                      onClick={() => setProfileOpen(false)}
+                    >
+                      Mi saldo
                     </Link>
                     <Link
                       href="/settings"

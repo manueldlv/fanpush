@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import type { PostMediaState } from "@/lib/postMediaState";
 
 type Post = {
   id: string;
@@ -12,26 +12,7 @@ type Post = {
   likes: number;
   avatar: string | null;
   price?: number;
-  media: {
-    url: string;
-    kind: "image" | "video";
-    locked: boolean;
-  }[];
+  media: PostMediaState[];
 };
-
-type PostsState = {
-  posts: Post[];
-  addPost: (post: Post) => void;
-  setPosts: (posts: Post[] | ((prev: Post[]) => Post[])) => void;
-};
-
-export const usePostsStore = create<PostsState>((set) => ({
-  posts: [],
-  addPost: (post) => set((state) => ({ posts: [post, ...state.posts] })),
-  setPosts: (posts) =>
-    set((state) => ({
-      posts: typeof posts === "function" ? posts(state.posts) : posts,
-    })),
-}));
 
 export type { Post };

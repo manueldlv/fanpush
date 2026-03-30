@@ -32,6 +32,13 @@ type ViewerAccessState = {
 
 type ViewerCommerceState = {
   balance: number;
+  cashAvailable: number;
+  cashPending: number;
+  cashReserved: number;
+  bonusAvailable: number;
+  lifetimeDeposited: number;
+  lifetimeEarned: number;
+  lifetimeWithdrawn: number;
   creatorShare: number;
   platformFee: number;
   payoutProfile: PayoutProfile | null;
@@ -75,6 +82,13 @@ const emptyViewerPayload = (): ViewerPayload => ({
   },
   commerce: {
     balance: 0,
+    cashAvailable: 0,
+    cashPending: 0,
+    cashReserved: 0,
+    bonusAvailable: 0,
+    lifetimeDeposited: 0,
+    lifetimeEarned: 0,
+    lifetimeWithdrawn: 0,
     creatorShare: 0,
     platformFee: 0,
     payoutProfile: null,
@@ -200,6 +214,13 @@ export const hydrateViewerState = createAsyncThunk<
     },
     commerce: {
       balance: Number(commerce.balance ?? 0),
+      cashAvailable: Number(commerce.cashAvailable ?? 0),
+      cashPending: Number(commerce.cashPending ?? 0),
+      cashReserved: Number(commerce.cashReserved ?? 0),
+      bonusAvailable: Number(commerce.bonusAvailable ?? 0),
+      lifetimeDeposited: Number(commerce.lifetimeDeposited ?? 0),
+      lifetimeEarned: Number(commerce.lifetimeEarned ?? 0),
+      lifetimeWithdrawn: Number(commerce.lifetimeWithdrawn ?? 0),
       creatorShare: Number(commerce.creatorShare ?? 0),
       platformFee: Number(commerce.platformFee ?? 0),
       payoutProfile: (commerce.payoutProfile as PayoutProfile | null | undefined) ?? null,

@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowDownToLine, BadgePlus, Wallet } from "lucide-react";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import { useAppSelector } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -15,8 +13,6 @@ const QUICK_AMOUNTS = [5000, 10000, 20000, 50000];
 export default function SaldoPage() {
   const searchParams = useSearchParams();
   const viewer = useAppSelector((state) => state.viewer);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [amount, setAmount] = useState("10000");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,24 +83,7 @@ export default function SaldoPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <SidebarLeft
-        searchOpen={searchOpen}
-        onSearchClick={() => {
-          setNotificationsOpen(false);
-          setSearchOpen(true);
-        }}
-        notificationsOpen={notificationsOpen}
-        onNotificationsClick={() => {
-          setSearchOpen(false);
-          setNotificationsOpen(true);
-        }}
-      />
-
-      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <SidebarLeft />
 
       <main className="mx-auto w-full max-w-[1180px] px-4 pb-28 pt-24 md:pl-[280px] md:pr-8">
         <section className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">

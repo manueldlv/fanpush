@@ -2,8 +2,6 @@
 
 import { useEffect, useState, type ChangeEvent } from "react";
 import AvatarCropModal from "@/components/AvatarCropModal";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { setViewerAuthorStatus } from "@/lib/redux/slices/viewerSlice";
@@ -114,8 +112,6 @@ function DocumentUploadCard({
 
 export default function AutorSolicitudPage() {
   const dispatch = useAppDispatch();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<"idle" | "pending" | "approved" | "rejected">(
     "idle",
@@ -338,23 +334,7 @@ export default function AutorSolicitudPage() {
         onConfirm={handleDocumentConfirmed}
       />
 
-      <SidebarLeft
-        searchOpen={searchOpen}
-        onSearchClick={() => {
-          setNotificationsOpen(false);
-          setSearchOpen(true);
-        }}
-        notificationsOpen={notificationsOpen}
-        onNotificationsClick={() => {
-          setSearchOpen(false);
-          setNotificationsOpen(true);
-        }}
-      />
-      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <SidebarLeft />
 
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-[980px] flex-col gap-6 overflow-y-auto px-4 py-6 md:px-6 md:py-8">

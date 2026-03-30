@@ -11,6 +11,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "seed:dummy": "node ./scripts/seed-dummy-data.mjs reseed",
+    "seed:dummy:seed": "node ./scripts/seed-dummy-data.mjs seed",
+    "seed:dummy:clean": "node ./scripts/seed-dummy-data.mjs clean",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

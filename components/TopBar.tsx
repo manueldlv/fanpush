@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowRight,
   BadgeDollarSign,
   Bell,
   CreditCard,
@@ -383,7 +384,7 @@ export default function TopBar() {
                 >
                   <div className="border-b border-zinc-100 pb-2">
                     <div className="text-[24px] font-semibold tracking-tight text-zinc-950">
-                      Notifications
+                      Notificaciones
                     </div>
                   </div>
                   <div className="max-h-[520px] space-y-4 overflow-y-auto pt-3 pr-2">
@@ -395,22 +396,22 @@ export default function TopBar() {
                       ([
                         {
                           key: "unread",
-                          label: "New",
+                          label: "Nuevas",
                           items: groupedNotifications.unread,
                         },
                         {
                           key: "today",
-                          label: "Today",
+                          label: "Hoy",
                           items: groupedNotifications.today,
                         },
                         {
                           key: "yesterday",
-                          label: "Yesterday",
+                          label: "Ayer",
                           items: groupedNotifications.yesterday,
                         },
                         {
                           key: "older",
-                          label: "Earlier",
+                          label: "Anteriores",
                           items: groupedNotifications.older,
                         },
                       ] as const).map((group) =>
@@ -458,11 +459,12 @@ export default function TopBar() {
                                       <div className="leading-[1.25] font-medium text-zinc-900">
                                         {item.text}
                                       </div>
-                                      {item.action && !item.text.startsWith("FanPush ") ? (
+                                      {item.action ? (
                                         <div className="mt-1.5">
                                           <Link
                                             href={item.action.href}
                                             className="inline-flex rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                            onClick={() => setNotificationsOpen(false)}
                                           >
                                             {item.action.label}
                                           </Link>
@@ -477,6 +479,16 @@ export default function TopBar() {
                         ) : null,
                       )
                     )}
+                  </div>
+                  <div className="mt-4 border-t border-zinc-100 pt-3">
+                    <Link
+                      href="/notificaciones"
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900"
+                      onClick={() => setNotificationsOpen(false)}
+                    >
+                      Ver centro de notificaciones
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
                   </div>
                 </div>
               ) : null}

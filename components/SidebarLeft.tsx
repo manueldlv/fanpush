@@ -12,23 +12,16 @@ import {
   SquarePlus,
   User,
 } from "lucide-react";
-import { useAppSelector } from "@/lib/redux/hooks";
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import {
+  openSearchPanel,
+} from "@/lib/redux/slices/uiSlice";
 import { getSupabaseClient } from "@/lib/supabase";
 
-type SidebarLeftProps = {
-  onSearchClick: () => void;
-  searchOpen: boolean;
-  onNotificationsClick: () => void;
-  notificationsOpen: boolean;
-};
-
-export default function SidebarLeft({
-  onSearchClick,
-  searchOpen,
-  onNotificationsClick,
-  notificationsOpen,
-}: SidebarLeftProps) {
+export default function SidebarLeft() {
+  const dispatch = useAppDispatch();
   const canCreate = useAppSelector((state) => state.viewer.access.canCreate);
+  const searchOpen = useAppSelector((state) => state.ui.searchPanelOpen);
 
   return (
     <>
@@ -44,7 +37,7 @@ export default function SidebarLeft({
             </Link>
             <button
               type="button"
-              onClick={onSearchClick}
+              onClick={() => dispatch(openSearchPanel())}
               className={`group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium transition ${
                 searchOpen
                   ? "bg-zinc-100 text-zinc-900"
@@ -65,22 +58,13 @@ export default function SidebarLeft({
               <Compass className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
               <span>Explorar</span>
             </Link>
-            <button
-              type="button"
-              onClick={onNotificationsClick}
-              className={`group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium transition ${
-                notificationsOpen
-                  ? "bg-zinc-100 text-zinc-900"
-                  : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
+            <Link
+              href="/notificaciones"
+              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
             >
-              <Bell
-                className={`h-5 w-5 transition ${
-                  notificationsOpen ? "text-zinc-900" : "text-zinc-500"
-                }`}
-              />
+              <Bell className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
               <span>Notificaciones</span>
-            </button>
+            </Link>
             {canCreate ? (
               <Link
                 href="/crear"
@@ -187,7 +171,7 @@ export default function SidebarLeft({
         </Link>
         <button
           type="button"
-          onClick={onSearchClick}
+          onClick={() => dispatch(openSearchPanel())}
           className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
             searchOpen ? "bg-zinc-100 text-zinc-900" : "text-zinc-700"
           }`}
@@ -220,16 +204,13 @@ export default function SidebarLeft({
             <SquarePlus className="h-5 w-5" />
           </button>
         )}
-        <button
-          type="button"
-          onClick={onNotificationsClick}
-          className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
-            notificationsOpen ? "bg-zinc-100 text-zinc-900" : "text-zinc-700"
-          }`}
+        <Link
+          href="/notificaciones"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 transition hover:bg-zinc-100"
           aria-label="Notificaciones"
         >
           <Bell className="h-5 w-5" />
-        </button>
+        </Link>
         <Link
           href="/perfil"
           className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"

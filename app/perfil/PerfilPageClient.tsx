@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bookmark, CheckCircle2, Grid, Lock, User } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
 import UserAvatar from "@/components/UserAvatar";
@@ -146,8 +144,6 @@ export default function PerfilPage({
 }: {
   forcedUsername?: string;
 } = {}) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profilePosts, setProfilePosts] = useState<Post[]>([]);
   const [openPost, setOpenPost] = useState<Post | null>(null);
   const [earnings, setEarnings] = useState(0);
@@ -876,24 +872,7 @@ export default function PerfilPage({
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
-      <SidebarLeft
-        searchOpen={searchOpen}
-        onSearchClick={() => {
-          setNotificationsOpen(false);
-          setSearchOpen(true);
-        }}
-        notificationsOpen={notificationsOpen}
-        onNotificationsClick={() => {
-          setSearchOpen(false);
-          setNotificationsOpen(true);
-        }}
-      />
-
-      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <SidebarLeft />
       {openPost ? (
         <PostModal
           post={openPost}

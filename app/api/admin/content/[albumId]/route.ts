@@ -11,6 +11,7 @@ import {
   notifyContentRemoved,
   updateContentReportRecord,
 } from "@/lib/server/repositories/moderation";
+import { createOrAppendAdminNotificationThread } from "@/lib/server/repositories/notification-center";
 
 type DeleteBody = {
   reason?: string;
@@ -94,6 +95,18 @@ export async function DELETE(
         }),
       ),
     );
+
+    await createOrAppendAdminNotificationThread({
+      admin,
+      userId: bundle.album.user_id,
+      actorId: user.id,
+      topic: "moderation",
+      subject: "Moderación de contenido",
+      body: `Tu publicación fue removida. Motivo: ${reason}`,
+      sourceType: "moderation_album",
+      sourceId: bundle.album.id,
+      allowUserReply: true,
+    });
 
     await notifyContentRemoved({
       admin,

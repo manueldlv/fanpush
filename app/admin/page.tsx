@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
@@ -998,6 +999,12 @@ export default function AdminPage() {
                 contenido publicado desde un solo lugar.
               </p>
             </div>
+            <Link
+              href="/admin/inbox"
+              className="inline-flex items-center gap-2 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+            >
+              Inbox admin
+            </Link>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">

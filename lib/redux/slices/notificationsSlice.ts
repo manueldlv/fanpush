@@ -120,8 +120,10 @@ export const hydrateNotificationsState = createAsyncThunk<
         action:
           row.type === "purchase"
             ? { label: "Ver venta", href: "/ventas" }
-            : row.type === "withdrawal_update"
-              ? { label: "Ver venta", href: "/ventas" }
+            : row.type === "withdrawal_update" ||
+                row.type === "author_application_update" ||
+                row.type === "content_removed_update"
+              ? { label: "Abrir mensajes", href: "/notificaciones?tab=messages" }
               : undefined,
       })),
   );

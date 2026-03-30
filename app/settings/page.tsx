@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import { Bell, Landmark, User } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import { useAppDispatch } from "@/lib/redux/hooks";
@@ -70,8 +68,6 @@ function ToggleSwitch({
 
 export default function SettingsPage() {
   const dispatch = useAppDispatch();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"profile" | "notifications" | "payments">(
     "profile",
   );
@@ -698,24 +694,7 @@ export default function SettingsPage() {
         }}
         onConfirm={handleAvatarUploaded}
       />
-      <SidebarLeft
-        searchOpen={searchOpen}
-        onSearchClick={() => {
-          setNotificationsOpen(false);
-          setSearchOpen(true);
-        }}
-        notificationsOpen={notificationsOpen}
-        onNotificationsClick={() => {
-          setSearchOpen(false);
-          setNotificationsOpen(true);
-        }}
-      />
-
-      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <SidebarLeft />
 
       <div className="md:pl-60">
         <div className="mx-auto flex w-full max-w-none gap-6 px-4 py-6 md:max-w-[1200px] md:gap-8 md:px-6 md:py-8">

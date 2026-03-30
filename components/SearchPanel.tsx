@@ -1,24 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import {
+  addRecentSearch,
+  clearRecentSearches,
+  clearSearchQuery,
+  removeRecentSearch,
+  searchUsers,
+  setRecentSearches,
+  setSearchQuery,
+  type SearchResultItem,
+} from "@/lib/redux/slices/searchSlice";
+import { closeSearchPanel } from "@/lib/redux/slices/uiSlice";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { Loader2, Search, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
-
-type SearchResult = {
-  id: string;
-  name: string;
-  fullName: string;
-  detail: string;
-  avatar: string | null;
-};
-
-type SearchPanelProps = {
-  open: boolean;
-  onClose: () => void;
-};
 
 const RECENT_SEARCHES_KEY = "fanpush_recent_searches";
 
@@ -34,11 +33,13 @@ function SearchResultSkeleton() {
   );
 }
 
-export default function SearchPanel({ open, onClose }: SearchPanelProps) {
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [recentSearches, setRecentSearches] = useState<SearchResult[]>([]);
+export default function SearchPanel() {
+  const dispatch = useAppDispatch();
+  const open = useAppSelector((state) => state.ui.searchPanelOpen);
+  const query = useAppSelector((state) => state.search.query);
+  const loading = useAppSelector((state) => state.search.loading);
+  const results = useAppSelector((state) => state.search.results);
+  const recentSearches = useAppSelector((state) => state.search.recentSearches);
   const router = useRouter();
 
   useEffect(() => {
@@ -46,12 +47,12 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
     try {
       const raw = window.localStorage.getItem(RECENT_SEARCHES_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as SearchResult[];
-      setRecentSearches(Array.isArray(parsed) ? parsed : []);
+      const parsed = JSON.parse(raw) as SearchResultItem[];
+      dispatch(setRecentSearches(Array.isArray(parsed) ? parsed : []));
     } catch {
-      setRecentSearches([]);
+      dispatch(setRecentSearches([]));
     }
-  }, []);
+  }, [dispatch]);
 
   useEffect(() => {
     const refreshRecentAvatars = async () => {
@@ -112,102 +113,58 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
       );
 
       if (changed) {
-        setRecentSearches(refreshed);
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(
-            RECENT_SEARCHES_KEY,
-            JSON.stringify(refreshed),
-          );
-        }
+        dispatch(setRecentSearches(refreshed));
       }
     };
 
     void refreshRecentAvatars();
+  }, [dispatch, recentSearches]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      RECENT_SEARCHES_KEY,
+      JSON.stringify(recentSearches),
+    );
   }, [recentSearches]);
 
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        dispatch(closeSearchPanel());
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [dispatch, open]);
 
   useEffect(() => {
     if (!open) {
-      setQuery("");
-      setLoading(false);
+      dispatch(clearSearchQuery());
     }
-  }, [open]);
-
-  const persistRecentSearches = (items: SearchResult[]) => {
-    setRecentSearches(items);
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(items));
-  };
+  }, [dispatch, open]);
 
   useEffect(() => {
-    const load = async () => {
-      if (!query.trim()) {
-        setResults([]);
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      const supabase = getSupabaseClient();
-      if (!supabase) {
-        setLoading(false);
-        return;
-      }
-      const { data } = await supabase
-        .from("users")
-        .select("id,username,avatar_url")
-        .ilike("username", `%${query.trim()}%`)
-        .limit(10);
-
-      const resolveAvatar = async (value: string | null) => {
-        if (!value) return null;
-        if (value.startsWith("http")) return value;
-        const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
-          .getPublicUrl(value);
-        return publicUrl.publicUrl;
-      };
-
-      const mapped = await Promise.all(
-        (data ?? []).map(async (row) => ({
-          id: row.id,
-          name: row.username ?? "usuario",
-          fullName: row.username ?? "",
-          detail: "Sugerencia para ti",
-          avatar: await resolveAvatar(row.avatar_url ?? null),
-        })),
-      );
-      setResults(mapped);
-      setLoading(false);
-    };
-
-    const handle = setTimeout(load, 300);
+    const handle = window.setTimeout(() => {
+      void dispatch(searchUsers(query));
+    }, 300);
     return () => clearTimeout(handle);
-  }, [query]);
+  }, [dispatch, query]);
 
-  const handleSelect = (item: SearchResult) => {
-    const nextRecent = [
-      item,
-      ...recentSearches.filter((recent) => recent.id !== item.id),
-    ].slice(0, 8);
-    persistRecentSearches(nextRecent);
+  const handleSelect = (item: SearchResultItem) => {
+    dispatch(addRecentSearch(item));
     router.push(buildUserProfileHref(item.name));
-    onClose();
+    dispatch(closeSearchPanel());
+    dispatch(clearSearchQuery());
   };
 
-  const removeRecentSearch = (id: string) => {
-    persistRecentSearches(recentSearches.filter((item) => item.id !== id));
+  const handleRemoveRecentSearch = (id: string) => {
+    dispatch(removeRecentSearch(id));
   };
 
-  const clearRecentSearches = () => {
-    persistRecentSearches([]);
+  const handleClearRecentSearches = () => {
+    dispatch(clearRecentSearches());
   };
 
   return (
@@ -215,8 +172,8 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
       {open ? (
         <button
           type="button"
-          onClick={onClose}
-        className="fixed inset-0 z-30 h-full w-full cursor-default bg-black/10"
+          onClick={() => dispatch(closeSearchPanel())}
+          className="fixed inset-0 z-30 h-full w-full cursor-default bg-black/10"
           aria-label="Cerrar búsqueda"
         />
       ) : null}
@@ -230,7 +187,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
             <h2 className="text-2xl font-semibold text-zinc-900">Búsqueda</h2>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => dispatch(closeSearchPanel())}
               className="rounded-[5px] p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
               aria-label="Cerrar búsqueda"
             >
@@ -243,7 +200,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
               <Search className="h-4 w-4 text-zinc-400" />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => dispatch(setSearchQuery(event.target.value))}
                 placeholder="Buscar"
                 className="flex-1 bg-transparent text-sm text-zinc-800 outline-none placeholder:text-zinc-400"
               />
@@ -253,7 +210,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setQuery("")}
+                    onClick={() => dispatch(clearSearchQuery())}
                     className="rounded-[5px] bg-zinc-200 p-1 text-zinc-600"
                     aria-label="Limpiar búsqueda"
                   >
@@ -274,7 +231,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
                     </div>
                     <button
                       type="button"
-                      onClick={clearRecentSearches}
+                      onClick={handleClearRecentSearches}
                       className="text-sm font-semibold text-blue-600"
                     >
                       Borrar todo
@@ -308,7 +265,7 @@ export default function SearchPanel({ open, onClose }: SearchPanelProps) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => removeRecentSearch(item.id)}
+                          onClick={() => handleRemoveRecentSearch(item.id)}
                           className="rounded-[5px] p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
                           aria-label={`Quitar ${item.name} de recientes`}
                         >

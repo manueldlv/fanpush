@@ -6,6 +6,7 @@ import {
   notifyWithdrawalUpdate,
   updateWithdrawalRequest,
 } from "@/lib/server/repositories/withdrawals";
+import { createOrAppendAdminNotificationThread } from "@/lib/server/repositories/notification-center";
 import {
   type WithdrawalStatus,
 } from "@/lib/withdrawals";
@@ -73,6 +74,18 @@ export async function PATCH(
       amount: row.record.amount,
       status: body.status,
       reason: body.reason,
+    });
+
+    await createOrAppendAdminNotificationThread({
+      admin,
+      userId: row.userId,
+      actorId: user.id,
+      topic: "withdrawal",
+      subject: "Retiro de saldo",
+      body: buildWithdrawalUpdateMessage(body.status, body.reason),
+      sourceType: "withdrawal",
+      sourceId: params.id,
+      allowUserReply: body.status !== "sent",
     });
 
     await notifyWithdrawalUpdate({

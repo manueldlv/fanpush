@@ -2,11 +2,8 @@
 
 import { useEffect } from "react";
 import { X } from "lucide-react";
-
-type NotificationsPanelProps = {
-  open: boolean;
-  onClose: () => void;
-};
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { closeNotificationsPanel } from "@/lib/redux/slices/uiSlice";
 
 const notifications = [
   {
@@ -241,23 +238,26 @@ const notifications = [
   },
 ];
 
-export default function NotificationsPanel({ open, onClose }: NotificationsPanelProps) {
+export default function NotificationsPanel() {
+  const dispatch = useAppDispatch();
+  const open = useAppSelector((state) => state.ui.notificationsPanelOpen);
+
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") dispatch(closeNotificationsPanel());
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [dispatch, open]);
 
   return (
     <>
       {open ? (
         <button
           type="button"
-          onClick={onClose}
-        className="fixed inset-0 z-30 h-full w-full cursor-default bg-black/10"
+          onClick={() => dispatch(closeNotificationsPanel())}
+          className="fixed inset-0 z-30 h-full w-full cursor-default bg-black/10"
           aria-label="Cerrar notificaciones"
         />
       ) : null}
@@ -271,7 +271,7 @@ export default function NotificationsPanel({ open, onClose }: NotificationsPanel
             <h2 className="text-2xl font-semibold text-zinc-900">Notificaciones</h2>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => dispatch(closeNotificationsPanel())}
               className="rounded-[5px] p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
               aria-label="Cerrar notificaciones"
             >

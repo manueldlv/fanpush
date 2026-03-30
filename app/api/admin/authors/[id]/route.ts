@@ -13,6 +13,7 @@ import {
   notifyAuthorApplicationUpdate,
   updateAuthorApplicationRecord,
 } from "@/lib/server/repositories/author-applications";
+import { createOrAppendAdminNotificationThread } from "@/lib/server/repositories/notification-center";
 import {
   ensureServerUserRows,
 } from "@/lib/server/auth/session";
@@ -96,6 +97,18 @@ export async function PATCH(
       applicationId: params.id,
       action: body.status,
       reason: body.reason,
+    });
+
+    await createOrAppendAdminNotificationThread({
+      admin,
+      userId: row.userId,
+      actorId: user.id,
+      topic: "author_application",
+      subject: "Solicitud de autor",
+      body: buildAuthorMessage(body.status, body.reason),
+      sourceType: "author_application",
+      sourceId: params.id,
+      allowUserReply: body.status !== "approved",
     });
 
     await notifyAuthorApplicationUpdate({

@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import { parseTipAmountFromMessage } from "@/lib/earnings";
 import { parsePayoutProfile, type PayoutProfile } from "@/lib/payouts";
@@ -45,8 +43,6 @@ type WithdrawalItem = {
 };
 
 export default function VentasPage() {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sales, setSales] = useState<SaleItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -332,24 +328,7 @@ export default function VentasPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
-      <SidebarLeft
-        searchOpen={searchOpen}
-        onSearchClick={() => {
-          setNotificationsOpen(false);
-          setSearchOpen(true);
-        }}
-        notificationsOpen={notificationsOpen}
-        onNotificationsClick={() => {
-          setSearchOpen(false);
-          setNotificationsOpen(true);
-        }}
-      />
-
-      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <SidebarLeft />
 
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1100px] md:gap-8 md:px-6 md:py-8">

@@ -5,8 +5,6 @@ import { Download, Image as ImageIcon, Lock, X } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import MediaImage from "@/components/MediaImage";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import SidebarLeft from "@/components/SidebarLeft";
 import {
   getSessionAccessTokenWithRetry,
@@ -29,8 +27,6 @@ type PurchaseItem = {
 };
 
 export default function ComprasPage() {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [items, setItems] = useState<PurchaseItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
@@ -250,24 +246,7 @@ export default function ComprasPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
-      <SidebarLeft
-        searchOpen={searchOpen}
-        onSearchClick={() => {
-          setNotificationsOpen(false);
-          setSearchOpen(true);
-        }}
-        notificationsOpen={notificationsOpen}
-        onNotificationsClick={() => {
-          setSearchOpen(false);
-          setNotificationsOpen(true);
-        }}
-      />
-
-      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <SidebarLeft />
       {openPurchase ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6">
           <div

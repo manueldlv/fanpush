@@ -5,6 +5,7 @@ import { Bell, Landmark, User } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import { profileApi } from "@/lib/redux/api/profileApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { setViewerProfileSummary } from "@/lib/redux/slices/viewerSlice";
 import type { PayoutProfile } from "@/lib/payouts";
@@ -68,6 +69,15 @@ function ToggleSwitch({
 
 export default function SettingsPage() {
   const dispatch = useAppDispatch();
+  const invalidateProfileCaches = (userId: string, nextUsername: string) => {
+    dispatch(
+      profileApi.util.invalidateTags([
+        { type: "ProfileView", id: "self" },
+        { type: "ProfileView", id: `id:${userId}` },
+        { type: "ProfileView", id: `username:${nextUsername.toLowerCase()}` },
+      ]),
+    );
+  };
   const [activeTab, setActiveTab] = useState<"profile" | "notifications" | "payments">(
     "profile",
   );
@@ -287,6 +297,7 @@ export default function SettingsPage() {
           instagram: instagram.trim(),
         }),
       );
+      invalidateProfileCaches(userId, safeUsername);
       setMessage("Foto de perfil actualizada.");
       window.dispatchEvent(
         new CustomEvent("profile-updated", {
@@ -405,6 +416,7 @@ export default function SettingsPage() {
           instagram: instagram.trim(),
         }),
       );
+      invalidateProfileCaches(userId, safeUsername);
       setMessage("Perfil actualizado.");
       window.dispatchEvent(
         new CustomEvent("profile-updated", {

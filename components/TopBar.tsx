@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight,
   BadgeDollarSign,
   Bell,
   CreditCard,
@@ -12,6 +11,7 @@ import {
   Sparkles,
   UserPlus,
   Wallet,
+  X,
   type LucideIcon,
   Search,
 } from "lucide-react";
@@ -34,72 +34,56 @@ type SearchResult = {
   avatar: string | null;
 };
 
-function getNotificationMeta(type: string, text: string): {
-  label: string;
-  source: string;
+function getNotificationMeta(type: string): {
+  section: string;
   icon: LucideIcon;
-  tone: string;
   iconTone: string;
 } {
   if (type === "follow") {
     return {
-      label: "Nuevo seguidor",
-      source: "Usuario",
+      section: "Seguidores",
       icon: UserPlus,
-      tone: "bg-sky-50 text-sky-700",
       iconTone: "bg-sky-100 text-sky-700",
-    };
-  }
-  if (type === "tip") {
-    return {
-      label: "Propina",
-      source: "Ingreso",
-      icon: BadgeDollarSign,
-      tone: "bg-emerald-50 text-emerald-700",
-      iconTone: "bg-emerald-100 text-emerald-700",
     };
   }
   if (type === "purchase") {
     return {
-      label: "Compra",
-      source: "Venta",
+      section: "Ventas",
       icon: CreditCard,
-      tone: "bg-violet-50 text-violet-700",
       iconTone: "bg-violet-100 text-violet-700",
+    };
+  }
+  if (type === "tip") {
+    return {
+      section: "Este mes",
+      icon: BadgeDollarSign,
+      iconTone: "bg-emerald-100 text-emerald-700",
     };
   }
   if (type === "withdrawal_update") {
     return {
-      label: "Retiro",
-      source: "FanPush",
+      section: "Este mes",
       icon: Wallet,
-      tone: "bg-amber-50 text-amber-700",
       iconTone: "bg-amber-100 text-amber-700",
     };
   }
   if (type === "content_removed_update") {
     return {
-      label: "Moderación",
-      source: "Admin",
+      section: "Este mes",
       icon: ShieldAlert,
-      tone: "bg-rose-50 text-rose-700",
       iconTone: "bg-rose-100 text-rose-700",
     };
   }
   if (type === "author_application_update") {
     return {
-      label: "Solicitud de autor",
-      source: "FanPush",
+      section: "Este mes",
       icon: Sparkles,
-      tone: "bg-indigo-50 text-indigo-700",
       iconTone: "bg-indigo-100 text-indigo-700",
     };
   }
   return {
-    label: "Notificación",
-    source: text.startsWith("FanPush ") ? "FanPush" : "Usuario",
+    section: "Este mes",
     icon: Bell,
-    tone: "bg-zinc-100 text-zinc-700",
     iconTone: "bg-zinc-200 text-zinc-700",
   };
 }
@@ -202,39 +186,37 @@ export default function TopBar() {
   };
 
   const hasUnreadNotifications = notifications.some((item) => !item.isRead);
-  const groupedNotifications = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-    const startOfYesterday = new Date(startOfToday);
-    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-
-    const groups = {
-      unread: [] as AppNotificationItem[],
-      today: [] as AppNotificationItem[],
-      yesterday: [] as AppNotificationItem[],
-      older: [] as AppNotificationItem[],
-    };
+  const notificationSections = useMemo(() => {
+    const sectionOrder = ["Este mes", "Seguidores", "Ventas"];
+    const grouped = new Map<
+      string,
+      Array<{ item: AppNotificationItem; meta: ReturnType<typeof getNotificationMeta> }>
+    >();
 
     for (const item of notifications) {
-      const createdAt = new Date(item.createdAt);
-      if (!item.isRead) {
-        groups.unread.push(item);
-        continue;
-      }
-      if (createdAt >= startOfToday) {
-        groups.today.push(item);
-      } else if (createdAt >= startOfYesterday) {
-        groups.yesterday.push(item);
-      } else {
-        groups.older.push(item);
-      }
+      const meta = getNotificationMeta(item.type);
+      const current = grouped.get(meta.section) ?? [];
+      current.push({ item, meta });
+      grouped.set(meta.section, current);
     }
 
-    return groups;
+    const ordered = sectionOrder
+      .filter((section) => grouped.has(section))
+      .map((section) => ({
+        key: section.toLowerCase().replace(/\s+/g, "-"),
+        label: section,
+        items: grouped.get(section) ?? [],
+      }));
+
+    const remaining = Array.from(grouped.entries())
+      .filter(([section]) => !sectionOrder.includes(section))
+      .map(([section, items]) => ({
+        key: section.toLowerCase().replace(/\s+/g, "-"),
+        label: section,
+        items,
+      }));
+
+    return [...ordered, ...remaining];
   }, [notifications]);
 
   if (
@@ -375,119 +357,93 @@ export default function TopBar() {
 
               {notificationsOpen ? (
                 <div
-                  className="absolute right-0 top-12 z-50 rounded-[12px] border border-zinc-200 bg-white p-4 shadow-xl"
+                  className="absolute right-0 top-12 z-50 rounded-[18px] border border-zinc-200 bg-white px-6 py-5 shadow-xl"
                   style={{
-                    width: "600px",
-                    minWidth: "600px",
+                    width: "420px",
+                    minWidth: "420px",
                     maxWidth: "calc(100vw - 1rem)",
                   }}
                 >
-                  <div className="border-b border-zinc-100 pb-2">
-                    <div className="text-[24px] font-semibold tracking-tight text-zinc-950">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-semibold text-zinc-900">
                       Notificaciones
-                    </div>
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationsOpen(false)}
+                      className="rounded-[5px] p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                      aria-label="Cerrar notificaciones"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
                   </div>
-                  <div className="max-h-[520px] space-y-4 overflow-y-auto pt-3 pr-2">
+
+                  <div className="mt-6 max-h-[520px] space-y-8 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <div className="text-sm text-zinc-500">
+                      <div className="rounded-[5px] bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
                         No hay notificaciones.
                       </div>
                     ) : (
-                      ([
-                        {
-                          key: "unread",
-                          label: "Nuevas",
-                          items: groupedNotifications.unread,
-                        },
-                        {
-                          key: "today",
-                          label: "Hoy",
-                          items: groupedNotifications.today,
-                        },
-                        {
-                          key: "yesterday",
-                          label: "Ayer",
-                          items: groupedNotifications.yesterday,
-                        },
-                        {
-                          key: "older",
-                          label: "Anteriores",
-                          items: groupedNotifications.older,
-                        },
-                      ] as const).map((group) =>
-                        group.items.length ? (
-                          <div key={group.key}>
-                            <div className="mb-2 text-sm font-semibold text-zinc-900">
-                              {group.label}
-                            </div>
-                            <div className="space-y-0.5">
-                              {group.items.map((item) => {
-                                const meta = getNotificationMeta(item.type, item.text);
-                                const MetaIcon = meta.icon;
-                                return (
-                                  <div
-                                    key={item.id}
-                                    className="grid grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3 rounded-[12px] px-1 py-1.5"
-                                  >
-                                    <div className="pt-0.5">
-                                      {item.avatar ? (
-                                        <UserAvatar
-                                          src={item.avatar}
-                                          alt="avatar"
-                                          sizeClassName="h-10 w-10"
-                                          iconClassName="h-4 w-4"
-                                        />
-                                      ) : (
-                                        <div
-                                          className={`flex h-10 w-10 items-center justify-center rounded-full ${meta.iconTone}`}
-                                        >
-                                          <MetaIcon className="h-4.5 w-4.5" />
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="min-w-0 border-b border-zinc-100 pb-2.5 text-sm text-zinc-700">
-                                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                                        <span
-                                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}
-                                        >
-                                          {meta.label}
-                                        </span>
-                                        <span className="text-[11px] text-zinc-400">
-                                          {item.date}
-                                        </span>
-                                      </div>
-                                      <div className="leading-[1.25] font-medium text-zinc-900">
-                                        {item.text}
-                                      </div>
-                                      {item.action ? (
-                                        <div className="mt-1.5">
-                                          <Link
-                                            href={item.action.href}
-                                            className="inline-flex rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white"
-                                            onClick={() => setNotificationsOpen(false)}
-                                          >
-                                            {item.action.label}
-                                          </Link>
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                      notificationSections.map((section) => (
+                        <section key={section.key}>
+                          <div className="text-sm font-semibold text-zinc-900">
+                            {section.label}
                           </div>
-                        ) : null,
-                      )
+                          <div className="mt-4 space-y-3">
+                            {section.items.map(({ item, meta }) => {
+                              const MetaIcon = meta.icon;
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center gap-3 rounded-[5px] bg-zinc-50 px-3 py-3"
+                                >
+                                  {item.avatar ? (
+                                    <UserAvatar
+                                      src={item.avatar}
+                                      alt={item.text}
+                                      sizeClassName="h-10 w-10"
+                                      iconClassName="h-4 w-4"
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`flex h-10 w-10 items-center justify-center rounded-full ${meta.iconTone}`}
+                                    >
+                                      <MetaIcon className="h-4.5 w-4.5" />
+                                    </div>
+                                  )}
+
+                                  <div className="flex-1 text-sm text-zinc-700">
+                                    <div className="font-medium text-zinc-900">
+                                      {item.text}
+                                    </div>
+                                    <div className="text-xs text-zinc-400">{item.date}</div>
+                                  </div>
+
+                                  {item.action ? (
+                                    <Link
+                                      href={item.action.href}
+                                      className="rounded-[5px] bg-indigo-600 px-3 py-1 text-xs font-semibold text-white"
+                                      onClick={() => setNotificationsOpen(false)}
+                                    >
+                                      {item.action.label}
+                                    </Link>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))
                     )}
                   </div>
-                  <div className="mt-4 border-t border-zinc-100 pt-3">
+
+                  <div className="mt-6 border-t border-zinc-100 pt-4">
                     <Link
                       href="/notificaciones"
-                      className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900"
+                      className="text-sm font-semibold text-zinc-900 transition hover:text-zinc-600"
                       onClick={() => setNotificationsOpen(false)}
                     >
-                      Ver centro de notificaciones
-                      <ArrowRight className="h-4 w-4" />
+                      Entrar al centro de notificaciones
                     </Link>
                   </div>
                 </div>

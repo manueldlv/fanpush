@@ -2,18 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bookmark, CheckCircle2, Grid, Lock, User } from "lucide-react";
+import { Bookmark, Grid, Lock } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
+import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
-import {
-  getSessionAccessTokenWithRetry,
-  PURCHASE_REFRESH_FLAG,
-} from "@/lib/auth";
-import { loadCreatorEarnings } from "@/lib/earnings";
-import { parseProfileDetails } from "@/lib/profileDetails";
+import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import {
   getPremiumPathFromPreview,
   inferDisplayKind,
@@ -25,7 +21,13 @@ import {
   buildInitialPostMediaState,
   type ResolvedAccessMedia,
 } from "@/lib/postMediaState";
-import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
+import {
+  getProfileViewCacheKey,
+  profileApi,
+  useGetProfileViewQuery,
+} from "@/lib/redux/api/profileApi";
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 import type { Post } from "@/lib/store/posts";
 
@@ -77,24 +79,6 @@ const normalizeSingleRelation = <T,>(
   return Array.isArray(value) ? value[0] ?? null : value;
 };
 
-const resolveFallbackUsername = (email?: string | null, metadata?: unknown) => {
-  if (
-    metadata &&
-    typeof metadata === "object" &&
-    "username" in metadata &&
-    typeof metadata.username === "string" &&
-    metadata.username.trim()
-  ) {
-    return metadata.username.trim();
-  }
-
-  if (email?.includes("@")) {
-    return email.split("@")[0];
-  }
-
-  return "usuario";
-};
-
 function ProfileHeaderSkeleton() {
   return (
     <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
@@ -144,44 +128,42 @@ export default function PerfilPage({
 }: {
   forcedUsername?: string;
 } = {}) {
-  const [profilePosts, setProfilePosts] = useState<Post[]>([]);
   const [openPost, setOpenPost] = useState<Post | null>(null);
-  const [earnings, setEarnings] = useState(0);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [viewedUserId, setViewedUserId] = useState<string | null>(null);
-  const [stats, setStats] = useState({
+  const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
+  const [tipOpen, setTipOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const dispatch = useAppDispatch();
+  const availableBalance = useAppSelector((state) => state.viewer.commerce.balance);
+  const routeUsername = forcedUsername ?? searchParams.get("user");
+  const profileId = searchParams.get("id");
+  const profileQueryArg = {
+    userId: profileId,
+    username: routeUsername,
+  };
+  const { data: profileData, isLoading: profileQueryLoading } =
+    useGetProfileViewQuery(profileQueryArg);
+
+  const profileName = profileData?.profile.username ?? routeUsername ?? "usuario";
+  const profileFullName =
+    profileData?.profile.fullName ?? searchParams.get("full") ?? "Sin nombre";
+  const profileAvatar = profileData?.profile.avatar ?? searchParams.get("avatar") ?? "";
+  const profileBio = profileData?.profile.bio ?? "";
+  const profileWebsite = profileData?.profile.website ?? "";
+  const profileInstagram = profileData?.profile.instagram ?? "";
+  const profilePosts = profileData?.posts ?? [];
+  const currentUserId = profileData?.currentUserId ?? null;
+  const viewedUserId = profileData?.viewedUserId ?? null;
+  const stats = profileData?.stats ?? {
     posts: 0,
     followers: 0,
     following: 0,
-  });
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
-  const [tipOpen, setTipOpen] = useState(false);
-  const [tipAmount, setTipAmount] = useState("5.00");
-  const [tipSubmitting, setTipSubmitting] = useState(false);
-  const [tipSent, setTipSent] = useState<{
-    total: string;
-    creator: string;
-    platform: string;
-  } | null>(null);
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const routeUsername = forcedUsername ?? searchParams.get("user");
-  const [profileName, setProfileName] = useState(
-    routeUsername ?? "usuario",
-  );
-  const [profileFullName, setProfileFullName] = useState(
-    searchParams.get("full") ?? "Sin nombre",
-  );
-  const [profileAvatar, setProfileAvatar] = useState(
-    searchParams.get("avatar") ?? "",
-  );
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [postsLoading, setPostsLoading] = useState(true);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [profileBio, setProfileBio] = useState("");
-  const [profileWebsite, setProfileWebsite] = useState("");
-  const [profileInstagram, setProfileInstagram] = useState("");
+  };
+  const isFollowing = profileData?.isFollowing ?? false;
+  const earnings = profileData?.earnings ?? 0;
+  const profileLoading = !profileData && profileQueryLoading;
+  const postsLoading = !profileData && profileQueryLoading;
+  const statsLoading = !profileData && profileQueryLoading;
 
   const resolveAccessibleMedia = async (
     supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
@@ -217,99 +199,6 @@ export default function PerfilPage({
   };
 
   useEffect(() => {
-    const checkoutKind = searchParams.get("checkout");
-    if (checkoutKind === "tip") {
-      const total = Number(searchParams.get("tip_total") || 0);
-      const creator = Number(searchParams.get("tip_creator") || 0);
-      const platform = Number(searchParams.get("tip_platform") || 0);
-      if (total > 0) {
-        setTipSent({
-          total: total.toFixed(2),
-          creator: (creator > 0 ? creator : total * 0.7).toFixed(2),
-          platform: (platform >= 0 ? platform : total * 0.3).toFixed(2),
-        });
-        setTipOpen(true);
-      }
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    const idParam = searchParams.get("id");
-    const userParam = forcedUsername ?? searchParams.get("user");
-    const fullParam = searchParams.get("full");
-    const avatarParam = searchParams.get("avatar");
-    setProfileLoading(true);
-    if (idParam || userParam || fullParam || avatarParam) {
-      if (userParam) setProfileName(userParam);
-      if (fullParam) setProfileFullName(fullParam);
-      if (avatarParam) setProfileAvatar(avatarParam);
-      setProfileLoading(false);
-      return;
-    }
-
-    const loadProfile = async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) {
-        setProfileLoading(false);
-        return;
-      }
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) {
-        setProfileLoading(false);
-        return;
-      }
-      await ensureUserRow(supabase, authData?.user);
-      setViewedUserId(userId);
-
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("username, avatar_url")
-        .eq("id", userId)
-        .maybeSingle();
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", userId)
-        .maybeSingle();
-      const { data: profileMetaRow } = await supabase
-        .from("notifications")
-        .select("message")
-        .eq("user_id", userId)
-        .eq("type", "profile_meta")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const profileDetails = parseProfileDetails(profileMetaRow?.message);
-
-      const fallbackUser = resolveFallbackUsername(
-        authData?.user?.email,
-        authData?.user?.user_metadata,
-      );
-
-      let avatarUrl = userRow?.avatar_url ?? "";
-      if (avatarUrl && !avatarUrl.startsWith("http")) {
-        const { data: publicUrl } = supabase.storage
-          .from(PUBLIC_MEDIA_BUCKET)
-          .getPublicUrl(avatarUrl);
-        avatarUrl = publicUrl.publicUrl;
-      }
-
-      setProfileName(userRow?.username ?? fallbackUser);
-      setProfileAvatar(avatarUrl);
-      setProfileFullName(profileRow?.full_name ?? "Sin nombre");
-      setProfileBio(profileDetails?.bio ?? "");
-      setProfileWebsite(profileDetails?.website ?? "");
-      setProfileInstagram(profileDetails?.instagram ?? "");
-      setProfileLoading(false);
-    };
-
-    loadProfile().catch(() => {
-      setProfileLoading(false);
-    });
-  }, [forcedUsername, searchParams]);
-
-  useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail as {
         username?: string;
@@ -319,285 +208,40 @@ export default function PerfilPage({
         website?: string;
         instagram?: string;
       };
-      if (detail?.username) setProfileName(detail.username);
-      if (detail?.fullName) setProfileFullName(detail.fullName);
-      if (detail?.avatarUrl !== undefined) {
-        setProfileAvatar(detail.avatarUrl ?? "");
-      }
-      if (detail?.bio !== undefined) setProfileBio(detail.bio);
-      if (detail?.website !== undefined) setProfileWebsite(detail.website);
-      if (detail?.instagram !== undefined) setProfileInstagram(detail.instagram);
+      dispatch(
+        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
+          if (detail?.username) draft.profile.username = detail.username;
+          if (detail?.fullName) draft.profile.fullName = detail.fullName;
+          if (detail?.avatarUrl !== undefined) {
+            draft.profile.avatar = detail.avatarUrl ?? "";
+          }
+          if (detail?.bio !== undefined) draft.profile.bio = detail.bio;
+          if (detail?.website !== undefined) draft.profile.website = detail.website;
+          if (detail?.instagram !== undefined) {
+            draft.profile.instagram = detail.instagram;
+          }
+        }),
+      );
+    };
+    const invalidateProfile = () => {
+      dispatch(
+        profileApi.util.invalidateTags([
+          {
+            type: "ProfileView",
+            id: getProfileViewCacheKey(profileQueryArg),
+          },
+        ]),
+      );
     };
     window.addEventListener("profile-updated", handler as EventListener);
-    return () =>
+    window.addEventListener("purchases-updated", invalidateProfile);
+    window.addEventListener("earnings-updated", invalidateProfile);
+    return () => {
       window.removeEventListener("profile-updated", handler as EventListener);
-  }, []);
-
-  useEffect(() => {
-    const loadPosts = async () => {
-      const supabase = getSupabaseClient();
-      setPostsLoading(true);
-      setStatsLoading(true);
-      if (!supabase) {
-        setPostsLoading(false);
-        setStatsLoading(false);
-        return;
-      }
-
-      const { data: authData } = await supabase.auth.getUser();
-      setCurrentUserId(authData?.user?.id ?? null);
-
-      let userId: string | null = null;
-      let userRow: { username: string | null; avatar_url: string | null } | null =
-        null;
-      const idParam = searchParams.get("id");
-      const userParam = forcedUsername ?? searchParams.get("user");
-      if (idParam) {
-        userId = idParam;
-        const { data } = await supabase
-          .from("users")
-          .select("id, username, avatar_url")
-          .eq("id", idParam)
-          .maybeSingle();
-        userRow = data
-          ? { username: data.username ?? null, avatar_url: data.avatar_url ?? null }
-          : null;
-      } else if (userParam) {
-        const { data } = await supabase
-          .from("users")
-          .select("id, username, avatar_url")
-          .eq("username", userParam)
-          .maybeSingle();
-        userId = data?.id ?? null;
-        userRow = data
-          ? { username: data.username ?? null, avatar_url: data.avatar_url ?? null }
-          : null;
-      } else {
-        userId = authData?.user?.id ?? null;
-        setCurrentUserId(authData?.user?.id ?? null);
-        await ensureUserRow(supabase, authData?.user);
-      }
-
-
-      if (!userId) {
-        setPostsLoading(false);
-        setStatsLoading(false);
-        return;
-      }
-      setViewedUserId(userId);
-      if (!userRow) {
-        const { data } = await supabase
-          .from("users")
-          .select("username, avatar_url")
-          .eq("id", userId)
-          .maybeSingle();
-        userRow = data
-          ? { username: data.username ?? null, avatar_url: data.avatar_url ?? null }
-          : null;
-      }
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", userId)
-        .maybeSingle();
-      const { data: profileMetaRow } = await supabase
-        .from("notifications")
-        .select("message")
-        .eq("user_id", userId)
-        .eq("type", "profile_meta")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const profileDetails = parseProfileDetails(profileMetaRow?.message);
-      const { data: albums } = await supabase
-        .from("albums")
-        .select(
-          "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count))",
-        )
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-
-      const resolveMediaUrl = async (value: string | null) => {
-        if (!value) return "";
-        if (value.startsWith("http")) return value;
-        const { data: publicUrl } = supabase.storage
-          .from(PUBLIC_MEDIA_BUCKET)
-          .getPublicUrl(value);
-        return publicUrl.publicUrl;
-      };
-
-      const resolveAvatarUrl = async (value: string | null) => {
-        if (!value) return "";
-        if (value.startsWith("http")) return value;
-        const { data: publicUrl } = supabase.storage
-          .from(PUBLIC_MEDIA_BUCKET)
-          .getPublicUrl(value);
-        return publicUrl.publicUrl;
-      };
-
-      const resolvedAvatar = userRow?.avatar_url
-        ? await resolveAvatarUrl(userRow.avatar_url)
-        : "";
-      const fallbackUsername = resolveFallbackUsername(
-        authData?.user?.email,
-        authData?.user?.user_metadata,
-      );
-      setProfileName(userRow?.username ?? userParam ?? fallbackUsername);
-      setProfileFullName(profileRow?.full_name ?? "Sin nombre");
-      setProfileAvatar(resolvedAvatar);
-      setProfileBio(profileDetails?.bio ?? "");
-      setProfileWebsite(profileDetails?.website ?? "");
-      setProfileInstagram(profileDetails?.instagram ?? "");
-
-      if ((albums ?? []).length > 0) {
-        const mapped: Post[] = await Promise.all(
-          (albums ?? []).map(async (album) => {
-            const media = normalizeAlbumMedia(
-              album.album_posts as AlbumPostRow[] | null | undefined,
-            );
-            const albumUser = normalizeAlbumUser(
-              album.users as AlbumUser | AlbumUser[] | null | undefined,
-            );
-            const mediaWithUrls: Post["media"] = await Promise.all(
-              media.map(async (item) =>
-                buildInitialPostMediaState({
-                  previewUrl: await resolveMediaUrl(item?.media_url ?? ""),
-                  previewKind: inferDisplayKind(
-                    item?.media_url,
-                    item?.media_type,
-                    item?.is_locked,
-                  ),
-                  locked: item?.is_locked ?? false,
-                }),
-              ),
-            );
-            const mediaPostIds = media.map((item) => item.id ?? "");
-            const avatarUrl = await resolveAvatarUrl(
-              albumUser?.avatar_url ?? userRow?.avatar_url ?? "",
-            );
-            return {
-              id: album.id,
-              userId: album.user_id ?? userId,
-              mediaPostIds,
-              author:
-                albumUser?.username ??
-                userRow?.username ??
-                profileName ??
-                "usuario",
-              verified: false,
-              time: "Ahora",
-              suggestion: "Perfil",
-              caption: album.description ?? "",
-              likes: media.reduce(
-                (sum, item) => sum + (item.likes_count ?? 0),
-                0,
-              ),
-              avatar: avatarUrl || null,
-              price: album.price ?? 0,
-              media: mediaWithUrls,
-            } satisfies Post;
-          }),
-        );
-
-        const allMediaIds = mapped.flatMap((post) => post.mediaPostIds);
-        const accessToken = await getSessionAccessTokenWithRetry(supabase);
-        if (accessToken && allMediaIds.length > 0) {
-          setProfilePosts(await resolveAccessibleMedia(supabase, accessToken, mapped));
-          if (typeof window !== "undefined") {
-            window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
-          }
-        } else {
-          setProfilePosts(mapped);
-        }
-        setPostsLoading(false);
-      } else {
-        const { data: legacyPosts } = await supabase
-          .from("posts")
-          .select("id,media_url,media_type,is_locked,likes_count,created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false });
-        const avatarUrl = await resolveAvatarUrl(userRow?.avatar_url ?? "");
-        const mapped: Post[] = await Promise.all(
-          (legacyPosts ?? []).map(async (post) => ({
-            id: post.id,
-            userId,
-            mediaPostIds: [post.id],
-            author: userRow?.username ?? profileName ?? "usuario",
-            verified: false,
-            time: "Ahora",
-            suggestion: "Perfil",
-            caption: "",
-            likes: post.likes_count ?? 0,
-            avatar: avatarUrl || null,
-            price: 0,
-            media: [
-              buildInitialPostMediaState({
-                previewUrl: await resolveMediaUrl(post.media_url),
-                previewKind: inferDisplayKind(
-                  post.media_url,
-                  post.media_type,
-                  post.is_locked,
-                ),
-                locked: post.is_locked ?? false,
-              }),
-            ],
-          } satisfies Post)),
-        );
-
-        const accessToken = await getSessionAccessTokenWithRetry(supabase);
-        if (accessToken && mapped.length > 0) {
-          setProfilePosts(await resolveAccessibleMedia(supabase, accessToken, mapped));
-          if (typeof window !== "undefined") {
-            window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
-          }
-        } else {
-          setProfilePosts(mapped);
-        }
-        setPostsLoading(false);
-      }
-
-      const { count: postsCount } = await supabase
-        .from("albums")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId);
-      const { count: followersCount } = await supabase
-        .from("follows")
-        .select("id", { count: "exact", head: true })
-        .eq("following_id", userId);
-      const { count: followingCount } = await supabase
-        .from("follows")
-        .select("id", { count: "exact", head: true })
-        .eq("follower_id", userId);
-
-      setStats({
-        posts: postsCount ?? 0,
-        followers: followersCount ?? 0,
-        following: followingCount ?? 0,
-      });
-      setStatsLoading(false);
-
-      if (authData?.user?.id && userId && authData.user.id !== userId) {
-        const { data: followRow } = await supabase
-          .from("follows")
-          .select("id")
-          .eq("follower_id", authData.user.id)
-          .eq("following_id", userId)
-          .maybeSingle();
-        setIsFollowing(Boolean(followRow));
-      } else {
-        setIsFollowing(false);
-      }
-
-      const earningsSummary = await loadCreatorEarnings(supabase, userId);
-      setEarnings(earningsSummary.creatorNet);
-      setStatsLoading(false);
+      window.removeEventListener("purchases-updated", invalidateProfile);
+      window.removeEventListener("earnings-updated", invalidateProfile);
     };
-
-    loadPosts().catch(() => {
-      setPostsLoading(false);
-      setStatsLoading(false);
-    });
-  }, [forcedUsername, searchParams]);
+  }, [dispatch, profileId, routeUsername]);
 
   const openPostFromProfile = async (post: Post) => {
     const supabase = getSupabaseClient();
@@ -706,11 +350,12 @@ export default function PerfilPage({
         alert(`No se pudo dejar de seguir: ${error.message}`);
         return;
       }
-      setIsFollowing(false);
-      setStats((prev) => ({
-        ...prev,
-        followers: Math.max(prev.followers - 1, 0),
-      }));
+      dispatch(
+        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
+          draft.isFollowing = false;
+          draft.stats.followers = Math.max(draft.stats.followers - 1, 0);
+        }),
+      );
     } else {
       const { error } = await supabase.from("follows").insert({
         follower_id: currentUserId,
@@ -720,11 +365,12 @@ export default function PerfilPage({
         alert(`No se pudo seguir a este usuario: ${error.message}`);
         return;
       }
-      setIsFollowing(true);
-      setStats((prev) => ({
-        ...prev,
-        followers: prev.followers + 1,
-      }));
+      dispatch(
+        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
+          draft.isFollowing = true;
+          draft.stats.followers += 1;
+        }),
+      );
 
       await supabase.from("notifications").insert({
         user_id: viewedUserId,
@@ -734,41 +380,6 @@ export default function PerfilPage({
         message: "comenzó a seguirte.",
         is_read: false,
       });
-    }
-  };
-
-  const handleSendTip = async () => {
-    if (!currentUserId || !viewedUserId) return;
-    if (currentUserId === viewedUserId) return;
-
-    const amount = Number(tipAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Ingresa un monto válido para la propina.");
-      return;
-    }
-
-    setTipSubmitting(true);
-    try {
-      const result = await runBalanceCheckout({
-        kind: "tip",
-        targetUserId: viewedUserId,
-        amount,
-      });
-      window.dispatchEvent(new Event("balance-updated"));
-      window.dispatchEvent(new Event("earnings-updated"));
-      setTipSent({
-        total: result.amount.toFixed(2),
-        creator: result.creatorAmount.toFixed(2),
-        platform: result.platformFeeAmount.toFixed(2),
-      });
-    } catch (error) {
-      alert(
-        error instanceof Error
-          ? `No se pudo enviar la propina: ${error.message}`
-          : "No se pudo enviar la propina.",
-      );
-    } finally {
-      setTipSubmitting(false);
     }
   };
 
@@ -831,7 +442,13 @@ export default function PerfilPage({
         .eq("user_id", currentUserId);
       if (albumsError) throw albumsError;
 
-      setProfilePosts((prev) => prev.filter((post) => post.id !== albumId));
+      dispatch(
+        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
+          draft.posts = draft.posts.filter((post) => post.id !== albumId);
+          draft.stats.posts = Math.max(draft.stats.posts - 1, 0);
+        }),
+      );
+      setOpenPost(null);
     } catch (err) {
       console.error(err);
       alert("No se pudo eliminar la publicación. Revisa los permisos (RLS).");
@@ -861,14 +478,6 @@ export default function PerfilPage({
   const isOwnProfile = Boolean(
     currentUserId && viewedUserId && currentUserId === viewedUserId,
   );
-  const tipPayout = (() => {
-    const value = Number(tipAmount) || 0;
-    return {
-      total: value.toFixed(2),
-      creator: (value * 0.7).toFixed(2),
-      platform: (value * 0.3).toFixed(2),
-    };
-  })();
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
@@ -880,151 +489,22 @@ export default function PerfilPage({
           currentUserId={currentUserId}
           onDelete={handleDelete}
           onPurchase={handlePurchase}
+          onTip={() => {
+            if (!isOwnProfile) setTipOpen(true);
+          }}
         />
       ) : null}
-      {tipOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-[560px] rounded-[20px] bg-white p-6 shadow-2xl">
-            {tipSent ? (
-              <>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                      <CheckCircle2 className="h-7 w-7" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-semibold">Propina enviada</h2>
-                      <p className="mt-1 text-sm text-zinc-500">
-                        @{profileName || "usuario"} ya recibió la acreditación en su saldo.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTipOpen(false);
-                      setTipSent(null);
-                    }}
-                    className="rounded-[10px] p-2 text-zinc-500 transition hover:bg-zinc-100"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="mt-6 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-                  <div className="flex items-center justify-between">
-                    <span>Propina total enviada</span>
-                    <span className="font-semibold">{formatARS(Number(tipSent.total))}</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span>Se acredita al creador</span>
-                    <span className="font-semibold">{formatARS(Number(tipSent.creator))}</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span>Comisión de plataforma</span>
-                    <span className="font-semibold">{formatARS(Number(tipSent.platform))}</span>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setTipSent(null)}
-                    className="rounded-[12px] border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-700"
-                  >
-                    Enviar otra
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTipOpen(false);
-                      setTipSent(null);
-                    }}
-                    className="rounded-[12px] bg-zinc-900 px-5 py-3 text-sm font-semibold text-white"
-                  >
-                    Listo
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-2xl font-semibold">Enviar propina</h2>
-                    <p className="mt-1 text-sm text-zinc-500">
-                      Apoya a @{profileName || "usuario"} con una propina directa usando tu
-                      saldo disponible. La acreditación final se calcula con la comisión
-                      vigente del creador.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setTipOpen(false)}
-                    className="rounded-[10px] p-2 text-zinc-500 transition hover:bg-zinc-100"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="mt-6">
-                  <div className="text-sm font-semibold text-zinc-700">
-                    Monto de la propina (ARS)
-                  </div>
-                  <div className="mt-2 flex items-center gap-2 rounded-[12px] border border-zinc-300 bg-white px-4 py-3 text-lg font-semibold text-zinc-900">
-                    <span className="text-zinc-500">$</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="1"
-                      step="0.01"
-                      value={tipAmount}
-                      onChange={(event) => setTipAmount(event.target.value)}
-                      className="w-full bg-transparent outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-[12px] border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="flex items-center justify-between">
-                    <span>Propina total</span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatARS(Number(tipPayout.total))}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span>Se descuenta de tu saldo</span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatARS(Number(tipPayout.total))}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-xs leading-5 text-zinc-500">
-                    El reparto exacto entre creador y plataforma se confirma al acreditar la
-                    propina.
-                  </div>
-                </div>
-
-                <div className="mt-6 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setTipOpen(false)}
-                    className="rounded-[12px] border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-700"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSendTip}
-                    disabled={tipSubmitting}
-                    className="rounded-[12px] bg-zinc-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    {tipSubmitting ? "Enviando..." : "Enviar propina"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
+      <TipModal
+        open={tipOpen}
+        availableBalance={availableBalance}
+        recipientLabel={profileName || "usuario"}
+        recipientUserId={viewedUserId}
+        onClose={() => setTipOpen(false)}
+        onSubmitted={() => {
+          window.dispatchEvent(new Event("balance-updated"));
+          window.dispatchEvent(new Event("earnings-updated"));
+        }}
+      />
 
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-none flex-col gap-4 px-4 py-4 md:max-w-[1240px] md:gap-5 md:px-6 md:py-5">
@@ -1138,7 +618,6 @@ export default function PerfilPage({
                         <button
                           type="button"
                           onClick={() => {
-                            setTipSent(null);
                             setTipOpen(true);
                           }}
                           className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"

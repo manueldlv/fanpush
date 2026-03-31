@@ -1,4 +1,5 @@
 import { configureStore } from "@reduxjs/toolkit";
+import { profileApi } from "@/lib/redux/api/profileApi";
 import authReducer from "@/lib/redux/slices/authSlice";
 import deviceReducer from "@/lib/redux/slices/deviceSlice";
 import modalsReducer from "@/lib/redux/slices/modalsSlice";
@@ -19,7 +20,10 @@ export const makeStore = () =>
       posts: postsReducer,
       viewer: viewerReducer,
       notifications: notificationsReducer,
+      [profileApi.reducerPath]: profileApi.reducer,
     },
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware().concat(profileApi.middleware),
     devTools:
       process.env.NODE_ENV !== "production"
         ? {

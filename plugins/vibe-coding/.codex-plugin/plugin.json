@@ -1,0 +1,24 @@
+{
+  "name": "vibe-coding",
+  "version": "0.1.0",
+  "description": "Shared workflow plugin for Matias and Manuel with one visible vibe-agent and internal guard, planner, executor, and auditor agents.",
+  "author": {
+    "name": "fanpush"
+  },
+  "license": "MIT",
+  "keywords": ["codex", "workflow", "agents", "approval", "ui"],
+  "interface": {
+    "displayName": "Vibe Coding",
+    "shortDescription": "Shared agent workflow for safe UI and approved structural work.",
+    "longDescription": "Runtime plugin that exposes the shared vibe-agent plus Matias and Manuel routing rules, scope guarding, and audit tracking.",
+    "developerName": "fanpush",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Summarize pending vibe-coding plans.",
+      "Draft a plan for a structural change.",
+      "Execute a safe UI-only request."
+    ],
+    "brandColor": "#111111"
+  }
+}

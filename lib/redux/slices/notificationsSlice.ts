@@ -4,6 +4,7 @@ import {
   isPushNotificationEnabled,
   parseNotificationPreferences,
 } from "@/lib/notificationPreferences";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export type AppNotificationItem = {
@@ -96,36 +97,43 @@ export const hydrateNotificationsState = createAsyncThunk<
     (notifRows ?? [])
       .filter((row) => USER_VISIBLE_NOTIFICATION_TYPES.has(row.type ?? ""))
       .filter((row) => isPushNotificationEnabled(notificationPreferences, row.type ?? ""))
-      .map(async (row) => ({
-        id: row.id,
-        type: row.type ?? "generic",
-        text:
-          row.type === "withdrawal_update" ||
-          row.type === "author_application_update" ||
-          row.type === "content_removed_update"
-            ? `FanPush ${row.message ?? ""}`
-            : `${actorMap.get(row.actor_id)?.username ?? "alguien"} ${row.message ?? ""}`,
-        date: new Date(row.created_at).toLocaleDateString("es-AR", {
-          day: "2-digit",
-          month: "short",
-        }),
-        createdAt: row.created_at,
-        avatar:
-          row.type === "withdrawal_update" ||
-          row.type === "author_application_update" ||
-          row.type === "content_removed_update"
-            ? null
-            : await resolveAvatar(actorMap.get(row.actor_id)?.avatar_url ?? null),
-        isRead: row.is_read ?? false,
-        action:
-          row.type === "purchase"
-            ? { label: "Ver venta", href: "/ventas" }
-            : row.type === "withdrawal_update" ||
-                row.type === "author_application_update" ||
-                row.type === "content_removed_update"
-              ? { label: "Abrir mensajes", href: "/notificaciones?tab=messages" }
-              : undefined,
-      })),
+      .map(async (row) => {
+        const actor = actorMap.get(row.actor_id);
+        const actorUsername = actor?.username ?? null;
+
+        return {
+          id: row.id,
+          type: row.type ?? "generic",
+          text:
+            row.type === "withdrawal_update" ||
+            row.type === "author_application_update" ||
+            row.type === "content_removed_update"
+              ? `FanPush ${row.message ?? ""}`
+              : `${actorUsername ?? "alguien"} ${row.message ?? ""}`,
+          date: new Date(row.created_at).toLocaleDateString("es-AR", {
+            day: "2-digit",
+            month: "short",
+          }),
+          createdAt: row.created_at,
+          avatar:
+            row.type === "withdrawal_update" ||
+            row.type === "author_application_update" ||
+            row.type === "content_removed_update"
+              ? null
+              : await resolveAvatar(actor?.avatar_url ?? null),
+          isRead: row.is_read ?? false,
+          action:
+            row.type === "follow" && actorUsername
+              ? { label: "Seguir tambien", href: buildUserProfileHref(actorUsername) }
+              : row.type === "purchase"
+                ? { label: "Ver venta", href: "/ventas" }
+                : row.type === "withdrawal_update" ||
+                    row.type === "author_application_update" ||
+                    row.type === "content_removed_update"
+                  ? { label: "Abrir mensajes", href: "/notificaciones?tab=messages" }
+                  : undefined,
+        };
+      }),
   );
 });
 

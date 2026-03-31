@@ -1,9 +1,10 @@
 "use client";
 
-import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
+import { Bookmark, Heart, Lock, MoreHorizontal, Send, Zap } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
+import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import {
@@ -142,6 +143,11 @@ export default function FeedLayout() {
     new Set(),
   );
   const [loading, setLoading] = useState(false);
+  const [tipTarget, setTipTarget] = useState<{
+    userId: string;
+    label: string;
+  } | null>(null);
+  const viewerBalance = useAppSelector((state) => state.viewer.commerce.balance);
 
   const openPost = posts.find((post) => post.id === selectedPost) ?? null;
   const menuPost = posts.find((post) => post.id === menuPostId) ?? null;
@@ -524,6 +530,14 @@ export default function FeedLayout() {
     }
   };
 
+  const handleOpenTip = (post: Post) => {
+    if (!currentUserId || !post.userId || post.userId === currentUserId) return;
+    setTipTarget({
+      userId: post.userId,
+      label: post.author,
+    });
+  };
+
   const handleDelete = async (albumId: string) => {
     const supabase = getSupabaseClient();
     if (!supabase || !currentUserId) return;
@@ -653,8 +667,20 @@ export default function FeedLayout() {
           currentUserId={currentUserId}
           onDelete={handleDelete}
           onPurchase={handlePurchase}
+          onTip={handleOpenTip}
         />
       ) : null}
+      <TipModal
+        open={Boolean(tipTarget)}
+        availableBalance={viewerBalance}
+        recipientLabel={tipTarget?.label ?? "usuario"}
+        recipientUserId={tipTarget?.userId ?? null}
+        onClose={() => setTipTarget(null)}
+        onSubmitted={() => {
+          window.dispatchEvent(new Event("balance-updated"));
+          window.dispatchEvent(new Event("earnings-updated"));
+        }}
+      />
       {menuPost ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 px-6 py-10">
           <button
@@ -1164,6 +1190,16 @@ export default function FeedLayout() {
                 <button className="flex items-center gap-2">
                   <Send className="h-5 w-5" />
                 </button>
+                {currentUserId && post.userId !== currentUserId ? (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenTip(post)}
+                    className="inline-flex items-center gap-2 rounded-full bg-amber-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:bg-amber-200"
+                  >
+                    <Zap className="h-4 w-4" />
+                    Send Tip
+                  </button>
+                ) : null}
               </div>
               <button aria-label="Guardar">
                 <Bookmark className="h-5 w-5 text-zinc-700" />

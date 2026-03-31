@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
+import { Lock, MoreHorizontal, Unlock, X, Zap } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import {
@@ -18,6 +18,7 @@ type PostModalProps = {
   currentUserId?: string | null;
   onDelete?: (postId: string) => void | Promise<void>;
   onPurchase?: (postId: string) => void | boolean | Promise<void | boolean>;
+  onTip?: (post: Post) => void;
 };
 
 export default function PostModal({
@@ -26,6 +27,7 @@ export default function PostModal({
   currentUserId,
   onDelete,
   onPurchase,
+  onTip,
 }: PostModalProps) {
   const [index, setIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -357,6 +359,17 @@ export default function PostModal({
                 </div>
               )}
             </div>
+          ) : null}
+
+          {!isOwner && onTip ? (
+            <button
+              type="button"
+              onClick={() => onTip(post)}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[10px] bg-amber-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-amber-200"
+            >
+              <Zap className="h-4 w-4" />
+              Send Tip
+            </button>
           ) : null}
         </div>
       </div>

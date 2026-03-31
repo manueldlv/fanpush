@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "2026-03-30-01-notification-center-ui",
+      "type": "execution",
+      "title": "Separar centro de notificaciones y mensajes",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-01-notification-center-ui.md",
+      "execution": "vibe-coding/executions/2026-03-30-01-notification-center-ui.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-01-notification-center-ui.md"
+    },
+    {
+      "id": "2026-03-30-02-dummy-seed",
+      "type": "execution",
+      "title": "Ejecutar seed dummy del producto",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-02-dummy-seed.md",
+      "execution": "vibe-coding/executions/2026-03-30-02-dummy-seed.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-02-dummy-seed.md"
+    },
+    {
+      "id": "2026-03-30-03-login-demo-buttons",
+      "type": "execution",
+      "title": "Agregar accesos demo en el login",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-03-login-demo-buttons.md",
+      "execution": "vibe-coding/executions/2026-03-30-03-login-demo-buttons.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-03-login-demo-buttons.md"
+    },
+    {
+      "id": "2026-03-30-04-port-fallback",
+      "type": "execution",
+      "title": "Resolver puerto libre al arrancar",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-04-port-fallback.md",
+      "execution": "vibe-coding/executions/2026-03-30-04-port-fallback.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-04-port-fallback.md"
+    },
+    {
+      "id": "2026-03-30-05-script-permissions",
+      "type": "execution",
+      "title": "Corregir permisos de scripts de dev",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-05-script-permissions.md",
+      "execution": "vibe-coding/executions/2026-03-30-05-script-permissions.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-05-script-permissions.md"
+    },
+    {
+      "id": "2026-03-30-06-notifications-dropdown-redesign",
+      "type": "execution",
+      "title": "Rediseñar dropdown de notificaciones",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-06-notifications-dropdown-redesign.md",
+      "execution": "vibe-coding/executions/2026-03-30-06-notifications-dropdown-redesign.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-06-notifications-dropdown-redesign.md"
+    },
+    {
+      "id": "2026-03-30-07-notifications-dropdown-footer-link",
+      "type": "execution",
+      "title": "Agregar enlace al centro de notificaciones",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-03-30-07-notifications-dropdown-footer-link.md",
+      "execution": "vibe-coding/executions/2026-03-30-07-notifications-dropdown-footer-link.md",
+      "changelog": "vibe-coding/changelog/2026-03-30-07-notifications-dropdown-footer-link.md"
+    },
+    {
+      "id": "2026-03-31-01-profile-rtk-query-cache",
+      "type": "execution",
+      "title": "Cachear perfiles con RTK Query",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "needs_approval",
+      "inbox": "vibe-coding/inbox/2026-03-31-01-profile-rtk-query-cache.md",
+      "execution": "vibe-coding/executions/2026-03-31-01-profile-rtk-query-cache.md",
+      "changelog": "vibe-coding/changelog/2026-03-31-01-profile-rtk-query-cache.md"
+    }
+  ]
+}

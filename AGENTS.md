@@ -25,3 +25,14 @@ Recent commits are short and inconsistent (`fix3`, `25 03`), so use clearer mess
 
 ## Configuration Tips
 Review integrations in `services/supabase`, `services/mercadopago.ts`, and `services/cloudinary.ts` before changing auth, payments, or media flows. Keep secrets out of the repo and document new environment variables in the PR.
+
+## Vibe Coding Workflow
+This repository includes a versioned agent workflow under `vibe-coding/` and a Codex plugin under `plugins/vibe-coding/`. Treat the plugin as the runtime source of truth and the repo docs as the human-readable mirror.
+
+- Read `plugins/vibe-coding/AGENTS.md` before editing anything in the plugin workflow.
+- Resolve the caller identity from `VIBE_IDENTITY` in `.env.local` or `.env` when available. Allowed values are `matias` and `manuel`.
+- Use `plugins/vibe-coding/policies/scope.md` to decide whether a change is `safe`, `plan-only`, `needs_approval`, or `blocked`.
+- Use `plugins/vibe-coding/agents/vibe-agent.md` as the single front door for both Matias and Manuel.
+- Use `vibe-coding/registry/index.json` as the human-readable state registry for plans, approvals, and execution status.
+- Store new requests in `vibe-coding/inbox/`, approved plans in `vibe-coding/plans/`, execution records in `vibe-coding/executions/`, and human-readable history in `vibe-coding/changelog/`.
+- Matias can approve structural changes. Manuel can request and execute only scope-safe additions and UI work. Anything that removes, narrows, or breaks an existing contract must become a plan and wait for Matias approval.

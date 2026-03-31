@@ -65,7 +65,63 @@ const authedRequest = async <T,>(
   return result;
 };
 
-function CenterSkeleton() {
+const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  follow: "Seguidores",
+  tip: "Propinas",
+  purchase: "Ventas",
+  withdrawal_update: "Retiros",
+  author_application_update: "Solicitud de autor",
+  content_removed_update: "Moderacion",
+};
+
+const formatActivityTypeLabel = (type: string) =>
+  ACTIVITY_TYPE_LABELS[type] ??
+  type
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+function ActivityCenterSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={`notification-center-overview-skeleton-${index}`}
+            className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"
+          >
+            <div className="fanpush-skeleton h-3 w-24 rounded-full" />
+            <div className="mt-4 fanpush-skeleton h-10 w-16 rounded-full" />
+            <div className="mt-4 fanpush-skeleton h-3 w-full rounded-full" />
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div
+            key={`notification-center-card-skeleton-${index}`}
+            className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"
+          >
+            <div className="flex items-start gap-4">
+              <div className="fanpush-skeleton h-12 w-12 rounded-full" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="fanpush-skeleton h-4 w-28 rounded-full" />
+                  <div className="fanpush-skeleton h-3 w-16 rounded-full" />
+                </div>
+                <div className="mt-4 fanpush-skeleton h-4 w-full rounded-full" />
+                <div className="mt-2 fanpush-skeleton h-4 w-3/4 rounded-full" />
+                <div className="mt-5 fanpush-skeleton h-10 w-40 rounded-[14px]" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessagesSkeleton() {
   return (
     <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
       <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
@@ -129,7 +185,6 @@ export default function NotificacionesPage() {
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<NotificationActivityItem[]>([]);
   const [threads, setThreads] = useState<NotificationThreadSummary[]>([]);
-  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
     selectedThreadParam,
   );
@@ -140,9 +195,24 @@ export default function NotificacionesPage() {
   const [replyBody, setReplyBody] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
 
-  const selectedActivity = useMemo(
-    () => activity.find((item) => item.id === selectedActivityId) ?? activity[0] ?? null,
-    [activity, selectedActivityId],
+  const unreadActivityCount = useMemo(
+    () => activity.filter((item) => !item.isRead).length,
+    [activity],
+  );
+
+  const actionableActivityCount = useMemo(
+    () => activity.filter((item) => Boolean(item.action)).length,
+    [activity],
+  );
+
+  const unreadActivity = useMemo(
+    () => activity.filter((item) => !item.isRead),
+    [activity],
+  );
+
+  const readActivity = useMemo(
+    () => activity.filter((item) => item.isRead),
+    [activity],
   );
 
   const unreadThreadCount = useMemo(
@@ -172,9 +242,6 @@ export default function NotificacionesPage() {
       const result = await authedRequest<CenterPayload>("/api/notification-center");
       setActivity(result.activity);
       setThreads(result.threads);
-      if (!selectedActivityId && result.activity.length > 0) {
-        setSelectedActivityId(result.activity[0].id);
-      }
       const unreadActivityIds = result.activity
         .filter((item) => !item.isRead)
         .map((item) => item.id);
@@ -324,107 +391,279 @@ export default function NotificacionesPage() {
             </div>
           ) : null}
 
+          <section className="rounded-[24px] border border-zinc-200 bg-white p-2 shadow-sm">
+            <div className="grid grid-cols-2 gap-2 rounded-[18px] bg-zinc-100 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("activity");
+                  syncUrl("activity");
+                }}
+                className={cn(
+                  "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                  activeTab === "activity"
+                    ? "bg-white text-zinc-950 shadow-sm"
+                    : "text-zinc-500",
+                )}
+              >
+                Centro
+                {unreadActivityCount > 0 ? (
+                  <span className="ml-2 rounded-full bg-zinc-900 px-2 py-0.5 text-[11px] text-white">
+                    {unreadActivityCount}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("messages");
+                  syncUrl("messages", selectedThreadId || threads[0]?.id || null);
+                }}
+                className={cn(
+                  "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                  activeTab === "messages"
+                    ? "bg-white text-zinc-950 shadow-sm"
+                    : "text-zinc-500",
+                )}
+              >
+                Mensajes
+                {unreadThreadCount > 0 ? (
+                  <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-[11px] text-white">
+                    {unreadThreadCount}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          </section>
+
           {loading ? (
-            <CenterSkeleton />
+            activeTab === "messages" ? <MessagesSkeleton /> : <ActivityCenterSkeleton />
+          ) : activeTab === "activity" ? (
+            <div className="space-y-6">
+              <section className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                    Nuevas
+                  </div>
+                  <div className="mt-4 text-4xl font-semibold text-zinc-950">
+                    {unreadActivityCount}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-zinc-500">
+                    Actividad reciente que merece una mirada, sin forzarte a abrir una
+                    vista tipo inbox.
+                  </p>
+                </div>
+
+                <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                    Con accion
+                  </div>
+                  <div className="mt-4 text-4xl font-semibold text-zinc-950">
+                    {actionableActivityCount}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-zinc-500">
+                    Notificaciones que sí te llevan a otro lugar o te piden seguimiento.
+                  </p>
+                </div>
+
+                <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                    Conversaciones
+                  </div>
+                  <div className="mt-4 text-4xl font-semibold text-zinc-950">
+                    {threads.length}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-zinc-500">
+                    Los mensajes con el equipo quedan aparte, en una bandeja pensada para
+                    responder.
+                  </p>
+                </div>
+              </section>
+
+              {activity.length === 0 ? (
+                <div className="rounded-[24px] border border-zinc-200 bg-white px-6 py-12 text-center shadow-sm">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
+                    <Bell className="h-5 w-5" />
+                  </div>
+                  <div className="mt-5 text-lg font-semibold text-zinc-950">
+                    No tienes actividad visible
+                  </div>
+                  <p className="mt-2 text-sm leading-7 text-zinc-500">
+                    Cuando haya seguimiento de ventas, retiros, moderación o nuevos
+                    movimientos, vas a verlo acá como centro de notificaciones.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {unreadActivity.length > 0 ? (
+                    <section className="space-y-4">
+                      <div className="flex items-end justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                            Centro de notificaciones
+                          </div>
+                          <h2 className="mt-2 text-2xl font-semibold text-zinc-950">
+                            Nuevas
+                          </h2>
+                        </div>
+                        <div className="text-sm text-zinc-500">
+                          Se muestran primero para que no parezca una bandeja de email.
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        {unreadActivity.map((item) => (
+                          <article
+                            key={item.id}
+                            className="rounded-[24px] border border-zinc-900 bg-white p-5 shadow-sm"
+                          >
+                            <div className="flex items-start gap-4">
+                              {item.avatar ? (
+                                <UserAvatar
+                                  src={item.avatar}
+                                  alt={item.text}
+                                  sizeClassName="h-12 w-12"
+                                  iconClassName="h-4 w-4"
+                                />
+                              ) : (
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
+                                  <Bell className="h-4 w-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                      {formatActivityTypeLabel(item.type)}
+                                    </span>
+                                    <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-[11px] font-semibold text-white">
+                                      Nuevo
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-zinc-400">{item.dateLabel}</span>
+                                </div>
+
+                                <p className="mt-4 text-base leading-7 text-zinc-900">
+                                  {item.text}
+                                </p>
+
+                                <div className="mt-5 flex flex-wrap items-center gap-3">
+                                  {item.action ? (
+                                    <Link
+                                      href={item.action.href}
+                                      className="inline-flex items-center gap-2 rounded-[14px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                                    >
+                                      {item.action.label}
+                                      <ArrowRight className="h-4 w-4" />
+                                    </Link>
+                                  ) : (
+                                    <div className="inline-flex rounded-[14px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-500">
+                                      Solo informativa
+                                    </div>
+                                  )}
+                                  <span className="text-xs text-zinc-500">
+                                    {new Date(item.createdAt).toLocaleString("es-AR")}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {readActivity.length > 0 ? (
+                    <section className="space-y-4">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                          Historial
+                        </div>
+                        <h2 className="mt-2 text-2xl font-semibold text-zinc-950">
+                          {unreadActivity.length > 0 ? "Anteriores" : "Ultimas notificaciones"}
+                        </h2>
+                      </div>
+
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        {readActivity.map((item) => (
+                          <article
+                            key={item.id}
+                            className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"
+                          >
+                            <div className="flex items-start gap-4">
+                              {item.avatar ? (
+                                <UserAvatar
+                                  src={item.avatar}
+                                  alt={item.text}
+                                  sizeClassName="h-12 w-12"
+                                  iconClassName="h-4 w-4"
+                                />
+                              ) : (
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
+                                  <Bell className="h-4 w-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    {formatActivityTypeLabel(item.type)}
+                                  </span>
+                                  <span className="text-xs text-zinc-400">{item.dateLabel}</span>
+                                </div>
+
+                                <p className="mt-4 text-base leading-7 text-zinc-700">
+                                  {item.text}
+                                </p>
+
+                                <div className="mt-5 flex flex-wrap items-center gap-3">
+                                  {item.action ? (
+                                    <Link
+                                      href={item.action.href}
+                                      className="inline-flex items-center gap-2 rounded-[14px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
+                                    >
+                                      {item.action.label}
+                                      <ArrowRight className="h-4 w-4" />
+                                    </Link>
+                                  ) : (
+                                    <div className="inline-flex rounded-[14px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-500">
+                                      Solo informativa
+                                    </div>
+                                  )}
+                                  <span className="text-xs text-zinc-500">
+                                    {new Date(item.createdAt).toLocaleString("es-AR")}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                </div>
+              )}
+            </div>
           ) : (
             <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
               <section className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
-                <div className="grid grid-cols-2 gap-3 rounded-[18px] bg-zinc-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab("activity");
-                      syncUrl("activity");
-                    }}
-                    className={cn(
-                      "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
-                      activeTab === "activity"
-                        ? "bg-white text-zinc-950 shadow-sm"
-                        : "text-zinc-500",
-                    )}
-                  >
-                    Actividad
-                    {activity.some((item) => !item.isRead) ? (
-                      <span className="ml-2 rounded-full bg-zinc-900 px-2 py-0.5 text-[11px] text-white">
-                        {activity.filter((item) => !item.isRead).length}
-                      </span>
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab("messages");
-                      syncUrl("messages", selectedThreadId || threads[0]?.id || null);
-                    }}
-                    className={cn(
-                      "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
-                      activeTab === "messages"
-                        ? "bg-white text-zinc-950 shadow-sm"
-                        : "text-zinc-500",
-                    )}
-                  >
-                    Mensajes
-                    {unreadThreadCount > 0 ? (
-                      <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-[11px] text-white">
-                        {unreadThreadCount}
-                      </span>
-                    ) : null}
-                  </button>
+                <div className="flex items-center justify-between gap-3 border-b border-zinc-200 pb-4">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                      Bandeja
+                    </div>
+                    <div className="mt-2 text-lg font-semibold text-zinc-950">
+                      Mensajes del equipo
+                    </div>
+                  </div>
+                  {unreadThreadCount > 0 ? (
+                    <div className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
+                      {unreadThreadCount} nuevos
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="mt-5 max-h-[72vh] space-y-3 overflow-y-auto pr-1">
-                  {activeTab === "activity" ? (
-                    activity.length === 0 ? (
-                      <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
-                        Aún no tienes actividad visible en tu cuenta.
-                      </div>
-                    ) : (
-                      activity.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setSelectedActivityId(item.id)}
-                          className={cn(
-                            "w-full rounded-[18px] border px-4 py-4 text-left transition",
-                            selectedActivity?.id === item.id
-                              ? "border-zinc-900 bg-zinc-50"
-                              : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50",
-                          )}
-                        >
-                          <div className="flex items-start gap-3">
-                            {item.avatar ? (
-                              <UserAvatar
-                                src={item.avatar}
-                                alt={item.text}
-                                sizeClassName="h-11 w-11"
-                                iconClassName="h-4 w-4"
-                              />
-                            ) : (
-                              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
-                                <Bell className="h-4 w-4" />
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                                  {item.type.replaceAll("_", " ")}
-                                </span>
-                                <span className="text-xs text-zinc-400">{item.dateLabel}</span>
-                              </div>
-                              <div className="mt-2 text-sm leading-6 text-zinc-700">
-                                {item.text}
-                              </div>
-                              {!item.isRead ? (
-                                <div className="mt-3 inline-flex rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-semibold text-white">
-                                  Nuevo
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        </button>
-                      ))
-                    )
-                  ) : threads.length === 0 ? (
+                  {threads.length === 0 ? (
                     <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
                       No tienes conversaciones abiertas con el equipo por ahora.
                     </div>
@@ -479,74 +718,8 @@ export default function NotificacionesPage() {
               </section>
 
               <section className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                {activeTab === "activity" ? (
-                  selectedActivity ? (
-                    <div className="flex h-full flex-col">
-                      <div className="flex items-start gap-4">
-                        {selectedActivity.avatar ? (
-                          <UserAvatar
-                            src={selectedActivity.avatar}
-                            alt={selectedActivity.text}
-                            sizeClassName="h-14 w-14"
-                            iconClassName="h-5 w-5"
-                          />
-                        ) : (
-                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
-                            <Bell className="h-5 w-5" />
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-400">
-                            Actividad
-                          </div>
-                          <h2 className="mt-3 text-2xl font-semibold text-zinc-950">
-                            {selectedActivity.text}
-                          </h2>
-                          <p className="mt-3 text-sm leading-7 text-zinc-500">
-                            Recibido el{" "}
-                            {new Date(selectedActivity.createdAt).toLocaleString("es-AR", {
-                              day: "2-digit",
-                              month: "long",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                            .
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-8 rounded-[20px] border border-zinc-200 bg-zinc-50 p-5">
-                        <div className="text-sm font-semibold text-zinc-950">
-                          Qué hacer con esta notificación
-                        </div>
-                        <p className="mt-2 text-sm leading-7 text-zinc-600">
-                          Algunas alertas sólo informan actividad. Otras te llevan al
-                          contexto donde puedes revisar el detalle o responder si hace
-                          falta.
-                        </p>
-                        {selectedActivity.action ? (
-                          <Link
-                            href={selectedActivity.action.href}
-                            className="mt-5 inline-flex items-center gap-2 rounded-[14px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
-                          >
-                            {selectedActivity.action.label}
-                            <ArrowRight className="h-4 w-4" />
-                          </Link>
-                        ) : (
-                          <div className="mt-5 inline-flex rounded-[14px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-500">
-                            No requiere acción inmediata
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex h-full min-h-[420px] items-center justify-center rounded-[20px] border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-500">
-                      Selecciona una actividad para ver el detalle.
-                    </div>
-                  )
-                ) : threadLoading ? (
-                  <CenterSkeleton />
+                {threadLoading ? (
+                  <MessagesSkeleton />
                 ) : selectedThread ? (
                   <div className="flex h-full min-h-[640px] flex-col">
                     <div className="border-b border-zinc-200 pb-5">
@@ -563,7 +736,9 @@ export default function NotificacionesPage() {
                               : "bg-zinc-100 text-zinc-600",
                           )}
                         >
-                          {selectedThread.status === "open" ? "Conversación abierta" : "Conversación cerrada"}
+                          {selectedThread.status === "open"
+                            ? "Conversación abierta"
+                            : "Conversación cerrada"}
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-zinc-500">

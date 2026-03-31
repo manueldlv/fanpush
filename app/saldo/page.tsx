@@ -4,71 +4,40 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowDownToLine, BadgePlus, Wallet } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
-import { useAppSelector } from "@/lib/redux/hooks";
-import { getSupabaseClient } from "@/lib/supabase";
+import { useCreateCheckoutPreferenceMutation } from "@/lib/redux/api/commerceApi";
+import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { formatARS } from "@/lib/utils";
 
 const QUICK_AMOUNTS = [5000, 10000, 20000, 50000];
 
 export default function SaldoPage() {
   const searchParams = useSearchParams();
-  const viewer = useAppSelector((state) => state.viewer);
   const [amount, setAmount] = useState("10000");
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { data: viewer, isLoading: viewerLoading } = useGetViewerQuery();
+  const [createCheckoutPreference, { isLoading: submitting }] =
+    useCreateCheckoutPreferenceMutation();
 
   const depositSuccess = searchParams.get("checkout") === "deposit";
   const depositedTotal = Number(searchParams.get("deposit_total") || 0);
-  const showSkeleton = !viewer.hydrated;
-  const spendableBalance = viewer.commerce.balance;
+  const showSkeleton = viewerLoading && !viewer;
+  const spendableBalance = viewer?.commerce.balance ?? 0;
 
   const amountNumber = useMemo(() => Number(amount), [amount]);
 
   const handleDeposit = async () => {
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      setError("Falta configurar Supabase.");
-      return;
-    }
-
     if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
       setError("Ingresa un monto válido para cargar saldo.");
       return;
     }
 
-    setSubmitting(true);
     setError(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
-        throw new Error("Necesitas iniciar sesión para cargar saldo.");
-      }
-
-      const response = await fetch("/api/mercadopago/preference", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          kind: "deposit",
-          amount: amountNumber,
-          returnPath: "/saldo",
-        }),
-      });
-
-      const result = (await response.json()) as {
-        initPoint?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !result.initPoint) {
-        throw new Error(result.error ?? "No se pudo iniciar la carga de saldo.");
-      }
-
+      const result = await createCheckoutPreference({
+        kind: "deposit",
+        amount: amountNumber,
+        returnPath: "/saldo",
+      }).unwrap();
       window.location.assign(result.initPoint);
     } catch (depositError) {
       setError(
@@ -76,8 +45,6 @@ export default function SaldoPage() {
           ? depositError.message
           : "No se pudo iniciar la carga de saldo.",
       );
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -136,29 +103,29 @@ export default function SaldoPage() {
                 ) : (
                   <>
                     <div className="rounded-[16px] border border-white/10 bg-white/5 p-4">
-                      <div className="text-xs uppercase tracking-[0.18em] text-white/45">
-                        Cash
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/45">
+                          Cash
+                        </div>
+                        <div className="mt-2 text-lg font-semibold">
+                          {formatARS(viewer?.commerce.cashAvailable ?? 0)}
+                        </div>
                       </div>
-                      <div className="mt-2 text-lg font-semibold">
-                        {formatARS(viewer.commerce.cashAvailable)}
-                      </div>
-                    </div>
                     <div className="rounded-[16px] border border-white/10 bg-white/5 p-4">
-                      <div className="text-xs uppercase tracking-[0.18em] text-white/45">
-                        Bonus
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/45">
+                          Bonus
+                        </div>
+                        <div className="mt-2 text-lg font-semibold">
+                          {formatARS(viewer?.commerce.bonusAvailable ?? 0)}
+                        </div>
                       </div>
-                      <div className="mt-2 text-lg font-semibold">
-                        {formatARS(viewer.commerce.bonusAvailable)}
-                      </div>
-                    </div>
                     <div className="rounded-[16px] border border-white/10 bg-white/5 p-4">
-                      <div className="text-xs uppercase tracking-[0.18em] text-white/45">
-                        Reservado
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/45">
+                          Reservado
+                        </div>
+                        <div className="mt-2 text-lg font-semibold">
+                          {formatARS(viewer?.commerce.cashReserved ?? 0)}
+                        </div>
                       </div>
-                      <div className="mt-2 text-lg font-semibold">
-                        {formatARS(viewer.commerce.cashReserved)}
-                      </div>
-                    </div>
                   </>
                 )}
               </div>
@@ -242,7 +209,7 @@ export default function SaldoPage() {
               <div className="rounded-[20px] border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="text-sm font-medium text-zinc-500">Ingresos históricos</div>
                 <div className="mt-2 text-2xl font-semibold text-zinc-950">
-                  {formatARS(viewer.commerce.lifetimeEarned)}
+                  {formatARS(viewer?.commerce.lifetimeEarned ?? 0)}
                 </div>
                 <p className="mt-2 text-sm text-zinc-500">
                   Total acreditado a tu cuenta como creador o receptor.
@@ -251,7 +218,7 @@ export default function SaldoPage() {
               <div className="rounded-[20px] border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="text-sm font-medium text-zinc-500">Fondeado total</div>
                 <div className="mt-2 text-2xl font-semibold text-zinc-950">
-                  {formatARS(viewer.commerce.lifetimeDeposited)}
+                  {formatARS(viewer?.commerce.lifetimeDeposited ?? 0)}
                 </div>
                 <p className="mt-2 text-sm text-zinc-500">
                   Todo el dinero que cargaste en tu saldo desde Mercado Pago.
@@ -260,7 +227,7 @@ export default function SaldoPage() {
               <div className="rounded-[20px] border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="text-sm font-medium text-zinc-500">Retirado</div>
                 <div className="mt-2 text-2xl font-semibold text-zinc-950">
-                  {formatARS(viewer.commerce.lifetimeWithdrawn)}
+                  {formatARS(viewer?.commerce.lifetimeWithdrawn ?? 0)}
                 </div>
                 <p className="mt-2 text-sm text-zinc-500">
                   Total ya liquidado fuera de la plataforma.

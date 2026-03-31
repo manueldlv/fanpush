@@ -6,37 +6,24 @@ import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import { profileApi } from "@/lib/redux/api/profileApi";
+import {
+  useDeleteAccountMutation,
+  useGetSettingsQuery,
+  useUpdateNotificationPreferencesMutation,
+  useUpdatePayoutProfileMutation,
+  useUpdateProfileMutation,
+} from "@/lib/redux/api/settingsApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
-import { setViewerProfileSummary } from "@/lib/redux/slices/viewerSlice";
 import type { PayoutProfile } from "@/lib/payouts";
 import {
   buildDefaultNotificationPreferences,
   NOTIFICATION_PREFERENCE_CATEGORIES,
-  parseNotificationPreferences,
-  serializeNotificationPreferences,
   type NotificationPreferences,
   type NotificationPreferenceCategory,
 } from "@/lib/notificationPreferences";
-import {
-  coercePayoutProfile,
-  parsePayoutProfile,
-  serializePayoutProfile,
-  toPayoutProfileMetaValue,
-} from "@/lib/payouts";
-import {
-  coerceProfileDetails,
-  normalizeWebsite,
-  parseProfileDetails,
-  serializeProfileDetails,
-  toProfileDetailsMetaValue,
-} from "@/lib/profileDetails";
+import { normalizeWebsite } from "@/lib/profileDetails";
 import { MAX_AVATAR_IMAGE_BYTES, validateImageFile } from "@/lib/imageFiles";
 import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
-import {
-  getUserMetaEntries,
-  upsertUserMetaValue,
-  USER_META_KEYS,
-} from "@/lib/userMeta";
 import { getSupabaseClient } from "@/lib/supabase";
 
 function ToggleSwitch({
@@ -69,14 +56,17 @@ function ToggleSwitch({
 
 export default function SettingsPage() {
   const dispatch = useAppDispatch();
+  const { data: settingsData } = useGetSettingsQuery();
+  const [updateProfile] = useUpdateProfileMutation();
+  const [updatePayoutProfile] = useUpdatePayoutProfileMutation();
+  const [updateNotificationPreferences] = useUpdateNotificationPreferencesMutation();
+  const [deleteAccount] = useDeleteAccountMutation();
   const invalidateProfileCaches = (userId: string, nextUsername: string) => {
-    dispatch(
-      profileApi.util.invalidateTags([
-        { type: "ProfileView", id: "self" },
-        { type: "ProfileView", id: `id:${userId}` },
-        { type: "ProfileView", id: `username:${nextUsername.toLowerCase()}` },
-      ]),
-    );
+    dispatch(profileApi.util.invalidateTags([
+      { type: "ProfileView", id: "self" },
+      { type: "ProfileView", id: `id:${userId}` },
+      { type: "ProfileView", id: `username:${nextUsername.toLowerCase()}` },
+    ]));
   };
   const [activeTab, setActiveTab] = useState<"profile" | "notifications" | "payments">(
     "profile",
@@ -109,99 +99,22 @@ export default function SettingsPage() {
   const [savingNotifications, setSavingNotifications] = useState(false);
 
   useEffect(() => {
-    const loadProfile = async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) return;
-
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("username, avatar_url")
-        .eq("id", userId)
-        .maybeSingle();
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", userId)
-        .maybeSingle();
-      const { data: payoutRow } = await supabase
-        .from("notifications")
-        .select("message")
-        .eq("user_id", userId)
-        .eq("type", "payout_profile")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const { data: profileMetaRow } = await supabase
-        .from("notifications")
-        .select("message")
-        .eq("user_id", userId)
-        .eq("type", "profile_meta")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const { data: notificationPrefsRow } = await supabase
-        .from("notifications")
-        .select("message")
-        .eq("user_id", userId)
-        .eq("type", "notification_preferences")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const userMetaResult = await getUserMetaEntries(supabase, userId, [
-        USER_META_KEYS.profileDetails,
-        USER_META_KEYS.payoutProfile,
-        USER_META_KEYS.notificationPreferences,
-      ]);
-
-      setUsername(userRow?.username ?? "usuario");
-      setFullName(profileRow?.full_name ?? "");
-      const payoutProfile =
-        coercePayoutProfile(
-          userMetaResult.entries.get(USER_META_KEYS.payoutProfile),
-        ) ?? parsePayoutProfile(payoutRow?.message);
-      const profileDetails =
-        coerceProfileDetails(
-          userMetaResult.entries.get(USER_META_KEYS.profileDetails),
-        ) ?? parseProfileDetails(profileMetaRow?.message);
-      const nextNotificationPreferences =
-        parseNotificationPreferences(notificationPrefsRow?.message) ??
-        buildDefaultNotificationPreferences();
-      const notificationPreferencesFromMeta =
-        userMetaResult.entries.get(USER_META_KEYS.notificationPreferences);
-      const effectiveNotificationPreferences =
-        notificationPreferencesFromMeta &&
-        typeof notificationPreferencesFromMeta === "object"
-          ? (notificationPreferencesFromMeta as NotificationPreferences)
-          : nextNotificationPreferences;
-      setPayoutAlias(payoutProfile?.alias ?? "");
-      setPayoutHolderName(payoutProfile?.holderName ?? "");
-      setPayoutHolderDocument(payoutProfile?.holderDocument ?? "");
-      setPayoutNotes(payoutProfile?.notes ?? "");
-      setSavedPayoutProfile(payoutProfile);
-      setNotificationPreferences(effectiveNotificationPreferences);
-      setSavedNotificationPreferences(effectiveNotificationPreferences);
-      setBio(profileDetails?.bio ?? "");
-      setWebsite(profileDetails?.website ?? "");
-      setInstagram(profileDetails?.instagram ?? "");
-
-      const rawAvatar = userRow?.avatar_url ?? null;
-      if (rawAvatar && !rawAvatar.startsWith("http")) {
-        setAvatarPath(rawAvatar);
-        const { data: publicUrl } = supabase.storage
-          .from(PUBLIC_MEDIA_BUCKET)
-          .getPublicUrl(rawAvatar);
-        setAvatarUrl(publicUrl.publicUrl ?? null);
-      } else {
-        setAvatarPath(rawAvatar);
-        setAvatarUrl(rawAvatar);
-      }
-    };
-
-    loadProfile();
-  }, []);
+    if (!settingsData) return;
+    setUsername(settingsData.username || "usuario");
+    setFullName(settingsData.fullName || "");
+    setPayoutAlias(settingsData.payoutProfile?.alias ?? "");
+    setPayoutHolderName(settingsData.payoutProfile?.holderName ?? "");
+    setPayoutHolderDocument(settingsData.payoutProfile?.holderDocument ?? "");
+    setPayoutNotes(settingsData.payoutProfile?.notes ?? "");
+    setSavedPayoutProfile(settingsData.payoutProfile);
+    setNotificationPreferences(settingsData.notificationPreferences);
+    setSavedNotificationPreferences(settingsData.notificationPreferences);
+    setBio(settingsData.bio ?? "");
+    setWebsite(settingsData.website ?? "");
+    setInstagram(settingsData.instagram ?? "");
+    setAvatarPath(settingsData.avatarPath ?? null);
+    setAvatarUrl(settingsData.avatarUrl ?? null);
+  }, [settingsData]);
 
   useEffect(() => {
     return () => {
@@ -269,17 +182,6 @@ export default function SettingsPage() {
 
       const uploadedAvatarUrl =
         supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
-      const { error: userError } = await supabase.from("users").upsert(
-        {
-          id: userId,
-          username: safeUsername,
-          avatar_url: uploadedAvatarUrl,
-        },
-        { onConflict: "id" },
-      );
-      if (userError) {
-        throw userError;
-      }
 
       if (avatarCropSource?.startsWith("blob:")) {
         URL.revokeObjectURL(avatarCropSource);
@@ -287,16 +189,16 @@ export default function SettingsPage() {
       setAvatarCropSource(null);
       setAvatarPath(uploadedAvatarUrl);
       setAvatarUrl(uploadedAvatarUrl);
-      dispatch(
-        setViewerProfileSummary({
-          username: safeUsername,
-          avatarUrl: uploadedAvatarUrl,
-          fullName: fullName.trim(),
-          bio: bio.trim(),
-          website: normalizeWebsite(website),
-          instagram: instagram.trim(),
-        }),
-      );
+      await updateProfile({
+        userId,
+        username: safeUsername,
+        avatarUrl: uploadedAvatarUrl,
+        avatarPath: path,
+        fullName: fullName.trim(),
+        bio: bio.trim(),
+        website: normalizeWebsite(website),
+        instagram: instagram.trim(),
+      }).unwrap();
       invalidateProfileCaches(userId, safeUsername);
       setMessage("Foto de perfil actualizada.");
       window.dispatchEvent(
@@ -331,91 +233,24 @@ export default function SettingsPage() {
       const userId = authData?.user?.id;
       if (!userId) throw new Error("Necesitas iniciar sesion.");
 
-      const avatarDbValue =
-        avatarPath ??
-        (avatarUrl && avatarUrl.startsWith("http")
-          ? avatarUrl
-          : null);
-
       const safeUsername =
         username.trim() ||
         authData?.user?.email?.split("@")[0] ||
         "usuario";
-
-      const { error: userError } = await supabase.from("users").upsert(
-        {
-          id: userId,
-          username: safeUsername,
-          avatar_url: avatarDbValue,
-        },
-        { onConflict: "id" },
-      );
-      if (userError) throw userError;
-
-      const { error: profileError } = await supabase.from("profiles").upsert(
-        {
-          id: userId,
-          full_name: fullName.trim(),
-          email: authData?.user?.email ?? "",
-        },
-        { onConflict: "id" },
-      );
-      if (profileError) throw profileError;
-
-      const profileMetaPayload = serializeProfileDetails({
-        bio,
-        website: normalizeWebsite(website),
-        instagram,
-      });
-      await upsertUserMetaValue(
-        supabase,
+      const result = await updateProfile({
         userId,
-        USER_META_KEYS.profileDetails,
-        toProfileDetailsMetaValue({
-          bio,
-          website: normalizeWebsite(website),
-          instagram,
-        }),
-      );
-      const { data: existingProfileMeta } = await supabase
-        .from("notifications")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("type", "profile_meta")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        username: safeUsername,
+        avatarUrl,
+        avatarPath,
+        fullName: fullName.trim(),
+        bio: bio.trim(),
+        website: normalizeWebsite(website),
+        instagram: instagram.trim(),
+      }).unwrap();
 
-      if (existingProfileMeta?.id) {
-        const { error: profileMetaError } = await supabase
-          .from("notifications")
-          .update({ message: profileMetaPayload, is_read: true })
-          .eq("id", existingProfileMeta.id);
-        if (profileMetaError) throw profileMetaError;
-      } else {
-        const { error: profileMetaError } = await supabase.from("notifications").insert({
-          user_id: userId,
-          actor_id: userId,
-          type: "profile_meta",
-          entity_id: userId,
-          message: profileMetaPayload,
-          is_read: true,
-        });
-        if (profileMetaError) throw profileMetaError;
-      }
-
-      setAvatarUrl(avatarUrl ?? null);
-      setAvatarPath(avatarDbValue);
-      dispatch(
-        setViewerProfileSummary({
-          username: safeUsername,
-          avatarUrl: avatarUrl ?? null,
-          fullName: fullName.trim(),
-          bio: bio.trim(),
-          website: normalizeWebsite(website),
-          instagram: instagram.trim(),
-        }),
-      );
+      setUsername(result.username);
+      setAvatarUrl(result.avatarUrl);
+      setAvatarPath(result.avatarPath);
       invalidateProfileCaches(userId, safeUsername);
       setMessage("Perfil actualizado.");
       window.dispatchEvent(
@@ -445,34 +280,13 @@ export default function SettingsPage() {
       return;
     }
 
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      setMessage("Falta configurar Supabase.");
-      return;
-    }
-
     setDeletingAccount(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
-        throw new Error("Necesitas iniciar sesion.");
+      await deleteAccount().unwrap();
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error("Falta configurar Supabase.");
       }
-
-      const response = await fetch("/api/account/delete", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(result.error ?? "No se pudo borrar la cuenta.");
-      }
-
       await supabase.auth.signOut();
       window.location.assign("/auth");
     } catch (err) {
@@ -484,11 +298,6 @@ export default function SettingsPage() {
 
   const handleSavePayout = async () => {
     setMessage(null);
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      setMessage("Falta configurar Supabase.");
-      return;
-    }
     if (
       !payoutAlias.trim() ||
       !payoutHolderName.trim() ||
@@ -500,64 +309,27 @@ export default function SettingsPage() {
 
     setSavingPayout(true);
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        setMessage("Falta configurar Supabase.");
+        return;
+      }
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
       if (!userId) throw new Error("Necesitas iniciar sesión.");
-
-      const { data: existing } = await supabase
-        .from("notifications")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("type", "payout_profile")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const payload = serializePayoutProfile({
+      const updatedAt = new Date().toISOString();
+      const nextPayoutProfile = {
         alias: payoutAlias.trim(),
         holderName: payoutHolderName.trim(),
         holderDocument: payoutHolderDocument.trim(),
         notes: payoutNotes.trim(),
-        updatedAt: new Date().toISOString(),
-      });
-      await upsertUserMetaValue(
-        supabase,
+        updatedAt,
+      };
+      await updatePayoutProfile({
         userId,
-        USER_META_KEYS.payoutProfile,
-        toPayoutProfileMetaValue({
-          alias: payoutAlias.trim(),
-          holderName: payoutHolderName.trim(),
-          holderDocument: payoutHolderDocument.trim(),
-          notes: payoutNotes.trim(),
-          updatedAt: new Date().toISOString(),
-        }),
-      );
-
-      if (existing?.id) {
-        const { error } = await supabase
-          .from("notifications")
-          .update({ message: payload, is_read: true })
-          .eq("id", existing.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("notifications").insert({
-          user_id: userId,
-          actor_id: userId,
-          type: "payout_profile",
-          entity_id: userId,
-          message: payload,
-          is_read: true,
-        });
-        if (error) throw error;
-      }
-
-      setSavedPayoutProfile({
-        alias: payoutAlias.trim(),
-        holderName: payoutHolderName.trim(),
-        holderDocument: payoutHolderDocument.trim(),
-        notes: payoutNotes.trim(),
-        updatedAt: new Date().toISOString(),
-      });
+        payoutProfile: nextPayoutProfile,
+      }).unwrap();
+      setSavedPayoutProfile(nextPayoutProfile);
       setMessage("Datos de cobro actualizados.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
@@ -623,59 +395,24 @@ export default function SettingsPage() {
 
   const handleSaveNotifications = async () => {
     setMessage(null);
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      setMessage("Falta configurar Supabase.");
-      return;
-    }
-
     setSavingNotifications(true);
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        setMessage("Falta configurar Supabase.");
+        return;
+      }
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
       if (!userId) throw new Error("Necesitas iniciar sesión.");
-
       const payload = {
         ...notificationPreferences,
         updatedAt: new Date().toISOString(),
       };
-      await upsertUserMetaValue(
-        supabase,
+      await updateNotificationPreferences({
         userId,
-        USER_META_KEYS.notificationPreferences,
-        payload,
-      );
-
-      const { data: existing } = await supabase
-        .from("notifications")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("type", "notification_preferences")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existing?.id) {
-        const { error } = await supabase
-          .from("notifications")
-          .update({
-            message: serializeNotificationPreferences(payload),
-            is_read: true,
-          })
-          .eq("id", existing.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("notifications").insert({
-          user_id: userId,
-          actor_id: userId,
-          type: "notification_preferences",
-          entity_id: userId,
-          message: serializeNotificationPreferences(payload),
-          is_read: true,
-        });
-        if (error) throw error;
-      }
-
+        notificationPreferences: payload,
+      }).unwrap();
       setNotificationPreferences(payload);
       setSavedNotificationPreferences(payload);
       setMessage("Preferencias de notificaciones actualizadas.");

@@ -1,250 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import SidebarLeft from "@/components/SidebarLeft";
-import { parseTipAmountFromMessage } from "@/lib/earnings";
-import { parsePayoutProfile, type PayoutProfile } from "@/lib/payouts";
 import { buildUserProfileHref } from "@/lib/profileRoute";
-import { getSupabaseClient } from "@/lib/supabase";
-import {
-  getCurrentMonthKey,
-  getWithdrawalReservedAmount,
-  getWithdrawalStatusLabel,
-  parseWithdrawalRecord,
-  type WithdrawalStatus,
-} from "@/lib/withdrawals";
+import { useGetSalesQuery, useRequestWithdrawalMutation } from "@/lib/redux/api/commerceApi";
+import { getCurrentMonthKey, getWithdrawalReservedAmount } from "@/lib/withdrawals";
 import {
   FANPUSH_WITHDRAWAL_MIN_ARS,
   formatARS,
 } from "@/lib/utils";
 
-type SaleItem = {
-  id: string;
-  type: string;
-  title: string;
-  count: number;
-  total: number;
-  createdAt?: string;
-  buyer: {
-    id: string;
-    name: string;
-    full: string;
-    avatar: string | null;
-  };
-};
-
-type WithdrawalItem = {
-  id: string;
-  amount: number;
-  status: WithdrawalStatus;
-  statusLabel: string;
-  requestedAt: string;
-  monthKey: string;
-};
-
 export default function VentasPage() {
-  const [sales, setSales] = useState<SaleItem[]>([]);
-  const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
-  const [payoutProfile, setPayoutProfile] = useState<PayoutProfile | null>(null);
-  const load = useCallback(async () => {
-      setLoading(true);
-      const supabase = getSupabaseClient();
-      if (!supabase) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        const userId = authData?.user?.id;
-        if (!userId) return;
-
-        const { data: postRows } = await supabase
-          .from("posts")
-          .select("id,user_id,media_type,caption,album_posts(album_id)")
-          .eq("user_id", userId);
-        const postIds = (postRows ?? []).map((row) => row.id);
-        const { data: purchaseRows } =
-          postIds.length > 0
-            ? await supabase
-                .from("purchases")
-                .select("id,user_id,post_id,amount,created_at")
-                .in("post_id", postIds)
-                .order("created_at", { ascending: false })
-            : { data: [] };
-
-        const buyerIds = Array.from(
-          new Set((purchaseRows ?? []).map((row) => row.user_id)),
-        );
-        const { data: buyers } = buyerIds.length
-          ? await supabase
-              .from("users")
-              .select("id,username,avatar_url")
-              .in("id", buyerIds)
-          : { data: [] };
-
-        const buyerMap = new Map(
-          (buyers ?? []).map((row) => [row.id, row]),
-        );
-        const postMap = new Map((postRows ?? []).map((row) => [row.id, row]));
-
-        const albumIds = Array.from(
-          new Set(
-            (postRows ?? [])
-              .map((row) => row.album_posts?.[0]?.album_id)
-              .filter(Boolean) as string[],
-          ),
-        );
-        const { data: albumRows } = albumIds.length
-          ? await supabase
-              .from("albums")
-              .select("id,description")
-              .in("id", albumIds)
-          : { data: [] };
-        const albumMap = new Map(
-          (albumRows ?? []).map((row) => [row.id, row]),
-        );
-        const { data: albumPostRows } = albumIds.length
-          ? await supabase
-              .from("album_posts")
-              .select("album_id,post_id")
-              .in("album_id", albumIds)
-          : { data: [] };
-        const albumCountMap = new Map<string, number>();
-        (albumPostRows ?? []).forEach((row) => {
-          const current = albumCountMap.get(row.album_id) ?? 0;
-          albumCountMap.set(row.album_id, current + 1);
-        });
-
-        const resolveAvatar = (value: string | null) => {
-          if (!value) return null;
-          if (value.startsWith("http")) return value;
-          const { data: publicUrl } = supabase.storage
-            .from("Imagenes")
-            .getPublicUrl(value);
-          return publicUrl.publicUrl;
-        };
-
-        const grouped = new Map<string, SaleItem>();
-        (purchaseRows ?? []).forEach((row) => {
-          const post = postMap.get(row.post_id);
-          const buyer = buyerMap.get(row.user_id);
-          const albumId = post?.album_posts?.[0]?.album_id ?? row.post_id;
-          const album = albumMap.get(albumId);
-          const groupKey = `${albumId}-${row.user_id}`;
-          const current = grouped.get(groupKey);
-          const count =
-            albumCountMap.get(albumId) ??
-            (post?.media_type ? 1 : 0);
-          const type =
-            count > 1 ? "Album" : post?.media_type === "video" ? "Video" : "Foto";
-          const base: SaleItem = current ?? {
-            id: groupKey,
-            type,
-            title: album?.description || post?.caption || "Publicación",
-            count,
-            total: 0,
-            createdAt: row.created_at,
-            buyer: {
-              id: row.user_id,
-              name: buyer?.username ?? "usuario",
-              full: buyer?.username ?? "Usuario",
-              avatar: resolveAvatar(buyer?.avatar_url ?? null),
-            },
-          };
-          grouped.set(groupKey, {
-            ...base,
-            total: base.total + Number(row.amount || 0),
-          });
-        });
-
-        const { data: tipRows } = await supabase
-          .from("notifications")
-          .select("id,actor_id,message,created_at")
-          .eq("user_id", userId)
-          .eq("type", "tip")
-          .order("created_at", { ascending: false });
-
-        (tipRows ?? []).forEach((row) => {
-          const amount = parseTipAmountFromMessage(row.message);
-          if (!amount) return;
-          const buyer = buyerMap.get(row.actor_id);
-          grouped.set(`tip-${row.id}`, {
-            id: `tip-${row.id}`,
-            type: "Propina",
-            title: "Propina directa",
-            count: 1,
-            total: amount,
-            createdAt: row.created_at,
-            buyer: {
-              id: row.actor_id,
-              name: buyer?.username ?? "usuario",
-              full: buyer?.username ?? "Usuario",
-              avatar: resolveAvatar(buyer?.avatar_url ?? null),
-            },
-          });
-        });
-
-        const mapped: SaleItem[] = Array.from(grouped.values()).sort((a, b) =>
-          (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
-        );
-
-        setSales(mapped);
-
-        const { data: withdrawalRows } = await supabase
-          .from("notifications")
-          .select("id,message,created_at")
-          .eq("user_id", userId)
-          .eq("type", "withdrawal_request")
-          .order("created_at", { ascending: false });
-
-        const withdrawalItems = (withdrawalRows ?? [])
-          .map((row) => {
-            const parsed = parseWithdrawalRecord(row.message);
-            if (!parsed) return null;
-            return {
-              id: row.id,
-              amount: parsed.amount,
-              status: parsed.status,
-              statusLabel: getWithdrawalStatusLabel(parsed.status),
-              requestedAt: row.created_at,
-              monthKey: parsed.monthKey,
-            };
-          })
-          .filter(Boolean) as WithdrawalItem[];
-
-        setWithdrawals(withdrawalItems);
-
-        const { data: payoutRow } = await supabase
-          .from("notifications")
-          .select("message")
-          .eq("user_id", userId)
-          .eq("type", "payout_profile")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        setPayoutProfile(parsePayoutProfile(payoutRow?.message));
-      } finally {
-        setLoading(false);
-      }
-    }, []);
-
-  useEffect(() => {
-    load();
-    const handler = () => load();
-    window.addEventListener("purchases-updated", handler);
-    const visibilityHandler = () => {
-      if (document.visibilityState === "visible") load();
-    };
-    document.addEventListener("visibilitychange", visibilityHandler);
-    return () => {
-      window.removeEventListener("purchases-updated", handler);
-      document.removeEventListener("visibilitychange", visibilityHandler);
-    };
-  }, [load]);
+  const { data, isLoading: loading } = useGetSalesQuery();
+  const [requestWithdrawal, { isLoading: requesting }] = useRequestWithdrawalMutation();
+  const sales = data?.sales ?? [];
+  const withdrawals = data?.withdrawals ?? [];
+  const payoutProfile = data?.payoutProfile ?? null;
 
   const totals = useMemo(() => {
     const totalSales = sales.reduce((acc, item) => acc + item.total, 0);
@@ -276,44 +49,7 @@ export default function VentasPage() {
     try {
       setRequestError(null);
       setRequestSuccess(null);
-      setRequesting(true);
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Falta configurar Supabase.");
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
-
-      const response = await fetch("/api/withdrawals/request", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      const result = (await response.json()) as {
-        error?: string;
-        record?: {
-          amount: number;
-          status: WithdrawalStatus;
-          requestedAt: string;
-          monthKey: string;
-        };
-      };
-      if (!response.ok || !result.record) {
-        throw new Error(result.error ?? "No se pudo solicitar el retiro.");
-      }
-
-      setWithdrawals((prev) => [
-        {
-          id: `local-${Date.now()}`,
-          amount: result.record!.amount,
-          status: result.record!.status,
-          statusLabel: getWithdrawalStatusLabel(result.record!.status),
-          requestedAt: result.record!.requestedAt,
-          monthKey: result.record!.monthKey,
-        },
-        ...prev,
-      ]);
+      await requestWithdrawal().unwrap();
       setRequestSuccess(
         "Solicitud enviada. Te avisaremos cuando el retiro quede programado o enviado.",
       );
@@ -321,8 +57,6 @@ export default function VentasPage() {
       setRequestError(
         err instanceof Error ? err.message : "No se pudo solicitar el retiro.",
       );
-    } finally {
-      setRequesting(false);
     }
   };
 

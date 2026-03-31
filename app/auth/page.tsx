@@ -6,6 +6,12 @@ import Image from "next/image";
 import type { CSSProperties } from "react";
 import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from "lucide-react";
 import {
+  useRegisterMutation,
+  useRequestPasswordRecoveryMutation,
+  useResendConfirmationMutation,
+  useUpdateCurrentPasswordMutation,
+} from "@/lib/redux/api/authApi";
+import {
   clearPendingCheckout,
   readPendingCheckout,
 } from "@/lib/auth";
@@ -50,14 +56,6 @@ const normalizeUsername = (value: string) =>
     .toLowerCase()
     .replace(/\s+/g, "")
     .replace(/[^a-z0-9._]/g, "");
-
-const extractApiErrorMessage = async (response: Response) => {
-  const data = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string }
-    | null;
-
-  return data?.error || data?.message || "Ocurrió un error.";
-};
 
 const formatAuthErrorMessage = (value: unknown) => {
   const message =
@@ -247,6 +245,10 @@ export default function AuthPage() {
   const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [canResendConfirmation, setCanResendConfirmation] = useState(false);
+  const [requestPasswordRecovery] = useRequestPasswordRecoveryMutation();
+  const [registerUser] = useRegisterMutation();
+  const [resendConfirmation] = useResendConfirmationMutation();
+  const [updateCurrentPassword] = useUpdateCurrentPasswordMutation();
 
   const showRegisterFields = mode === "register" && !forgot && !reset;
   const showLoginPasswordField = !forgot && !reset;
@@ -445,10 +447,7 @@ export default function AuthPage() {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Falta configurar Supabase.");
       if (reset) {
-        const { error: updateError } = await supabase.auth.updateUser({
-          password: newPassword,
-        });
-        if (updateError) throw updateError;
+        await updateCurrentPassword({ password: newPassword }).unwrap();
         setSuccess("Contraseña actualizada. Ya podes iniciar sesión.");
         setReset(false);
         setForgot(false);
@@ -460,21 +459,9 @@ export default function AuthPage() {
       }
       if (forgot) {
         const normalizedEmail = normalizeEmail(email);
-        const response = await fetch("/api/auth/password/recovery", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: normalizedEmail,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(await extractApiErrorMessage(response));
-        }
-
-        const result = (await response.json()) as { message?: string };
+        const result = await requestPasswordRecovery({
+          email: normalizedEmail,
+        }).unwrap();
         setSuccess(
           result.message ??
             "Si existe una cuenta con ese correo, te enviamos un enlace para restablecer la contraseña.",
@@ -485,25 +472,13 @@ export default function AuthPage() {
       if (mode === "register") {
         const normalizedEmail = normalizeEmail(email);
         const normalizedUsername = normalizeUsername(username);
-        const response = await fetch("/api/auth/register", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            fullName: fullName.trim(),
-            username: normalizedUsername,
-            email: normalizedEmail,
-            password,
-            acceptedTerms: acceptedTerms,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(await extractApiErrorMessage(response));
-        }
-
-        const result = (await response.json()) as { message?: string };
+        const result = await registerUser({
+          fullName: fullName.trim(),
+          username: normalizedUsername,
+          email: normalizedEmail,
+          password,
+          acceptedTerms: acceptedTerms,
+        }).unwrap();
 
         setSuccess(
           result.message ??
@@ -554,21 +529,9 @@ export default function AuthPage() {
     setSuccess(null);
 
     try {
-      const response = await fetch("/api/auth/register/resend", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: normalizedEmail,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await extractApiErrorMessage(response));
-      }
-
-      const result = (await response.json()) as { message?: string };
+      const result = await resendConfirmation({
+        email: normalizedEmail,
+      }).unwrap();
       setSuccess(
         result.message ??
           "Te reenviamos el correo de confirmación. Revisa también la carpeta de spam.",

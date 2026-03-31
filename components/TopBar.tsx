@@ -16,14 +16,13 @@ import {
   Search,
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
-import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import {
-  hydrateNotificationsState,
-  markNotificationsAsRead,
-  type AppNotificationItem,
-} from "@/lib/redux/slices/notificationsSlice";
+  useGetNotificationCenterQuery,
+  useMarkNotificationsAsReadMutation,
+} from "@/lib/redux/api/notificationsApi";
+import { useSearchUsersQuery } from "@/lib/redux/api/searchApi";
+import { useGetViewerQuery, useSignOutMutation } from "@/lib/redux/api/sessionApi";
 import { buildUserProfileHref } from "@/lib/profileRoute";
-import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 
 type SearchResult = {
@@ -91,59 +90,32 @@ function getNotificationMeta(type: string): {
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const dispatch = useAppDispatch();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [results, setResults] = useState<SearchResult[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const profile = useAppSelector((state) => state.viewer.profile);
-  const balance = useAppSelector((state) => state.viewer.commerce.balance);
-  const canCreate = useAppSelector((state) => state.viewer.access.canCreate);
-  const authorStatus = useAppSelector((state) => state.viewer.access.authorStatus);
-  const viewerHydrated = useAppSelector((state) => state.viewer.hydrated);
-  const notifications = useAppSelector((state) => state.notifications.items);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
-  const showViewerSkeleton = !viewerHydrated;
+  const { data: viewer, isLoading: viewerLoading } = useGetViewerQuery();
+  const { data: notificationCenter } = useGetNotificationCenterQuery();
+  const [markNotificationsAsRead] = useMarkNotificationsAsReadMutation();
+  const [signOut] = useSignOutMutation();
+  const { data: searchResults = [] } = useSearchUsersQuery(debouncedQuery, {
+    skip: !debouncedQuery,
+  });
+  const profile = viewer?.profile;
+  const balance = viewer?.commerce.balance ?? 0;
+  const canCreate = viewer?.access.canCreate ?? false;
+  const authorStatus = viewer?.access.authorStatus ?? "idle";
+  const notifications = notificationCenter?.activity ?? [];
+  const showViewerSkeleton = viewerLoading && !viewer;
 
   useEffect(() => {
-    const load = async () => {
-      if (!query.trim()) {
-        setResults([]);
-        return;
-      }
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-      const { data } = await supabase
-        .from("users")
-        .select("id,username,avatar_url")
-        .ilike("username", `%${query.trim()}%`)
-        .limit(10);
-
-      const resolveAvatar = async (value: string | null) => {
-        if (!value) return null;
-        if (value.startsWith("http")) return value;
-        const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
-          .getPublicUrl(value);
-        return publicUrl.publicUrl;
-      };
-
-      const mapped = await Promise.all(
-        (data ?? []).map(async (row) => ({
-          id: row.id,
-          name: row.username ?? "usuario",
-          fullName: row.username ?? "",
-          detail: "Sugerencia para ti",
-          avatar: await resolveAvatar(row.avatar_url ?? null),
-        })),
-      );
-      setResults(mapped);
-    };
-
-    const handle = setTimeout(load, 300);
+    const handle = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, 300);
     return () => clearTimeout(handle);
   }, [query]);
 
@@ -183,6 +155,7 @@ export default function TopBar() {
     router.push(buildUserProfileHref(item.name));
     setSearchOpen(false);
     setQuery("");
+    setDebouncedQuery("");
   };
 
   const hasUnreadNotifications = notifications.some((item) => !item.isRead);
@@ -190,7 +163,7 @@ export default function TopBar() {
     const sectionOrder = ["Este mes", "Seguidores", "Ventas"];
     const grouped = new Map<
       string,
-      Array<{ item: AppNotificationItem; meta: ReturnType<typeof getNotificationMeta> }>
+      Array<{ item: (typeof notifications)[number]; meta: ReturnType<typeof getNotificationMeta> }>
     >();
 
     for (const item of notifications) {
@@ -297,7 +270,7 @@ export default function TopBar() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {results.map((item) => (
+                      {searchResults.map((item) => (
                         <button
                           key={item.id}
                           type="button"
@@ -341,8 +314,7 @@ export default function TopBar() {
                       .filter((item) => !item.isRead)
                       .map((item) => item.id);
                     if (unreadIds.length > 0) {
-                      await dispatch(markNotificationsAsRead(unreadIds));
-                      void dispatch(hydrateNotificationsState());
+                      await markNotificationsAsRead(unreadIds);
                     }
                   }
                 }}
@@ -416,7 +388,9 @@ export default function TopBar() {
                                     <div className="font-medium text-zinc-900">
                                       {item.text}
                                     </div>
-                                    <div className="text-xs text-zinc-400">{item.date}</div>
+                                    <div className="text-xs text-zinc-400">
+                                      {item.dateLabel}
+                                    </div>
                                   </div>
 
                                   {item.action ? (
@@ -472,8 +446,8 @@ export default function TopBar() {
                     <div className="fanpush-skeleton h-9 w-9 rounded-full" />
                   ) : (
                     <UserAvatar
-                      src={profile.avatarUrl}
-                      alt={profile.username ?? "Perfil"}
+                      src={profile?.avatarUrl}
+                      alt={profile?.username ?? "Perfil"}
                       sizeClassName="h-9 w-9"
                       iconClassName="h-4 w-4"
                     />
@@ -505,10 +479,7 @@ export default function TopBar() {
                     <button
                       type="button"
                       onClick={async () => {
-                        const supabase = getSupabaseClient();
-                        if (supabase) {
-                          await supabase.auth.signOut();
-                        }
+                        await signOut();
                         setProfileOpen(false);
                         router.replace("/auth");
                         window.location.assign("/auth");

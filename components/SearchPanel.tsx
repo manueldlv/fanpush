@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  useGetUsersByIdsQuery,
+  useSearchUsersQuery,
+} from "@/lib/redux/api/searchApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import {
   addRecentSearch,
   clearRecentSearches,
   clearSearchQuery,
   removeRecentSearch,
-  searchUsers,
   setRecentSearches,
   setSearchQuery,
   type SearchResultItem,
 } from "@/lib/redux/slices/searchSlice";
 import { closeSearchPanel } from "@/lib/redux/slices/uiSlice";
 import { buildUserProfileHref } from "@/lib/profileRoute";
-import { getSupabaseClient } from "@/lib/supabase";
 import { Loader2, Search, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 
@@ -37,10 +39,19 @@ export default function SearchPanel() {
   const dispatch = useAppDispatch();
   const open = useAppSelector((state) => state.ui.searchPanelOpen);
   const query = useAppSelector((state) => state.search.query);
-  const loading = useAppSelector((state) => state.search.loading);
-  const results = useAppSelector((state) => state.search.results);
   const recentSearches = useAppSelector((state) => state.search.recentSearches);
   const router = useRouter();
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const { data: results = [], isFetching: loading } = useSearchUsersQuery(
+    debouncedQuery,
+    {
+      skip: !debouncedQuery,
+    },
+  );
+  const recentSearchIds = recentSearches.map((item) => item.id).filter(Boolean);
+  const { data: refreshedRecentUsers = [] } = useGetUsersByIdsQuery(recentSearchIds, {
+    skip: recentSearchIds.length === 0,
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -55,70 +66,40 @@ export default function SearchPanel() {
   }, [dispatch]);
 
   useEffect(() => {
-    const refreshRecentAvatars = async () => {
-      if (!recentSearches.length) return;
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
+    if (!recentSearches.length || !refreshedRecentUsers.length) return;
 
-      const ids = recentSearches.map((item) => item.id).filter(Boolean);
-      if (!ids.length) return;
+    const avatarMap = new Map(
+      refreshedRecentUsers.map((item) => [
+        item.id,
+        {
+          username: item.name,
+          avatar: item.avatar,
+        },
+      ]),
+    );
 
-      const { data } = await supabase
-        .from("users")
-        .select("id, username, avatar_url")
-        .in("id", ids);
-
-      const resolveAvatar = async (value: string | null) => {
-        if (!value) return null;
-        if (value.startsWith("http")) return value;
-        const { data: publicUrl } = supabase.storage
-          .from("Imagenes")
-          .getPublicUrl(value);
-        return publicUrl.publicUrl;
+    const refreshed = recentSearches.map((item) => {
+      const next = avatarMap.get(item.id);
+      if (!next) return item;
+      return {
+        ...item,
+        name: next.username || item.name,
+        fullName: next.username || item.fullName,
+        avatar: next.avatar,
       };
+    });
 
-      const avatarEntries = await Promise.all(
-        (data ?? []).map(async (row) => {
-          const entry: [string, { username: string; avatar: string | null }] = [
-            row.id,
-            {
-              username: row.username ?? "usuario",
-              avatar: await resolveAvatar(row.avatar_url ?? null),
-            },
-          ];
-          return entry;
-        }),
-      );
+    const changed = refreshed.some(
+      (item, index) =>
+        item.avatar !== recentSearches[index]?.avatar ||
+        item.name !== recentSearches[index]?.name ||
+        item.fullName !== recentSearches[index]?.fullName,
+    );
 
-      const avatarMap = new Map<string, { username: string; avatar: string | null }>(
-        avatarEntries,
-      );
-
-      const refreshed = recentSearches.map((item) => {
-        const next = avatarMap.get(item.id);
-        if (!next) return item;
-        return {
-          ...item,
-          name: next.username || item.name,
-          fullName: next.username || item.fullName,
-          avatar: next.avatar,
-        };
-      });
-
-      const changed = refreshed.some(
-        (item, index) =>
-          item.avatar !== recentSearches[index]?.avatar ||
-          item.name !== recentSearches[index]?.name ||
-          item.fullName !== recentSearches[index]?.fullName,
-      );
-
-      if (changed) {
-        dispatch(setRecentSearches(refreshed));
-      }
-    };
-
-    void refreshRecentAvatars();
-  }, [dispatch, recentSearches]);
+    if (changed) {
+      dispatch(setRecentSearches(refreshed));
+    }
+  }, [dispatch, recentSearches, refreshedRecentUsers]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -147,10 +128,10 @@ export default function SearchPanel() {
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      void dispatch(searchUsers(query));
+      setDebouncedQuery(query.trim());
     }, 300);
     return () => clearTimeout(handle);
-  }, [dispatch, query]);
+  }, [query]);
 
   const handleSelect = (item: SearchResultItem) => {
     dispatch(addRecentSearch(item));

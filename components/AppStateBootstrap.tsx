@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 import { setDeviceRuntime } from "@/lib/redux/slices/deviceSlice";
-import { hydrateAuthState } from "@/lib/redux/slices/authSlice";
-import { hydrateNotificationsState } from "@/lib/redux/slices/notificationsSlice";
+import { notificationsApi } from "@/lib/redux/api/notificationsApi";
+import { profileApi } from "@/lib/redux/api/profileApi";
+import { sessionApi } from "@/lib/redux/api/sessionApi";
 import { hydrateViewerState } from "@/lib/redux/slices/viewerSlice";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -13,7 +14,6 @@ const APP_REFRESH_EVENTS = [
   "purchases-updated",
   "earnings-updated",
   "creator-status-updated",
-  "notification-preferences-updated",
   "profile-updated",
 ] as const;
 
@@ -45,19 +45,27 @@ export default function AppStateBootstrap() {
       );
     };
 
-    const refresh = () => {
-      void dispatch(hydrateAuthState());
+    const refreshViewer = () => {
       void dispatch(hydrateViewerState());
-      void dispatch(hydrateNotificationsState());
+      dispatch(sessionApi.util.invalidateTags(["Session", "Viewer", "AdminAccess"]));
+      dispatch(profileApi.util.invalidateTags(["ProfileView"]));
     };
 
-    refresh();
+    const refreshNotifications = () => {
+      dispatch(notificationsApi.util.invalidateTags(["NotificationCenter"]));
+    };
+
+    refreshViewer();
+    refreshNotifications();
     updateDeviceRuntime();
 
-    const interval = window.setInterval(refresh, 15000);
     APP_REFRESH_EVENTS.forEach((eventName) =>
-      window.addEventListener(eventName, refresh),
+      window.addEventListener(eventName, refreshViewer),
     );
+    window.addEventListener("purchases-updated", refreshNotifications);
+    window.addEventListener("earnings-updated", refreshNotifications);
+    window.addEventListener("creator-status-updated", refreshNotifications);
+    window.addEventListener("notification-preferences-updated", refreshNotifications);
     window.addEventListener("resize", updateDeviceRuntime);
     window.addEventListener("orientationchange", updateDeviceRuntime);
 
@@ -67,13 +75,20 @@ export default function AppStateBootstrap() {
 
     const supabase = getSupabaseClient();
     const authSubscription = supabase?.auth.onAuthStateChange(() => {
-      refresh();
+      refreshViewer();
+      refreshNotifications();
     });
 
     return () => {
-      window.clearInterval(interval);
       APP_REFRESH_EVENTS.forEach((eventName) =>
-        window.removeEventListener(eventName, refresh),
+        window.removeEventListener(eventName, refreshViewer),
+      );
+      window.removeEventListener("purchases-updated", refreshNotifications);
+      window.removeEventListener("earnings-updated", refreshNotifications);
+      window.removeEventListener("creator-status-updated", refreshNotifications);
+      window.removeEventListener(
+        "notification-preferences-updated",
+        refreshNotifications,
       );
       window.removeEventListener("resize", updateDeviceRuntime);
       window.removeEventListener("orientationchange", updateDeviceRuntime);

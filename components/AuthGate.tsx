@@ -1,17 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useAppSelector } from "@/lib/redux/hooks";
 import {
-  getSupabaseAdminBrowserClient,
-  getSupabaseClient,
-} from "@/lib/supabase";
+  useGetAdminAccessQuery,
+  useGetSessionQuery,
+} from "@/lib/redux/api/sessionApi";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const auth = useAppSelector((state) => state.auth);
   const inAuth = pathname?.startsWith("/auth");
   const inAdmin = pathname?.startsWith("/admin");
   const inAdminLogin = pathname?.startsWith("/admin/login");
@@ -29,137 +27,39 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       inPublicHelp ||
       inPublicFaq,
   );
-  const [allowed, setAllowed] = useState(allowWithoutSession);
-  const [configError, setConfigError] = useState(false);
+  const {
+    data: session,
+    isLoading: sessionLoading,
+    error: sessionError,
+  } = useGetSessionQuery(undefined, {
+    skip: allowWithoutSession || inAdmin,
+  });
+  const {
+    data: adminAccess,
+    isLoading: adminAccessLoading,
+    error: adminAccessError,
+  } = useGetAdminAccessQuery(undefined, {
+    skip: allowWithoutSession || !inAdmin,
+  });
+  const loading = !allowWithoutSession && (inAdmin ? adminAccessLoading : sessionLoading);
+  const configError = Boolean(inAdmin ? adminAccessError : sessionError);
+  const allowed = allowWithoutSession
+    ? true
+    : inAdmin
+      ? Boolean(adminAccess?.isAdmin)
+      : Boolean(session?.isAuthenticated);
 
   useEffect(() => {
-    setConfigError(false);
-
-    if (allowWithoutSession) {
-      setAllowed(true);
+    if (allowWithoutSession || loading || configError || allowed) {
       return;
     }
-
-    if (!inAdmin) {
-      if (!auth.hydrated) {
-        setAllowed(false);
-        return;
-      }
-
-      if (auth.error) {
-        setAllowed(false);
-        setConfigError(true);
-        return;
-      }
-
-      if (auth.isAuthenticated) {
-        setAllowed(true);
-        return;
-      }
-
-      setAllowed(false);
-      router.replace("/auth");
-      return;
-    }
-
-    const supabase = inAdmin
-      ? getSupabaseAdminBrowserClient()
-      : getSupabaseClient();
-    if (!supabase) {
-      if (!allowWithoutSession) {
-        setAllowed(false);
-        setConfigError(true);
-      }
-      return;
-    }
-
-    let cancelled = false;
-
-    const redirectToAuth = () => {
-      if (cancelled || allowWithoutSession) return;
-      setAllowed(false);
-      router.replace(inAdmin ? "/admin/login" : "/auth");
-    };
-
-    const allowRoute = () => {
-      if (cancelled) return;
-      setAllowed(true);
-    };
-
-    const checkSession = async () => {
-      if (allowWithoutSession) {
-        allowRoute();
-        return;
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        if (inAdmin) {
-          const response = await fetch("/api/admin/access", {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          });
-          const result = (await response.json()) as { isAdmin?: boolean };
-          if (!response.ok || !result.isAdmin) {
-            redirectToAuth();
-            return;
-          }
-        }
-        allowRoute();
-        return;
-      }
-
-      redirectToAuth();
-    };
-
-    void checkSession();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (allowWithoutSession) {
-        allowRoute();
-        return;
-      }
-
-      if (event === "SIGNED_OUT" || !session?.user) {
-        redirectToAuth();
-        return;
-      }
-
-      if (inAdmin) {
-        void (async () => {
-          const response = await fetch("/api/admin/access", {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          });
-          const result = (await response.json()) as { isAdmin?: boolean };
-          if (!response.ok || !result.isAdmin) {
-            redirectToAuth();
-            return;
-          }
-          allowRoute();
-        })();
-        return;
-      }
-
-      allowRoute();
-    });
-
-    return () => {
-      cancelled = true;
-      sub?.subscription?.unsubscribe();
-    };
+    router.replace(inAdmin ? "/admin/login" : "/auth");
   }, [
     allowWithoutSession,
-    auth.error,
-    auth.hydrated,
-    auth.isAuthenticated,
+    allowed,
+    configError,
     inAdmin,
-    inAuth,
+    loading,
     pathname,
     router,
   ]);

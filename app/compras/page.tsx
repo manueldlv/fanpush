@@ -1,17 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, Image as ImageIcon, Lock, X } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
-import {
-  getSessionAccessTokenWithRetry,
-  PURCHASE_REFRESH_FLAG,
-} from "@/lib/auth";
-import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
-import { getSupabaseClient } from "@/lib/supabase";
+import { useGetPurchasesQuery } from "@/lib/redux/api/commerceApi";
 import { formatARS } from "@/lib/utils";
 
 type PurchaseItem = {
@@ -27,196 +22,11 @@ type PurchaseItem = {
 };
 
 export default function ComprasPage() {
-  const [items, setItems] = useState<PurchaseItem[]>([]);
-  const [loading, setLoading] = useState(false);
   const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-
-  const resolveAccessibleMedia = async (
-    supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
-    accessToken: string,
-    postIds: string[],
-  ) => {
-    if (postIds.length === 0) return {};
-    const response = await fetch("/api/media/access", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ postIds }),
-    });
-    if (!response.ok) return {};
-    const result = (await response.json()) as {
-      items?: Record<string, { url: string; kind: "image" | "video"; locked: boolean }>;
-    };
-    return result.items ?? {};
-  };
-
-  const load = useCallback(async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-      setLoading(true);
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        const userId = authData?.user?.id;
-        if (!userId) return;
-
-        const { data: purchaseRows } = await supabase
-          .from("purchases")
-          .select("id,post_id,amount,status,created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false });
-
-        const postIds = Array.from(
-          new Set((purchaseRows ?? []).map((row) => row.post_id)),
-        );
-        const { data: postRows } = postIds.length
-          ? await supabase
-              .from("posts")
-              .select(
-                "id,user_id,media_url,media_type,is_locked,caption,album_posts(album_id)",
-              )
-              .in("id", postIds)
-          : { data: [] };
-
-        const creatorIds = Array.from(
-          new Set((postRows ?? []).map((row) => row.user_id)),
-        );
-        const { data: creators } = creatorIds.length
-          ? await supabase
-              .from("users")
-              .select("id,username,avatar_url")
-              .in("id", creatorIds)
-          : { data: [] };
-
-        const creatorMap = new Map(
-          (creators ?? []).map((row) => [row.id, row.username ?? "usuario"]),
-        );
-        const postMap = new Map((postRows ?? []).map((row) => [row.id, row]));
-
-        const albumIds = Array.from(
-          new Set(
-            (postRows ?? [])
-              .map((row) => row.album_posts?.[0]?.album_id)
-              .filter(Boolean) as string[],
-          ),
-        );
-        const { data: albumRows } = albumIds.length
-          ? await supabase
-              .from("albums")
-              .select(
-                "id,description,price,album_posts(post_id,post:posts(id,media_url,media_type,is_locked))",
-              )
-              .in("id", albumIds)
-          : { data: [] };
-        const albumMap = new Map(
-          (albumRows ?? []).map((row) => [row.id, row]),
-        );
-
-        const accessToken = await getSessionAccessTokenWithRetry(supabase);
-        const resolvedAccess = accessToken
-          ? await resolveAccessibleMedia(supabase, accessToken, postIds)
-          : {};
-        if (accessToken && typeof window !== "undefined") {
-          window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
-        }
-
-        const resolveCover = (value: string | null) => {
-          if (!value) return "https://picsum.photos/seed/placeholder/600/600";
-          if (value.startsWith("http")) return value;
-          const { data: publicUrl } = supabase.storage
-            .from(PUBLIC_MEDIA_BUCKET)
-            .getPublicUrl(value);
-          return publicUrl.publicUrl;
-        };
-
-        const albumEntries = new Map<string, PurchaseItem>();
-        (purchaseRows ?? []).forEach((row) => {
-          const post = postMap.get(row.post_id);
-          const albumId = post?.album_posts?.[0]?.album_id ?? row.post_id;
-          const album = albumMap.get(albumId);
-          const albumCovers = (album?.album_posts ?? [])
-            .map((item: any) =>
-              (item?.post?.media_url ?? item?.media_url ?? "") as string,
-            )
-            .filter(Boolean)
-            .map((value) => resolveCover(value));
-          const albumMedia = (album?.album_posts ?? [])
-            .map((item: any) => {
-              const postId = item?.post_id ?? item?.post?.id ?? null;
-              const resolved = postId ? resolvedAccess[postId] : null;
-              const rawUrl = item?.post?.media_url ?? item?.media_url ?? null;
-              return {
-                url: resolved?.url ?? resolveCover(rawUrl),
-                kind:
-                  resolved?.kind ??
-                  inferDisplayKind(
-                    rawUrl,
-                    item?.post?.media_type ?? item?.media_type ?? null,
-                    item?.post?.is_locked ?? true,
-                  ),
-              };
-            })
-            .filter((item) => item.url);
-          const current = albumEntries.get(albumId);
-          const date = new Date(row.created_at).toLocaleDateString("es-AR", {
-            day: "2-digit",
-            month: "short",
-          });
-          const fallbackCover = resolveCover(post?.media_url ?? null);
-          const base: PurchaseItem = current ?? {
-            id: albumId,
-            title: album?.description || post?.caption || "Publicación",
-            creator: creatorMap.get(post?.user_id ?? "") ?? "usuario",
-            date,
-            price: album?.price ? Number(album.price) : 0,
-            cover: albumCovers[0] ?? fallbackCover,
-            covers: albumCovers.length > 0 ? albumCovers : [fallbackCover],
-            media:
-              albumMedia.length > 0
-                ? albumMedia
-                : [
-                    {
-                      url: fallbackCover,
-                      kind: "image" as const,
-                    },
-                  ],
-            status: row.status ?? "Desbloqueado",
-          };
-
-          albumEntries.set(albumId, {
-            ...base,
-            date: base.date || date,
-            price:
-              album?.price && Number(album.price) > 0
-                ? Number(album.price)
-                : base.price + Number(row.amount || 0),
-          });
-        });
-
-        const mapped: PurchaseItem[] = Array.from(albumEntries.values());
-
-        setItems(mapped);
-      } finally {
-        setLoading(false);
-      }
-    }, []);
-
-  useEffect(() => {
-    load();
-    const handler = () => load();
-    window.addEventListener("purchases-updated", handler);
-    const visibilityHandler = () => {
-      if (document.visibilityState === "visible") load();
-    };
-    document.addEventListener("visibilitychange", visibilityHandler);
-    return () => {
-      window.removeEventListener("purchases-updated", handler);
-      document.removeEventListener("visibilitychange", visibilityHandler);
-    };
-  }, [load]);
+  const { data, isLoading: loading } = useGetPurchasesQuery();
+  const items = data?.items ?? [];
 
   const handleDownload = async (purchase: PurchaseItem) => {
     if (downloadingId) return;

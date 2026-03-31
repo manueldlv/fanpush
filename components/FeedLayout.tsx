@@ -7,13 +7,9 @@ import PostModal from "@/components/PostModal";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
-import {
-  getSessionAccessTokenWithRetry,
-  PURCHASE_REFRESH_FLAG,
-} from "@/lib/auth";
+import { getSessionAccessTokenWithRetry, PURCHASE_REFRESH_FLAG } from "@/lib/auth";
 import {
   getPremiumPathFromPreview,
-  inferDisplayKind,
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
@@ -23,6 +19,7 @@ import {
   type ResolvedAccessMedia,
 } from "@/lib/postMediaState";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { useGetFeedQuery } from "@/lib/redux/api/feedApi";
 import { setFeedPosts } from "@/lib/redux/slices/postsSlice";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -148,6 +145,7 @@ export default function FeedLayout() {
     label: string;
   } | null>(null);
   const viewerBalance = useAppSelector((state) => state.viewer.commerce.balance);
+  const { data: feedData, isLoading: feedLoading } = useGetFeedQuery();
 
   const openPost = posts.find((post) => post.id === selectedPost) ?? null;
   const menuPost = posts.find((post) => post.id === menuPostId) ?? null;
@@ -197,152 +195,14 @@ export default function FeedLayout() {
   };
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    const load = async () => {
-      setLoading(true);
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userId = sessionData?.session?.user?.id ?? null;
-        setCurrentUserId(userId);
-
-        const { data: followRows } = userId
-          ? await supabase
-              .from("follows")
-              .select("following_id")
-              .eq("follower_id", userId)
-          : { data: [] };
-        setFollowingIds(
-          new Set((followRows ?? []).map((row) => row.following_id)),
-        );
-
-        const { data, error } = await supabase
-          .from("albums")
-          .select(
-            "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count))",
-          )
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-
-        const resolveMediaUrl = async (value: string | null) => {
-          if (!value) return "";
-          if (value.startsWith("http")) return value;
-          const { data: publicUrl } = supabase.storage
-            .from(PUBLIC_MEDIA_BUCKET)
-            .getPublicUrl(value);
-          return publicUrl.publicUrl;
-        };
-
-        const resolveAvatarUrl = async (value: string | null) => {
-          if (!value) return "";
-          if (value.startsWith("http")) return value;
-          const { data: publicUrl } = supabase.storage
-            .from(PUBLIC_MEDIA_BUCKET)
-            .getPublicUrl(value);
-          return publicUrl.publicUrl;
-        };
-
-        const mapped: Post[] =
-          (await Promise.all(
-            (data ?? []).map(async (post) => {
-              const media = normalizeAlbumMedia(
-                post.album_posts as AlbumPostRow[] | null | undefined,
-              );
-              const albumUser = normalizeSingleRelation(
-                post.users as AlbumUser | AlbumUser[] | null | undefined,
-              );
-              const mediaWithUrls: Post["media"] = await Promise.all(
-                media.map(async (item) =>
-                  buildInitialPostMediaState({
-                    previewUrl: await resolveMediaUrl(item?.media_url ?? ""),
-                    previewKind: inferDisplayKind(
-                      item?.media_url,
-                      item?.media_type,
-                      item?.is_locked,
-                    ),
-                    locked: item?.is_locked ?? false,
-                  }),
-                ),
-              );
-              const mediaPostIds = media.map((item) => item.id ?? "");
-              const avatarUrl = await resolveAvatarUrl(
-                albumUser?.avatar_url ?? "",
-              );
-              return {
-                id: post.id,
-                userId: post.user_id,
-                mediaPostIds,
-                author: albumUser?.username ?? "usuario",
-                verified: false,
-                time: formatTime(post.created_at),
-                suggestion: "Sugerencia para ti",
-                caption: post.description ?? "",
-                likes: media.reduce(
-                  (sum, item) => sum + (item.likes_count ?? 0),
-                  0,
-                ),
-                avatar: avatarUrl || null,
-                price: post.price ?? 0,
-                media: mediaWithUrls,
-              } satisfies Post;
-            }),
-          )) ?? [];
-
-        const allPostIds = mapped.flatMap((post) => post.mediaPostIds).filter(Boolean);
-        let resolvedMapped = mapped;
-        const accessToken =
-          allPostIds.length > 0
-            ? await getSessionAccessTokenWithRetry(supabase)
-            : sessionData?.session?.access_token ?? null;
-        if (accessToken && allPostIds.length > 0) {
-          resolvedMapped = await resolveAccessibleMedia(
-            supabase,
-            accessToken,
-            mapped,
-          );
-          if (typeof window !== "undefined") {
-            window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
-          }
-        }
-
-        dispatch(setFeedPosts(resolvedMapped));
-
-        if (userId && allPostIds.length > 0) {
-          const { data: likesRows } = await supabase
-            .from("likes")
-            .select("post_id")
-            .eq("user_id", userId)
-            .in("post_id", allPostIds);
-          setLikedPostIds(new Set((likesRows ?? []).map((row) => row.post_id)));
-
-          const { data: purchaseRows } = await supabase
-            .from("purchases")
-            .select("post_id")
-            .eq("user_id", userId)
-            .in("post_id", allPostIds);
-          const purchased = new Set(
-            (purchaseRows ?? []).map((row) => row.post_id),
-          );
-          setPurchasedPostIds(purchased);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    load();
-
-    const { data: subscription } = supabase.auth.onAuthStateChange(() => {
-      load();
-    });
-
-    return () => {
-      subscription?.subscription?.unsubscribe();
-    };
-  }, [dispatch]);
+    if (!feedData) return;
+    setCurrentUserId(feedData.currentUserId);
+    setFollowingIds(new Set(feedData.followingIds));
+    setLikedPostIds(new Set(feedData.likedPostIds));
+    setPurchasedPostIds(new Set(feedData.purchasedPostIds));
+    dispatch(setFeedPosts(feedData.posts));
+    setLoading(feedLoading);
+  }, [dispatch, feedData, feedLoading]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();

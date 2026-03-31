@@ -1,0 +1,28 @@
+# Execution
+
+- id: 2026-03-31-02-rtk-query-foundation
+- plan_id: none
+- executed_by: matias
+- scope: needs_approval
+- files_changed:
+  - lib/redux/api/sessionApi.ts
+  - lib/redux/api/searchApi.ts
+  - lib/redux/api/notificationsApi.ts
+  - lib/redux/api/commerceApi.ts
+  - lib/redux/store.ts
+  - components/AppStateBootstrap.tsx
+  - components/AuthGate.tsx
+  - components/SearchPanel.tsx
+  - components/TopBar.tsx
+  - components/SidebarLeft.tsx
+  - app/notificaciones/page.tsx
+  - app/saldo/page.tsx
+  - app/checkout/return/page.tsx
+- what_changed:
+  - Se agregaron `sessionApi`, `searchApi`, `notificationsApi` y `commerceApi` como base de server state cacheado con RTK Query.
+  - `AuthGate`, `TopBar`, `SearchPanel`, `SidebarLeft`, `/notificaciones`, `/saldo` y `/checkout/return` pasaron a leer o mutar datos remotos mediante hooks de RTK Query.
+  - `AppStateBootstrap` dejo de usar polling de 15 segundos y ahora invalida cache de forma dirigida cuando cambian auth, perfil, compras, earnings o notificaciones.
+  - El flujo de recarga y finalizacion de Mercado Pago ya no hace `fetch()` manual desde componentes cliente y reutiliza invalidaciones para refrescar viewer, perfil y centro de notificaciones.
+- validation:
+  - `npm run build` completo correctamente despues de la migracion.
+- matched_plan: yes

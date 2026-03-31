@@ -1,23 +1,12 @@
-"use client";
+ "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import { useGetExploreFeedQuery } from "@/lib/redux/api/discoveryApi";
 import { buildUserProfileHref } from "@/lib/profileRoute";
-import { getSupabaseClient } from "@/lib/supabase";
-
-type ExploreItem = {
-  id: string;
-  mediaUrl: string | null;
-  mediaType: string;
-  username: string;
-  avatar: string | null;
-  description: string;
-  createdAt: string;
-};
 
 function ExploreCardSkeleton() {
   return (
@@ -35,66 +24,7 @@ function ExploreCardSkeleton() {
 }
 
 export default function ExplorarPage() {
-  const [items, setItems] = useState<ExploreItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadExplore = async () => {
-      try {
-        const supabase = getSupabaseClient();
-        if (!supabase) return;
-
-        const { data } = await supabase
-          .from("albums")
-          .select(
-            "id,description,created_at,price,users(username,avatar_url),album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
-          )
-          .lte("price", 0)
-          .order("created_at", { ascending: false })
-          .limit(60);
-
-        const resolvePublicUrl = (value: string | null) => {
-          if (!value) return null;
-          if (value.startsWith("http")) return value;
-          return supabase.storage.from("Imagenes").getPublicUrl(value).data.publicUrl;
-        };
-
-        const mapped: ExploreItem[] = (data ?? [])
-          .flatMap((album) => {
-            const owner = Array.isArray(album.users) ? album.users[0] : album.users;
-            const username = owner?.username ?? "usuario";
-            const avatar = resolvePublicUrl(owner?.avatar_url ?? null);
-            const description = album.description ?? "";
-
-            return Array.isArray(album.album_posts)
-              ? album.album_posts
-                  .map((link) => {
-                    const post = Array.isArray(link.post) ? link.post[0] : link.post;
-                    if (!post?.media_url) return null;
-                    if (post.is_locked) return null;
-                    return {
-                      id: post.id ?? link.post_id,
-                      mediaUrl: resolvePublicUrl(post.media_url ?? null),
-                      mediaType: post.media_type ?? "image",
-                      username,
-                      avatar,
-                      description,
-                      createdAt: post.created_at ?? album.created_at,
-                    };
-                  })
-                  .filter(Boolean) as ExploreItem[]
-              : [];
-          })
-          .filter((item) => Boolean(item.mediaUrl));
-
-        setItems(mapped);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void loadExplore();
-  }, []);
+  const { data: items = [], isLoading: loading } = useGetExploreFeedQuery();
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">

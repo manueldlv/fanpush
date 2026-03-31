@@ -1,5 +1,6 @@
 "use client";
 
+import { skipToken } from "@reduxjs/toolkit/query";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -12,57 +13,25 @@ import {
 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
-import { useAppDispatch } from "@/lib/redux/hooks";
 import {
-  hydrateNotificationsState,
-  markNotificationsAsRead,
-} from "@/lib/redux/slices/notificationsSlice";
-import { getSupabaseClient } from "@/lib/supabase";
+  useGetNotificationCenterQuery,
+  useGetNotificationThreadQuery,
+  useMarkNotificationsAsReadMutation,
+  useSendNotificationReplyMutation,
+} from "@/lib/redux/api/notificationsApi";
 import { cn } from "@/lib/utils";
-import type {
-  NotificationActivityItem,
-  NotificationThreadDetail,
-  NotificationThreadSummary,
-} from "@/lib/server/repositories/notification-center";
 
-type CenterPayload = {
-  ok: true;
-  activity: NotificationActivityItem[];
-  threads: NotificationThreadSummary[];
-};
-
-const authedRequest = async <T,>(
-  input: string,
-  init?: RequestInit,
-) => {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    throw new Error("Falta configurar Supabase.");
+const resolveErrorMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === "object" && "error" in error) {
+    const value = (error as { error?: unknown }).error;
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
   }
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
-    throw new Error("Necesitas iniciar sesión para continuar.");
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
   }
-
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  const result = (await response.json()) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(result.error ?? "No se pudo completar la operación.");
-  }
-
-  return result;
+  return fallback;
 };
 
 const ACTIVITY_TYPE_LABELS: Record<string, string> = {
@@ -174,26 +143,42 @@ function MessagesSkeleton() {
 export default function NotificacionesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const dispatch = useAppDispatch();
   const tabParam = searchParams.get("tab");
   const selectedThreadParam = searchParams.get("thread");
   const [activeTab, setActiveTab] = useState<"activity" | "messages">(
     tabParam === "messages" ? "messages" : "activity",
   );
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activity, setActivity] = useState<NotificationActivityItem[]>([]);
-  const [threads, setThreads] = useState<NotificationThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
     selectedThreadParam,
   );
-  const [selectedThread, setSelectedThread] = useState<NotificationThreadDetail | null>(
-    null,
-  );
-  const [threadLoading, setThreadLoading] = useState(false);
   const [replyBody, setReplyBody] = useState("");
-  const [sendingReply, setSendingReply] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    data: centerData,
+    isLoading: centerLoading,
+    isFetching: centerFetching,
+    error: centerError,
+    refetch: refetchCenter,
+  } = useGetNotificationCenterQuery();
+  const {
+    data: selectedThread,
+    isLoading: threadLoading,
+    error: threadError,
+  } = useGetNotificationThreadQuery(
+    activeTab === "messages" && selectedThreadId ? selectedThreadId : skipToken,
+  );
+  const [markNotificationsAsRead] = useMarkNotificationsAsReadMutation();
+  const [sendNotificationReply, { isLoading: sendingReply }] =
+    useSendNotificationReplyMutation();
+  const activity = centerData?.activity ?? [];
+  const threads = centerData?.threads ?? [];
+  const loading = centerLoading;
+  const refreshing = centerFetching && !centerLoading;
+  const error =
+    actionError ??
+    (activeTab === "messages" && selectedThreadId
+      ? resolveErrorMessage(threadError, "No se pudo abrir la conversación.")
+      : resolveErrorMessage(centerError, ""));
 
   const unreadActivityCount = useMemo(
     () => activity.filter((item) => !item.isRead).length,
@@ -229,67 +214,6 @@ export default function NotificacionesPage() {
     router.replace(`/notificaciones${next.toString() ? `?${next.toString()}` : ""}`);
   };
 
-  const loadCenter = async (options?: { silent?: boolean }) => {
-    const silent = options?.silent ?? false;
-    if (silent) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-
-    try {
-      const result = await authedRequest<CenterPayload>("/api/notification-center");
-      setActivity(result.activity);
-      setThreads(result.threads);
-      const unreadActivityIds = result.activity
-        .filter((item) => !item.isRead)
-        .map((item) => item.id);
-      if (unreadActivityIds.length > 0) {
-        void dispatch(markNotificationsAsRead(unreadActivityIds));
-        void dispatch(hydrateNotificationsState());
-      }
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "No se pudo cargar tu centro de notificaciones.",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const loadThread = async (threadId: string) => {
-    setThreadLoading(true);
-    setError(null);
-    try {
-      const result = await authedRequest<{ ok: true; thread: NotificationThreadDetail }>(
-        `/api/notification-center/threads/${threadId}`,
-      );
-      setSelectedThread(result.thread);
-      setSelectedThreadId(threadId);
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === threadId ? { ...thread, unread: false } : thread,
-        ),
-      );
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "No se pudo abrir la conversación.",
-      );
-    } finally {
-      setThreadLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadCenter();
-  }, []);
-
   useEffect(() => {
     if (tabParam === "messages") {
       setActiveTab("messages");
@@ -299,52 +223,51 @@ export default function NotificacionesPage() {
   }, [tabParam]);
 
   useEffect(() => {
-    const nextSelectedThreadId = selectedThreadParam || null;
-    setSelectedThreadId(nextSelectedThreadId);
+    setSelectedThreadId(selectedThreadParam || null);
   }, [selectedThreadParam]);
+
+  useEffect(() => {
+    const unreadActivityIds = activity
+      .filter((item) => !item.isRead)
+      .map((item) => item.id);
+    if (unreadActivityIds.length > 0) {
+      void markNotificationsAsRead(unreadActivityIds);
+    }
+  }, [activity, markNotificationsAsRead]);
 
   useEffect(() => {
     if (activeTab !== "messages") return;
 
-    const targetThreadId = selectedThreadParam || threads[0]?.id || null;
+    const targetThreadId =
+      selectedThreadParam || selectedThreadId || threads[0]?.id || null;
     if (!targetThreadId) {
-      setSelectedThread(null);
       return;
     }
 
-    if (selectedThread?.id === targetThreadId) return;
-    void loadThread(targetThreadId);
-  }, [activeTab, selectedThread?.id, selectedThreadParam, threads]);
+    if (selectedThreadId === targetThreadId) return;
+    setSelectedThreadId(targetThreadId);
+    if (!selectedThreadParam) {
+      syncUrl("messages", targetThreadId);
+    }
+  }, [activeTab, selectedThreadId, selectedThreadParam, threads]);
 
   const handleOpenThread = (threadId: string) => {
     setActiveTab("messages");
+    setSelectedThreadId(threadId);
     syncUrl("messages", threadId);
-    void loadThread(threadId);
   };
 
   const handleSendReply = async () => {
     if (!selectedThreadId || !replyBody.trim()) return;
-    setSendingReply(true);
-    setError(null);
+    setActionError(null);
     try {
-      const result = await authedRequest<{ ok: true; thread: NotificationThreadDetail }>(
-        `/api/notification-center/threads/${selectedThreadId}/messages`,
-        {
-          method: "POST",
-          body: JSON.stringify({ body: replyBody }),
-        },
-      );
-      setSelectedThread(result.thread);
+      await sendNotificationReply({
+        threadId: selectedThreadId,
+        body: replyBody,
+      }).unwrap();
       setReplyBody("");
-      await loadCenter({ silent: true });
     } catch (sendError) {
-      setError(
-        sendError instanceof Error
-          ? sendError.message
-          : "No se pudo enviar la respuesta.",
-      );
-    } finally {
-      setSendingReply(false);
+      setActionError(resolveErrorMessage(sendError, "No se pudo enviar la respuesta."));
     }
   };
 
@@ -378,7 +301,7 @@ export default function NotificacionesPage() {
 
             <button
               type="button"
-              onClick={() => void loadCenter({ silent: true })}
+              onClick={() => void refetchCenter()}
               className="rounded-[14px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50"
             >
               {refreshing ? "Actualizando..." : "Actualizar"}

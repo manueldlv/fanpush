@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useFinalizeMercadoPagoMutation } from "@/lib/redux/api/commerceApi";
 import {
   BALANCE_REFRESH_FLAG,
   clearPendingCheckout,
@@ -15,6 +16,7 @@ function CheckoutReturnContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("Validando el pago...");
+  const [finalizeMercadoPago] = useFinalizeMercadoPagoMutation();
 
   const target = useMemo(
     () => searchParams.get("target") || "/",
@@ -73,29 +75,31 @@ function CheckoutReturnContent() {
         return;
       }
 
-      const response = await fetch("/api/mercadopago/finalize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ paymentId }),
-      });
+      let result:
+        | {
+            ok?: boolean;
+            kind?: "purchase" | "tip" | "deposit";
+            status?: string;
+            amount?: number;
+            error?: string;
+          }
+        | undefined;
 
-      const result = (await response.json()) as {
-        ok?: boolean;
-        kind?: "purchase" | "tip" | "deposit";
-        status?: string;
-        amount?: number;
-        error?: string;
-      };
-
-      if (!response.ok) {
-        setMessage(result.error ?? "No se pudo acreditar el pago.");
+      try {
+        result = await finalizeMercadoPago({
+          paymentId,
+          accessToken: session.access_token,
+        }).unwrap();
+      } catch (finalizeError) {
+        setMessage(
+          finalizeError instanceof Error
+            ? finalizeError.message
+            : "No se pudo acreditar el pago.",
+        );
         return;
       }
 
-      if (!result.ok) {
+      if (!result?.ok) {
         setMessage(
           result.status
             ? `El pago quedó en estado ${result.status}.`
@@ -141,8 +145,8 @@ function CheckoutReturnContent() {
       router.replace(finalTarget);
     };
 
-    run();
-  }, [router, searchParams, target]);
+    void run();
+  }, [finalizeMercadoPago, router, searchParams, target]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 text-zinc-900">

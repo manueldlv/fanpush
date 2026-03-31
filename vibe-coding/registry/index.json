@@ -96,6 +96,18 @@
       "inbox": "vibe-coding/inbox/2026-03-31-01-profile-rtk-query-cache.md",
       "execution": "vibe-coding/executions/2026-03-31-01-profile-rtk-query-cache.md",
       "changelog": "vibe-coding/changelog/2026-03-31-01-profile-rtk-query-cache.md"
+    },
+    {
+      "id": "2026-03-31-02-rtk-query-foundation",
+      "type": "execution",
+      "title": "Expandir RTK Query a sesion, busqueda, notificaciones y commerce",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "needs_approval",
+      "inbox": "vibe-coding/inbox/2026-03-31-02-rtk-query-foundation.md",
+      "execution": "vibe-coding/executions/2026-03-31-02-rtk-query-foundation.md",
+      "changelog": "vibe-coding/changelog/2026-03-31-02-rtk-query-foundation.md"
     }
   ]
 }

@@ -3,15 +3,15 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
-import { useAppDispatch } from "@/lib/redux/hooks";
-import { setViewerAuthorStatus } from "@/lib/redux/slices/viewerSlice";
+import {
+  useGetAuthorApplicationQuery,
+  useSubmitAuthorApplicationMutation,
+} from "@/lib/redux/api/authorApi";
 import {
   DOCUMENT_IMAGE_ACCEPT,
   MAX_DOCUMENT_IMAGE_BYTES,
   validateImageFile,
 } from "@/lib/imageFiles";
-import { getSupabaseClient } from "@/lib/supabase";
-import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 
 type DocumentSide = "front" | "back";
 
@@ -111,11 +111,9 @@ function DocumentUploadCard({
 }
 
 export default function AutorSolicitudPage() {
-  const dispatch = useAppDispatch();
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<"idle" | "pending" | "approved" | "rejected">(
-    "idle",
-  );
+  const { data: applicationData, isLoading: loading } = useGetAuthorApplicationQuery();
+  const [submitAuthorApplication] = useSubmitAuthorApplicationMutation();
+  const [status, setStatus] = useState<"idle" | "pending" | "approved" | "rejected">("idle");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -146,37 +144,20 @@ export default function AutorSolicitudPage() {
     .split("T")[0];
 
   useEffect(() => {
-    const load = async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) {
-        setLoading(false);
-        return;
-      }
-      const { data } = await supabase.auth.getUser();
-      const userId = data.user?.id;
-      if (!userId) {
-        setLoading(false);
-        return;
-      }
-      const application = await getAuthorApplicationForUser(supabase, userId);
-      const current = application?.record;
-      if (current) {
-        setStatus(current.status);
-        setFullName(current.fullName);
-        setBirthDate(current.birthDate);
-        setDocumentType(current.documentType);
-        setDocumentNumber(current.documentNumber);
-        setCountry(current.country);
-        setProvince(current.province);
-        setCity(current.city);
-        setAddress(current.address);
-        setFrontPreviewUrl(current.documentFrontUrl);
-        setBackPreviewUrl(current.documentBackUrl);
-      }
-      setLoading(false);
-    };
-    load();
-  }, []);
+    const current = applicationData?.current;
+    if (!current) return;
+    setStatus(applicationData.status);
+    setFullName(current.fullName);
+    setBirthDate(current.birthDate);
+    setDocumentType(current.documentType);
+    setDocumentNumber(current.documentNumber);
+    setCountry(current.country);
+    setProvince(current.province);
+    setCity(current.city);
+    setAddress(current.address);
+    setFrontPreviewUrl(current.documentFrontUrl);
+    setBackPreviewUrl(current.documentBackUrl);
+  }, [applicationData]);
 
   useEffect(() => {
     return () => {
@@ -259,15 +240,6 @@ export default function AutorSolicitudPage() {
       setError(null);
       setSuccess(null);
       setSubmitting(true);
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Falta configurar Supabase.");
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
-      if (!userId || !session.access_token) {
-        throw new Error("Necesitas iniciar sesión.");
-      }
       if (!frontFile || !backFile) {
         throw new Error("Debes subir frente y dorso del documento.");
       }
@@ -284,18 +256,9 @@ export default function AutorSolicitudPage() {
       formData.append("documentFront", frontFile);
       formData.append("documentBack", backFile);
 
-      const response = await fetch("/api/author/apply", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: formData,
-      });
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "No se pudo enviar la solicitud.");
+      await submitAuthorApplication(formData).unwrap();
 
       setStatus("pending");
-      dispatch(setViewerAuthorStatus("pending"));
       setSuccess("Solicitud enviada. El equipo de FanPush va a revisar tu identidad.");
       window.dispatchEvent(new Event("creator-status-updated"));
     } catch (err) {

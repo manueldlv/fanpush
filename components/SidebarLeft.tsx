@@ -12,16 +12,16 @@ import {
   SquarePlus,
   User,
 } from "lucide-react";
+import { useGetViewerQuery, useSignOutMutation } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
-import {
-  openSearchPanel,
-} from "@/lib/redux/slices/uiSlice";
-import { getSupabaseClient } from "@/lib/supabase";
+import { openSearchPanel } from "@/lib/redux/slices/uiSlice";
 
 export default function SidebarLeft() {
   const dispatch = useAppDispatch();
-  const canCreate = useAppSelector((state) => state.viewer.access.canCreate);
   const searchOpen = useAppSelector((state) => state.ui.searchPanelOpen);
+  const { data: viewer } = useGetViewerQuery();
+  const [signOut] = useSignOutMutation();
+  const canCreate = viewer?.access.canCreate ?? false;
 
   return (
     <>
@@ -146,10 +146,7 @@ export default function SidebarLeft() {
             <button
               type="button"
               onClick={async () => {
-                const supabase = getSupabaseClient();
-                if (supabase) {
-                  await supabase.auth.signOut();
-                }
+                await signOut();
                 window.location.assign("/auth");
               }}
               className="group flex w-full items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"

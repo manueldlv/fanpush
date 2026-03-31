@@ -69,14 +69,14 @@ const normalizeAlbumUser = (
   user: AlbumUser | AlbumUser[] | null | undefined,
 ): AlbumUser | null => {
   if (!user) return null;
-  return Array.isArray(user) ? user[0] ?? null : user;
+  return Array.isArray(user) ? (user[0] ?? null) : user;
 };
 
 const normalizeSingleRelation = <T,>(
   value: T | T[] | null | undefined,
 ): T | null => {
   if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
 function ProfileHeaderSkeleton() {
@@ -134,7 +134,9 @@ export default function PerfilPage({
   const searchParams = useSearchParams();
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const availableBalance = useAppSelector((state) => state.viewer.commerce.balance);
+  const availableBalance = useAppSelector(
+    (state) => state.viewer.commerce.balance,
+  );
   const routeUsername = forcedUsername ?? searchParams.get("user");
   const profileId = searchParams.get("id");
   const profileQueryArg = {
@@ -144,10 +146,12 @@ export default function PerfilPage({
   const { data: profileData, isLoading: profileQueryLoading } =
     useGetProfileViewQuery(profileQueryArg);
 
-  const profileName = profileData?.profile.username ?? routeUsername ?? "usuario";
+  const profileName =
+    profileData?.profile.username ?? routeUsername ?? "usuario";
   const profileFullName =
     profileData?.profile.fullName ?? searchParams.get("full") ?? "Sin nombre";
-  const profileAvatar = profileData?.profile.avatar ?? searchParams.get("avatar") ?? "";
+  const profileAvatar =
+    profileData?.profile.avatar ?? searchParams.get("avatar") ?? "";
   const profileBio = profileData?.profile.bio ?? "";
   const profileWebsite = profileData?.profile.website ?? "";
   const profileInstagram = profileData?.profile.instagram ?? "";
@@ -170,7 +174,9 @@ export default function PerfilPage({
     accessToken: string,
     incomingPosts: Post[],
   ) => {
-    const allPostIds = incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+    const allPostIds = incomingPosts
+      .flatMap((post) => post.mediaPostIds)
+      .filter(Boolean);
     if (allPostIds.length === 0) return incomingPosts;
 
     const response = await fetch("/api/media/access", {
@@ -209,18 +215,23 @@ export default function PerfilPage({
         instagram?: string;
       };
       dispatch(
-        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
-          if (detail?.username) draft.profile.username = detail.username;
-          if (detail?.fullName) draft.profile.fullName = detail.fullName;
-          if (detail?.avatarUrl !== undefined) {
-            draft.profile.avatar = detail.avatarUrl ?? "";
-          }
-          if (detail?.bio !== undefined) draft.profile.bio = detail.bio;
-          if (detail?.website !== undefined) draft.profile.website = detail.website;
-          if (detail?.instagram !== undefined) {
-            draft.profile.instagram = detail.instagram;
-          }
-        }),
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          profileQueryArg,
+          (draft) => {
+            if (detail?.username) draft.profile.username = detail.username;
+            if (detail?.fullName) draft.profile.fullName = detail.fullName;
+            if (detail?.avatarUrl !== undefined) {
+              draft.profile.avatar = detail.avatarUrl ?? "";
+            }
+            if (detail?.bio !== undefined) draft.profile.bio = detail.bio;
+            if (detail?.website !== undefined)
+              draft.profile.website = detail.website;
+            if (detail?.instagram !== undefined) {
+              draft.profile.instagram = detail.instagram;
+            }
+          },
+        ),
       );
     };
     const invalidateProfile = () => {
@@ -310,10 +321,7 @@ export default function PerfilPage({
           time: "Ahora",
           suggestion: "Perfil",
           caption: album.description ?? "",
-          likes: media.reduce(
-            (sum, item) => sum + (item.likes_count ?? 0),
-            0,
-          ),
+          likes: media.reduce((sum, item) => sum + (item.likes_count ?? 0), 0),
           avatar: avatarUrl || null,
           price: album.price ?? post.price ?? 0,
           media: mediaWithUrls,
@@ -321,8 +329,9 @@ export default function PerfilPage({
         const accessToken = await getSessionAccessTokenWithRetry(supabase);
         setOpenPost(
           accessToken
-            ? (await resolveAccessibleMedia(supabase, accessToken, [basePost]))[0] ??
-                basePost
+            ? ((
+                await resolveAccessibleMedia(supabase, accessToken, [basePost])
+              )[0] ?? basePost)
             : basePost,
         );
         return;
@@ -351,10 +360,14 @@ export default function PerfilPage({
         return;
       }
       dispatch(
-        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
-          draft.isFollowing = false;
-          draft.stats.followers = Math.max(draft.stats.followers - 1, 0);
-        }),
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          profileQueryArg,
+          (draft) => {
+            draft.isFollowing = false;
+            draft.stats.followers = Math.max(draft.stats.followers - 1, 0);
+          },
+        ),
       );
     } else {
       const { error } = await supabase.from("follows").insert({
@@ -366,10 +379,14 @@ export default function PerfilPage({
         return;
       }
       dispatch(
-        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
-          draft.isFollowing = true;
-          draft.stats.followers += 1;
-        }),
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          profileQueryArg,
+          (draft) => {
+            draft.isFollowing = true;
+            draft.stats.followers += 1;
+          },
+        ),
       );
 
       await supabase.from("notifications").insert({
@@ -443,10 +460,14 @@ export default function PerfilPage({
       if (albumsError) throw albumsError;
 
       dispatch(
-        profileApi.util.updateQueryData("getProfileView", profileQueryArg, (draft) => {
-          draft.posts = draft.posts.filter((post) => post.id !== albumId);
-          draft.stats.posts = Math.max(draft.stats.posts - 1, 0);
-        }),
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          profileQueryArg,
+          (draft) => {
+            draft.posts = draft.posts.filter((post) => post.id !== albumId);
+            draft.stats.posts = Math.max(draft.stats.posts - 1, 0);
+          },
+        ),
       );
       setOpenPost(null);
     } catch (err) {
@@ -511,192 +532,209 @@ export default function PerfilPage({
           {profileLoading ? (
             <ProfileHeaderSkeleton />
           ) : (
-          <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
-            <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 md:flex-row md:items-start md:gap-8">
-              <div className="flex flex-1 items-start gap-4 md:gap-6">
-                <UserAvatar
-                  src={profileAvatar}
-                  alt={profileName || "Perfil"}
-                  sizeClassName="h-20 w-20 md:h-28 md:w-28"
-                  iconClassName="h-8 w-8 md:h-10 md:w-10"
-                />
-                <div className="flex-1 md:max-w-[500px]">
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-[22px] font-semibold leading-none md:text-[28px]">
-                      {profileName || "usuario"}
-                    </h1>
-                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white">
-                      ✓
-                    </span>
-                  </div>
-                  <div className="mt-1.5 text-[15px] font-medium leading-snug text-zinc-700 md:text-[17px]">
-                    {profileFullName || "Sin nombre"}
-                  </div>
-                  {profileBio ? (
-                    <div className="mt-2.5 max-w-[560px] text-[13px] leading-5 text-zinc-700 md:text-[14px]">
-                      {profileBio}
+            <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
+              <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 md:flex-row md:items-start md:gap-8">
+                <div className="flex flex-1 items-start gap-4 md:gap-6">
+                  <UserAvatar
+                    src={profileAvatar}
+                    alt={profileName || "Perfil"}
+                    sizeClassName="h-20 w-20 md:h-28 md:w-28"
+                    iconClassName="h-8 w-8 md:h-10 md:w-10"
+                  />
+                  <div className="flex-1 md:max-w-[500px]">
+                    <div className="flex items-center gap-2">
+                      <h1 className="text-[22px] font-semibold leading-none md:text-[28px]">
+                        {profileName || "usuario"}
+                      </h1>
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white">
+                        ✓
+                      </span>
                     </div>
-                  ) : isOwnProfile ? (
-                    <div className="mt-2.5 max-w-[560px] rounded-[14px] border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
-                      Tu perfil todavía no tiene bio. Puedes agregar una desde Configuración para que se vea más completo.
+                    <div className="mt-1.5 text-[15px] font-medium leading-snug text-zinc-700 md:text-[17px]">
+                      {profileFullName || "Sin nombre"}
                     </div>
-                  ) : null}
-                  <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-zinc-600 md:gap-x-6 md:text-[14px]">
-                    <span className="whitespace-nowrap">
-                      <span className="font-semibold text-zinc-900">
-                        {statsLoading ? "..." : stats.posts}
-                      </span>{" "}
-                      publicaciones
-                    </span>
-                    <span className="whitespace-nowrap">
-                      <span className="font-semibold text-zinc-900">
-                        {statsLoading ? "..." : stats.followers}
-                      </span>{" "}
-                      seguidores
-                    </span>
-                    <span className="whitespace-nowrap">
-                      <span className="font-semibold text-zinc-900">
-                        {statsLoading ? "..." : stats.following}
-                      </span>{" "}
-                      seguidos
-                    </span>
-                    <span className="whitespace-nowrap">
-                      <span className="font-semibold text-zinc-900">
-                        {statsLoading ? "..." : formatARS(earnings)}
-                      </span>{" "}
-                      ventas
-                    </span>
-                  </div>
-                  {profileWebsite || profileInstagram ? (
-                    <div className="mt-2.5 flex flex-wrap gap-2">
-                      {profileWebsite ? (
-                        <a
-                          href={profileWebsite}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                        >
-                          Link principal
-                        </a>
-                      ) : null}
-                      {profileInstagram ? (
-                        <a
-                          href={`https://instagram.com/${profileInstagram.replace(/^@/, "")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                        >
-                          {profileInstagram.startsWith("@")
-                            ? profileInstagram
-                            : `@${profileInstagram}`}
-                        </a>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <div className="mt-4 w-full max-w-[460px]">
-                    {isOwnProfile ? (
-                      <button
-                        type="button"
-                        onClick={() => router.push("/settings")}
-                        className="w-full rounded-[10px] bg-zinc-100 px-4 py-2 text-[14px] font-semibold text-zinc-900"
-                      >
-                        Editar perfil
-                      </button>
-                    ) : currentUserId && viewedUserId ? (
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          onClick={toggleFollow}
-                          className={`w-full rounded-[10px] px-4 py-2 text-[14px] font-semibold transition-colors ${
-                            isFollowing
-                              ? "bg-zinc-100 text-zinc-900"
-                              : "bg-indigo-600 text-white hover:bg-indigo-500"
-                          }`}
-                        >
-                          {isFollowing ? "Siguiendo" : "Seguir"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTipOpen(true);
-                          }}
-                          className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
-                        >
-                          Propina
-                        </button>
+                    {profileBio ? (
+                      <div className="mt-2.5 max-w-[560px] text-[13px] leading-5 text-zinc-700 md:text-[14px]">
+                        {profileBio}
+                      </div>
+                    ) : isOwnProfile ? (
+                      <div className="mt-2.5 max-w-[560px] rounded-[14px] border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
+                        Tu perfil todavía no tiene bio. Puedes agregar una desde
+                        Configuración para que se vea más completo.
                       </div>
                     ) : null}
+                    <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-zinc-600 md:gap-x-6 md:text-[14px]">
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-zinc-900">
+                          {statsLoading ? "..." : stats.posts}
+                        </span>{" "}
+                        publicaciones
+                      </span>
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-zinc-900">
+                          {statsLoading ? "..." : stats.followers}
+                        </span>{" "}
+                        seguidores
+                      </span>
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-zinc-900">
+                          {statsLoading ? "..." : stats.following}
+                        </span>{" "}
+                        seguidos
+                      </span>
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-zinc-900">
+                          {statsLoading ? "..." : formatARS(earnings)}
+                        </span>{" "}
+                        ventas
+                      </span>
+                    </div>
+                    {profileWebsite || profileInstagram ? (
+                      <div className="mt-2.5 flex flex-wrap gap-2">
+                        {profileWebsite ? (
+                          <a
+                            href={profileWebsite}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Link principal
+                          </a>
+                        ) : null}
+                        {profileInstagram ? (
+                          <a
+                            href={`https://instagram.com/${profileInstagram.replace(/^@/, "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            {profileInstagram.startsWith("@")
+                              ? profileInstagram
+                              : `@${profileInstagram}`}
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="mt-4 w-full max-w-[460px]">
+                      {isOwnProfile ? (
+                        <button
+                          type="button"
+                          onClick={() => router.push("/settings")}
+                          className="w-full rounded-[10px] bg-zinc-100 px-4 py-2 text-[14px] font-semibold text-zinc-900"
+                        >
+                          Editar perfil
+                        </button>
+                      ) : currentUserId && viewedUserId ? (
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <button
+                            type="button"
+                            onClick={toggleFollow}
+                            className={`w-full rounded-[10px] px-4 py-2 text-[14px] font-semibold transition-colors ${
+                              isFollowing
+                                ? "bg-zinc-100 text-zinc-900"
+                                : "bg-indigo-600 text-white hover:bg-indigo-500"
+                            }`}
+                          >
+                            {isFollowing ? "Siguiendo" : "Seguir"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTipOpen(true);
+                            }}
+                            className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                          >
+                            Propina
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>
-
             </div>
-          </div>
           )}
 
           {postsLoading ? (
             <ProfilePostsSkeleton />
           ) : (
-          <div className="rounded-[12px] border border-zinc-200 bg-white">
-            <div className="flex items-center justify-center gap-8 border-b border-zinc-200 px-6 pt-4 text-sm font-semibold text-zinc-500">
-              <button
-                onClick={() => setActiveTab("posts")}
-                className={`pb-3 ${
-                  activeTab === "posts"
-                    ? "border-b-2 border-zinc-900 text-zinc-900"
-                    : ""
-                }`}
-              >
-                <Grid className="mr-2 inline h-4 w-4" />
-                Posteos
-              </button>
-              <button
-                onClick={() => setActiveTab("purchased")}
-                className={`pb-3 ${
-                  activeTab === "purchased"
-                    ? "border-b-2 border-zinc-900 text-zinc-900"
-                    : ""
-                }`}
-              >
-                <Bookmark className="mr-2 inline h-4 w-4" />
-                Comprados
-              </button>
-            </div>
+            <div className="rounded-[12px] border border-zinc-200 bg-white">
+              <div className="flex items-center justify-center gap-8 border-b border-zinc-200 px-6 pt-4 text-sm font-semibold text-zinc-500">
+                <button
+                  onClick={() => setActiveTab("posts")}
+                  className={`pb-3 ${
+                    activeTab === "posts"
+                      ? "border-b-2 border-zinc-900 text-zinc-900"
+                      : ""
+                  }`}
+                >
+                  <Grid className="mr-2 inline h-4 w-4" />
+                  Posteos
+                </button>
+                <button
+                  onClick={() => setActiveTab("purchased")}
+                  className={`pb-3 ${
+                    activeTab === "purchased"
+                      ? "border-b-2 border-zinc-900 text-zinc-900"
+                      : ""
+                  }`}
+                >
+                  <Bookmark className="mr-2 inline h-4 w-4" />
+                  Comprados
+                </button>
+              </div>
 
-            <div className="grid grid-cols-2 gap-[2px] p-2 sm:grid-cols-3 md:grid-cols-5 md:gap-[2px] md:p-4">
-              {activeTab === "posts" ? (
-                profilePosts.map((post) => {
-                  const firstMedia = post.media[0];
-                  if (!firstMedia) return null;
-                  return (
-                    <div
-                      key={post.id}
-                      className="relative aspect-[3/4] cursor-pointer overflow-hidden border border-zinc-200"
-                      onClick={() => openPostFromProfile(post)}
-                    >
-                      <MediaImage
-                        src={firstMedia.url}
-                        alt={profileName || "Post"}
-                        className="h-full w-full object-cover"
-                        fallbackClassName="h-full w-full border-0"
-                        iconClassName="h-7 w-7"
-                      />
-                      {firstMedia.locked ? (
-                        <div className="absolute right-2 top-2 rounded-[5px] bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                          <Lock className="mr-1 inline h-3 w-3" />
-                          Locked
+              <div className="grid grid-cols-2 gap-[2px] p-2 sm:grid-cols-3 md:grid-cols-5 md:gap-[2px] md:p-4">
+                {activeTab === "posts" ? (
+                  profilePosts.map((post) => {
+                    const firstMedia = post.media[0];
+                    if (!firstMedia) return null;
+                    const isPaidPost =
+                      Number(post.price ?? 0) > 0 ||
+                      post.media.some((item) => item.locked);
+                    return (
+                      <div
+                        key={post.id}
+                        className="relative aspect-[3/4] cursor-pointer overflow-hidden border border-zinc-200"
+                        onClick={() => openPostFromProfile(post)}
+                      >
+                        <MediaImage
+                          src={firstMedia.url}
+                          alt={profileName || "Post"}
+                          className="h-full w-full object-cover"
+                          fallbackClassName="h-full w-full border-0"
+                          iconClassName="h-7 w-7"
+                        />
+                        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
+                          {isPaidPost ? (
+                            <div className="rounded-full bg-zinc-950/92 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm">
+                              <span className="inline-flex items-center gap-1">
+                                <Lock className="h-3 w-3" />
+                                Pago
+                              </span>
+                            </div>
+                          ) : (
+                            <div />
+                          )}
+                          {isPaidPost ? (
+                            <div className="rounded-full bg-white/92 px-2.5 py-1 text-[10px] font-semibold text-zinc-900 shadow-sm">
+                              {formatARS(post.price ?? 0)}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="col-span-3 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500">
-                  Aun no tienes compras.
-                </div>
-              )}
+                        {isPaidPost ? (
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/40 via-black/10 to-transparent" />
+                        ) : null}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="col-span-3 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500">
+                    Aun no tienes compras.
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
           )}
         </div>
       </div>

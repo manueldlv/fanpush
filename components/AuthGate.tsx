@@ -14,18 +14,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const inAdmin = pathname?.startsWith("/admin");
   const inAdminLogin = pathname?.startsWith("/admin/login");
   const inCheckoutReturn = pathname?.startsWith("/checkout/return");
+  const inBalance = pathname?.startsWith("/saldo");
   const inPublicTerms = pathname?.startsWith("/terminos");
   const inPublicPrivacy = pathname?.startsWith("/privacidad");
   const inPublicHelp = pathname?.startsWith("/ayuda");
   const inPublicFaq = pathname?.startsWith("/faq");
   const allowWithoutSession = Boolean(
     inAuth ||
-      inAdminLogin ||
-      inCheckoutReturn ||
-      inPublicTerms ||
-      inPublicPrivacy ||
-      inPublicHelp ||
-      inPublicFaq,
+    inAdminLogin ||
+    inCheckoutReturn ||
+    inBalance ||
+    inPublicTerms ||
+    inPublicPrivacy ||
+    inPublicHelp ||
+    inPublicFaq,
   );
   const {
     data: session,
@@ -41,7 +43,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   } = useGetAdminAccessQuery(undefined, {
     skip: allowWithoutSession || !inAdmin,
   });
-  const loading = !allowWithoutSession && (inAdmin ? adminAccessLoading : sessionLoading);
+  const loading =
+    !allowWithoutSession && (inAdmin ? adminAccessLoading : sessionLoading);
   const configError = Boolean(inAdmin ? adminAccessError : sessionError);
   const allowed = allowWithoutSession
     ? true

@@ -13,6 +13,8 @@ import {
 import SidebarLeft from "@/components/SidebarLeft";
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 import { getExtensionFromFile } from "@/lib/media";
+import { useAppDispatch } from "@/lib/redux/hooks";
+import { feedApi } from "@/lib/redux/api/feedApi";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
@@ -26,13 +28,16 @@ type UploadItem = {
 
 type Monetization = "free" | "paid";
 
+const MIN_PRICE_ARS = 1000;
+
 export default function CrearPage() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [previewIds, setPreviewIds] = useState<string[]>([]);
   const [monetization, setMonetization] = useState<Monetization>("free");
-  const [price, setPrice] = useState("9.99");
+  const [price, setPrice] = useState(String(MIN_PRICE_ARS));
   const [description, setDescription] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -211,9 +216,10 @@ export default function CrearPage() {
 
   const previewCount = previewIds.length;
   const lockedCount = Math.max(items.length - previewCount, 0);
+  const normalizedPrice = Math.max(Number(price) || 0, MIN_PRICE_ARS);
 
   const payout = useMemo(() => {
-    const value = Number(price) || 0;
+    const value = normalizedPrice;
     const creator = value * 0.7;
     const platform = value * 0.3;
     return {
@@ -221,7 +227,7 @@ export default function CrearPage() {
       creator: creator.toFixed(2),
       platform: platform.toFixed(2),
     };
-  }, [price]);
+  }, [normalizedPrice]);
 
   const createImagePreviewFile = async (item: UploadItem) => {
     const bitmap = await createImageBitmap(item.file);
@@ -321,7 +327,7 @@ export default function CrearPage() {
       const formData = new FormData();
       formData.append("description", description.trim());
       formData.append("monetization", monetization);
-      formData.append("price", price);
+      formData.append("price", String(normalizedPrice));
 
       const itemsMeta = await Promise.all(
         items.map(async (item, index) => {
@@ -368,6 +374,7 @@ export default function CrearPage() {
         throw new Error(result.error ?? "No se pudo publicar el contenido.");
       }
 
+      dispatch(feedApi.util.invalidateTags(["Feed"]));
       router.push("/");
     } catch (err) {
       setError(getErrorMessage(err));
@@ -670,11 +677,13 @@ export default function CrearPage() {
                         inputMode="decimal"
                         value={price}
                         onChange={(event) => setPrice(event.target.value)}
+                        min={MIN_PRICE_ARS}
+                        step={1}
                         className="w-full bg-transparent outline-none"
                       />
                     </div>
                     <div className="mt-2 text-xs text-zinc-500">
-                      Compra unica · Sin suscripciones
+                      Minimo ARS {MIN_PRICE_ARS.toLocaleString("es-AR")} · Compra unica
                     </div>
                   </div>
 
@@ -926,6 +935,8 @@ export default function CrearPage() {
                       inputMode="decimal"
                       value={price}
                       onChange={(event) => setPrice(event.target.value)}
+                      min={MIN_PRICE_ARS}
+                      step={1}
                       className="w-full bg-transparent outline-none"
                     />
                   </div>

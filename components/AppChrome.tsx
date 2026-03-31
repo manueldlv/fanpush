@@ -2,8 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import AuthGate from "@/components/AuthGate";
-import NotificationsPanel from "@/components/NotificationsPanel";
-import SearchPanel from "@/components/SearchPanel";
 import TopBar from "@/components/TopBar";
 
 export default function AppChrome({
@@ -23,8 +21,6 @@ export default function AppChrome({
   return (
     <AuthGate>
       {!isStandalone ? <TopBar /> : null}
-      {!isStandalone ? <SearchPanel /> : null}
-      {!isStandalone ? <NotificationsPanel /> : null}
       <div className={isStandalone ? "" : "pb-16 pt-16 md:pb-0"}>{children}</div>
     </AuthGate>
   );

@@ -38,10 +38,14 @@ export default function PostModal({
   const lockedCount = resolvedMedia.filter((m) => m.locked).length;
   const current = resolvedMedia[index] ?? resolvedMedia[0];
   const isOwner =
-    Boolean(post.userId) && Boolean(currentUserId) && post.userId === currentUserId;
-  const hasPaidContent = post.media.some((item) => item.locked || !item.hasAccess);
-  const showUnlockedStatus =
-    !isOwner && hasPaidContent && lockedCount === 0;
+    Boolean(post.userId) &&
+    Boolean(currentUserId) &&
+    post.userId === currentUserId;
+  const hasPaidContent = post.media.some(
+    (item) => item.locked || !item.hasAccess,
+  );
+  const isPaidPost = Number(post.price ?? 0) > 0 || hasPaidContent;
+  const showUnlockedStatus = !isOwner && hasPaidContent && lockedCount === 0;
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -62,7 +66,8 @@ export default function PostModal({
 
   const fetchResolvedMedia = async (forceRetry = false) => {
     const supabase = getSupabaseClient();
-    if (!supabase || !currentUserId || post.mediaPostIds.length === 0) return null;
+    if (!supabase || !currentUserId || post.mediaPostIds.length === 0)
+      return null;
 
     const needsResolution = post.media.some(
       (item) => item.locked && (!item.accessResolved || forceRetry),
@@ -165,8 +170,9 @@ export default function PostModal({
               <button
                 type="button"
                 onClick={() =>
-                  setIndex((prev) =>
-                    (prev - 1 + post.media.length) % post.media.length,
+                  setIndex(
+                    (prev) =>
+                      (prev - 1 + post.media.length) % post.media.length,
                   )
                 }
                 className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700 cursor-pointer"
@@ -280,12 +286,25 @@ export default function PostModal({
             <div className="flex items-start gap-3">
               <UserAvatar src={post.avatar} alt={post.author} />
               <div>
-                <div className="text-sm font-semibold text-zinc-900">
-                  {post.author}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {post.author}
+                  </div>
+                  {isPaidPost ? (
+                    <div className="rounded-full bg-zinc-950 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white">
+                      Post pago
+                    </div>
+                  ) : null}
                 </div>
                 {post.caption ? (
                   <div className="mt-1 text-xs text-zinc-500">
                     {post.caption}
+                  </div>
+                ) : null}
+                {isPaidPost ? (
+                  <div className="mt-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <span className="font-semibold">Contenido pago.</span> Este
+                    post se desbloquea por {formatARS(post.price ?? 0)}.
                   </div>
                 ) : null}
               </div>

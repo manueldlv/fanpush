@@ -71,7 +71,16 @@ export default function AppStateBootstrap() {
 
     const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const handleReducedMotionChange = () => updateDeviceRuntime();
-    reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+    const reducedMotionQueryLegacy = reducedMotionQuery as MediaQueryList & {
+      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+    };
+
+    if ("addEventListener" in reducedMotionQuery) {
+      reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+    } else {
+      reducedMotionQueryLegacy.addListener?.(handleReducedMotionChange);
+    }
 
     const supabase = getSupabaseClient();
     const authSubscription = supabase?.auth.onAuthStateChange(() => {
@@ -92,7 +101,11 @@ export default function AppStateBootstrap() {
       );
       window.removeEventListener("resize", updateDeviceRuntime);
       window.removeEventListener("orientationchange", updateDeviceRuntime);
-      reducedMotionQuery.removeEventListener("change", handleReducedMotionChange);
+      if ("removeEventListener" in reducedMotionQuery) {
+        reducedMotionQuery.removeEventListener("change", handleReducedMotionChange);
+      } else {
+        reducedMotionQueryLegacy.removeListener?.(handleReducedMotionChange);
+      }
       authSubscription?.data.subscription.unsubscribe();
     };
   }, [dispatch]);

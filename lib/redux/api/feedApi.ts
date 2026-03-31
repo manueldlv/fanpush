@@ -70,6 +70,7 @@ const resolveAccessibleMedia = async (
 export const feedApi = createApi({
   reducerPath: "feedApi",
   baseQuery: fakeBaseQuery<{ error: string }>(),
+  tagTypes: ["Feed"],
   endpoints: (builder) => ({
     getFeed: builder.query<FeedData, void>({
       async queryFn() {
@@ -191,6 +192,7 @@ export const feedApi = createApi({
           return { error: buildError(error, "No se pudo cargar el feed.") };
         }
       },
+      providesTags: ["Feed"],
       keepUnusedDataFor: 120,
     }),
   }),

@@ -17,6 +17,8 @@ type ItemMeta = {
   fileName: string;
 };
 
+const MIN_PRICE_ARS = 1000;
+
 const ensureMediaBuckets = async () => {
   const admin = getAdminSupabase();
   if (!admin) return;
@@ -84,6 +86,8 @@ export async function POST(request: Request) {
     const description = String(formData.get("description") ?? "").trim();
     const monetization = String(formData.get("monetization") ?? "free");
     const rawPrice = Number(formData.get("price") ?? 0);
+    const normalizedPrice =
+      monetization === "paid" ? Math.max(rawPrice || 0, MIN_PRICE_ARS) : 0;
     const itemsMetaValue = formData.get("itemsMeta");
 
     if (typeof itemsMetaValue !== "string") {
@@ -112,7 +116,7 @@ export async function POST(request: Request) {
       .insert({
         user_id: user.id,
         description: caption,
-        price: monetization === "paid" ? rawPrice || 0 : 0,
+        price: normalizedPrice,
       })
       .select("id")
       .single();

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { History, Info } from "lucide-react";
+import { History, Info, RefreshCw } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import { useCreateCheckoutPreferenceMutation } from "@/lib/redux/api/commerceApi";
 import { useGetSessionQuery, useGetViewerQuery } from "@/lib/redux/api/sessionApi";
@@ -50,6 +50,7 @@ function SaldoPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<RechargeHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const { data: session, isLoading: sessionLoading } = useGetSessionQuery();
   const { data: viewer } = useGetViewerQuery();
   const [createCheckoutPreference, { isLoading: submitting }] =
@@ -63,51 +64,55 @@ function SaldoPageContent() {
     return Number(customAmount);
   }, [customAmount, selectedAmount]);
 
-  useEffect(() => {
-    const loadHistory = async () => {
-      if (!session?.isAuthenticated || !session.userId) {
-        setHistory([]);
-        setHistoryLoading(false);
-        return;
-      }
-
-      const supabase = getSupabaseClient();
-      if (!supabase) {
-        setHistory([]);
-        setHistoryLoading(false);
-        return;
-      }
-
-      setHistoryLoading(true);
-      const { data, error: historyError } = await supabase
-        .from("ledger_transactions")
-        .select(
-          "id,transaction_amount,status,external_provider,provider_payment_id,created_at",
-        )
-        .eq("buyer_user_id", session.userId)
-        .eq("kind", "deposit")
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      if (historyError) {
-        setHistory([]);
-        setHistoryLoading(false);
-        return;
-      }
-
-      setHistory(
-        (data ?? []).map((item) => ({
-          id: item.id,
-          amount: Number(item.transaction_amount ?? 0),
-          status: item.status ?? null,
-          provider: item.external_provider ?? null,
-          providerPaymentId: item.provider_payment_id ?? null,
-          createdAt: item.created_at,
-        })),
-      );
+  const loadHistory = async () => {
+    if (!session?.isAuthenticated || !session.userId) {
+      setHistory([]);
+      setHistoryError(null);
       setHistoryLoading(false);
-    };
+      return;
+    }
 
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setHistory([]);
+      setHistoryError("No pudimos conectar tu historial de recargas.");
+      setHistoryLoading(false);
+      return;
+    }
+
+    setHistoryLoading(true);
+    setHistoryError(null);
+    const { data, error: nextHistoryError } = await supabase
+      .from("ledger_transactions")
+      .select(
+        "id,transaction_amount,status,external_provider,provider_payment_id,created_at",
+      )
+      .eq("buyer_user_id", session.userId)
+      .eq("kind", "deposit")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (nextHistoryError) {
+      setHistory([]);
+      setHistoryError("No pudimos cargar tu historial de recargas.");
+      setHistoryLoading(false);
+      return;
+    }
+
+    setHistory(
+      (data ?? []).map((item) => ({
+        id: item.id,
+        amount: Number(item.transaction_amount ?? 0),
+        status: item.status ?? null,
+        provider: item.external_provider ?? null,
+        providerPaymentId: item.provider_payment_id ?? null,
+        createdAt: item.created_at,
+      })),
+    );
+    setHistoryLoading(false);
+  };
+
+  useEffect(() => {
     void loadHistory();
   }, [session?.isAuthenticated, session?.userId, depositSuccess, depositedTotal]);
 
@@ -122,8 +127,8 @@ function SaldoPageContent() {
       return;
     }
 
-    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
-      setError("Ingresa un monto válido para recargar saldo.");
+    if (!Number.isFinite(amountNumber) || amountNumber < 1000) {
+      setError("Ingresa un monto válido de al menos $1.000 para recargar saldo.");
       return;
     }
 
@@ -186,8 +191,17 @@ function SaldoPageContent() {
             </div>
 
             {!sessionLoading && !session?.isAuthenticated ? (
-              <div className="mt-4 inline-flex rounded-[14px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-700">
-                Iniciá sesión para ver tu saldo y continuar con la recarga.
+              <div className="mt-4 flex flex-col gap-3 rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-medium text-zinc-700 md:inline-flex">
+                <div>Iniciá sesión para ver tu saldo y continuar con la recarga.</div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/auth")}
+                    className="inline-flex items-center justify-center rounded-[12px] bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Ir a iniciar sesión
+                  </button>
+                </div>
               </div>
             ) : null}
           </section>
@@ -206,7 +220,7 @@ function SaldoPageContent() {
 
               <div className="mt-5 flex items-center gap-2 text-[14px] font-medium text-zinc-500">
                 <Info className="h-4 w-4 text-zinc-400" />
-                Elegí un monto y te llevamos a Mercado Pago para completar la recarga.
+                Elegí un monto. Cada ⚡ equivale a $1 y la recarga se completa en Mercado Pago.
               </div>
 
               <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -278,6 +292,9 @@ function SaldoPageContent() {
                       />
                     </div>
                   </label>
+                  <div className="mt-2 text-[12px] text-zinc-500">
+                    Monto mínimo sugerido: $1.000.
+                  </div>
                 </div>
               ) : null}
 
@@ -310,24 +327,44 @@ function SaldoPageContent() {
           </section>
 
           <section className="rounded-[22px] border border-zinc-100 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex items-center gap-2">
-              <History className="h-4 w-4 text-zinc-500" />
-              <h2 className="text-[18px] font-semibold tracking-tight text-zinc-950">
-                Historial de recargas
-              </h2>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-zinc-500" />
+                <h2 className="text-[18px] font-semibold tracking-tight text-zinc-950">
+                  Historial de recargas
+                </h2>
+              </div>
+              {session?.isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={() => void loadHistory()}
+                  className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-[12px] font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Actualizar
+                </button>
+              ) : null}
             </div>
 
             <div className="mt-4 overflow-hidden rounded-[18px] border border-zinc-200">
-              <div className="grid grid-cols-[1.2fr_0.8fr_0.8fr] gap-3 bg-zinc-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
-                <span>Fecha</span>
+              <div className="grid grid-cols-[1.1fr_0.8fr] gap-3 bg-zinc-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
+                <span>Movimiento</span>
                 <span>Monto</span>
-                <span>Estado</span>
+                <span className="hidden md:block">Estado</span>
                 <span className="hidden md:block">Referencia</span>
               </div>
 
               {historyLoading ? (
                 <div className="px-4 py-6 text-[13px] text-zinc-500">
                   Cargando historial...
+                </div>
+              ) : historyError ? (
+                <div className="px-4 py-6 text-[13px] text-rose-700">
+                  {historyError}
+                </div>
+              ) : !session?.isAuthenticated ? (
+                <div className="px-4 py-6 text-[13px] text-zinc-500">
+                  Iniciá sesión para ver tus recargas anteriores.
                 </div>
               ) : history.length === 0 ? (
                 <div className="px-4 py-6 text-[13px] text-zinc-500">
@@ -338,13 +375,20 @@ function SaldoPageContent() {
                   {history.map((item) => (
                     <div
                       key={item.id}
-                      className="grid grid-cols-[1.2fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-[13px] text-zinc-700 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]"
+                      className="grid grid-cols-[1.1fr_0.8fr] gap-3 px-4 py-3 text-[13px] text-zinc-700 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]"
                     >
-                      <span>{formatDateTime(item.createdAt)}</span>
+                      <div className="min-w-0">
+                        <div>{formatDateTime(item.createdAt)}</div>
+                        <div className="mt-1 text-[12px] text-zinc-500 md:hidden">
+                          {formatHistoryStatus(item.status)}
+                        </div>
+                      </div>
                       <span className="font-semibold text-zinc-950">
                         {formatARS(item.amount)}
                       </span>
-                      <span>{formatHistoryStatus(item.status)}</span>
+                      <span className="hidden md:block">
+                        {formatHistoryStatus(item.status)}
+                      </span>
                       <span className="hidden truncate md:block">
                         {item.providerPaymentId || item.provider || "Mercado Pago"}
                       </span>

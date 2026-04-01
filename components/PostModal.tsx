@@ -31,6 +31,7 @@ export default function PostModal({
 }: PostModalProps) {
   const [index, setIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [showPurchaseToast, setShowPurchaseToast] = useState(false);
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
@@ -58,6 +59,7 @@ export default function PostModal({
   useEffect(() => {
     setIndex(0);
     setMenuOpen(false);
+    setConfirmDelete(false);
     setPurchaseLoading(false);
     setShowPurchaseToast(false);
     setShowUnlockedChip(false);
@@ -128,7 +130,7 @@ export default function PostModal({
   }, [showPurchaseToast]);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 md:p-6">
       <div
         className="absolute inset-0 h-full w-full"
         onClick={onClose}
@@ -137,13 +139,13 @@ export default function PostModal({
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-6 top-6 rounded-[5px] bg-white/90 p-2 cursor-pointer"
+        className="absolute right-4 top-4 rounded-[8px] bg-white/90 p-2 cursor-pointer md:right-6 md:top-6"
         aria-label="Cerrar"
       >
         <X className="h-5 w-5" />
       </button>
-      <div className="relative z-10 flex w-full max-w-[1100px] overflow-hidden rounded-[5px] bg-white">
-        <div className="relative flex-1 bg-black h-[520px] md:h-[680px]">
+      <div className="relative z-10 flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[16px] bg-white md:max-h-none md:flex-row md:rounded-[5px]">
+        <div className="relative h-[42vh] bg-black md:h-[680px] md:flex-1">
           {current?.kind === "image" ? (
             <img
               src={current.url}
@@ -166,7 +168,7 @@ export default function PostModal({
           )}
 
           {post.media.length > 1 ? (
-            <div className="absolute inset-y-0 left-0 z-20 flex items-center pl-3">
+            <div className="absolute inset-y-0 left-0 z-20 flex items-center pl-2 md:pl-3">
               <button
                 type="button"
                 onClick={() =>
@@ -182,7 +184,7 @@ export default function PostModal({
             </div>
           ) : null}
           {post.media.length > 1 ? (
-            <div className="absolute inset-y-0 right-0 z-20 flex items-center pr-3">
+            <div className="absolute inset-y-0 right-0 z-20 flex items-center pr-2 md:pr-3">
               <button
                 type="button"
                 onClick={() =>
@@ -221,7 +223,7 @@ export default function PostModal({
           ) : null}
           {current?.locked && !isOwner ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <div className="w-full max-w-[260px] rounded-[14px] bg-white/95 px-8 py-6 text-center shadow-md">
+              <div className="w-full max-w-[260px] rounded-[14px] bg-white/95 px-6 py-5 text-center shadow-md md:px-8 md:py-6">
                 <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-zinc-100">
                   <Lock className="h-5 w-5 text-zinc-600" />
                 </div>
@@ -281,32 +283,21 @@ export default function PostModal({
           ) : null}
         </div>
 
-        <div className="relative w-[360px] border-l border-zinc-200 p-6">
+        <div className="relative w-full overflow-y-auto border-t border-zinc-200 bg-white p-4 md:w-[380px] md:border-l md:border-t-0 md:p-6">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
               <UserAvatar src={post.avatar} alt={post.author} />
-              <div>
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-semibold text-zinc-900">
+                  <div className="text-[15px] font-semibold text-zinc-900">
                     {post.author}
                   </div>
                   {isPaidPost ? (
-                    <div className="rounded-full bg-zinc-950 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white">
+                    <div className="rounded-full bg-zinc-950 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">
                       Post pago
                     </div>
                   ) : null}
                 </div>
-                {post.caption ? (
-                  <div className="mt-1 text-xs text-zinc-500">
-                    {post.caption}
-                  </div>
-                ) : null}
-                {isPaidPost ? (
-                  <div className="mt-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <span className="font-semibold">Contenido pago.</span> Este
-                    post se desbloquea por {formatARS(post.price ?? 0)}.
-                  </div>
-                ) : null}
               </div>
             </div>
             <button
@@ -319,20 +310,45 @@ export default function PostModal({
             </button>
           </div>
 
+          <div className="mt-4 space-y-4">
+            {post.caption ? (
+              <div className="rounded-[14px] bg-zinc-50 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                  Descripción
+                </div>
+                <div className="mt-1.5 text-[14px] leading-[1.45] text-zinc-700">
+                  {post.caption}
+                </div>
+              </div>
+            ) : null}
+
+            {isPaidPost ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="rounded-full bg-zinc-950 px-3 py-1.5 text-[12px] font-semibold text-white">
+                  Pago
+                </div>
+                <div className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
+                  {formatARS(post.price ?? 0)}
+                </div>
+              </div>
+            ) : null}
+
+            {isPaidPost ? (
+              <div className="rounded-[14px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-[13px] leading-[1.45] text-amber-950">
+                <span className="font-semibold">Contenido pago.</span> Este post
+                se desbloquea por {formatARS(post.price ?? 0)}.
+              </div>
+            ) : null}
+          </div>
+
           {menuOpen && isOwner ? (
             <div className="absolute right-6 top-14 z-10 w-52 overflow-hidden rounded-[10px] border border-zinc-200 bg-white shadow-lg">
               {post.userId && currentUserId && post.userId === currentUserId ? (
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => {
                     setMenuOpen(false);
-                    if (!onDelete) return;
-                    const confirmDelete = window.confirm(
-                      "¿Eliminar esta publicación?",
-                    );
-                    if (!confirmDelete) return;
-                    await onDelete(post.id);
-                    onClose();
+                    setConfirmDelete(true);
                   }}
                   className="w-full px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
                 >
@@ -343,11 +359,11 @@ export default function PostModal({
           ) : null}
 
           {lockedCount > 0 && !isOwner ? (
-            <div className="mt-6 rounded-[5px] border border-zinc-200 p-4">
-              <div className="text-sm font-semibold text-zinc-900">
+            <div className="mt-6 rounded-[14px] border border-zinc-200 p-4 shadow-sm">
+              <div className="text-[15px] font-semibold text-zinc-900">
                 Desbloquear post completo
               </div>
-              <div className="mt-2 text-xs text-zinc-500">
+              <div className="mt-2 text-[13px] text-zinc-500">
                 {lockedCount} contenido bloqueado
               </div>
               {!isOwner ? (
@@ -366,14 +382,14 @@ export default function PostModal({
                     }
                     setPurchaseLoading(false);
                   }}
-                  className="mt-4 w-full rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+                  className="mt-4 w-full rounded-[10px] bg-zinc-900 px-4 py-3 text-[15px] font-semibold text-white"
                 >
                   {purchaseLoading
                     ? "Procesando..."
                     : `Desbloquear por ${formatARS(post.price ?? 0)}`}
                 </button>
               ) : (
-                <div className="mt-4 rounded-[5px] bg-zinc-900 px-4 py-2 text-center text-sm font-semibold text-white">
+                <div className="mt-4 rounded-[10px] bg-zinc-900 px-4 py-3 text-center text-[15px] font-semibold text-white">
                   {formatARS(post.price ?? 0)}
                 </div>
               )}
@@ -387,11 +403,48 @@ export default function PostModal({
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[10px] bg-amber-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-amber-200"
             >
               <Zap className="h-4 w-4" />
-              Send Tip
+              Enviar propina
             </button>
           ) : null}
         </div>
       </div>
+
+      {confirmDelete ? (
+        <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-[360px] rounded-[18px] bg-white p-5 shadow-2xl">
+            <div className="text-[18px] font-semibold text-zinc-900">
+              ¿Eliminar publicación?
+            </div>
+            <p className="mt-2 text-[14px] leading-6 text-zinc-500">
+              Esta acción elimina el post de tu perfil y no se puede deshacer.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!onDelete) {
+                    setConfirmDelete(false);
+                    return;
+                  }
+                  await onDelete(post.id);
+                  setConfirmDelete(false);
+                  onClose();
+                }}
+                className="flex-1 rounded-[12px] bg-rose-600 px-4 py-3 text-sm font-semibold text-white"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

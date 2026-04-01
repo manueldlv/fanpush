@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   useGetAdminAccessQuery,
@@ -10,6 +10,8 @@ import {
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const hasPathname = typeof pathname === "string" && pathname.length > 0;
   const inAuth = pathname?.startsWith("/auth");
   const inAdmin = pathname?.startsWith("/admin");
   const inAdminLogin = pathname?.startsWith("/admin/login");
@@ -34,17 +36,19 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     isLoading: sessionLoading,
     error: sessionError,
   } = useGetSessionQuery(undefined, {
-    skip: allowWithoutSession || inAdmin,
+    skip: !hasPathname || allowWithoutSession || inAdmin,
   });
   const {
     data: adminAccess,
     isLoading: adminAccessLoading,
     error: adminAccessError,
   } = useGetAdminAccessQuery(undefined, {
-    skip: allowWithoutSession || !inAdmin,
+    skip: !hasPathname || allowWithoutSession || !inAdmin,
   });
   const loading =
-    !allowWithoutSession && (inAdmin ? adminAccessLoading : sessionLoading);
+    hasPathname &&
+    !allowWithoutSession &&
+    (inAdmin ? adminAccessLoading : sessionLoading);
   const configError = Boolean(inAdmin ? adminAccessError : sessionError);
   const allowed = allowWithoutSession
     ? true
@@ -53,11 +57,31 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       : Boolean(session?.isAuthenticated);
 
   useEffect(() => {
-    if (allowWithoutSession || loading || configError || allowed) {
+    if (!loading) {
+      setLoadingTimedOut(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setLoadingTimedOut(true);
+    }, 2500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loading]);
+
+  useEffect(() => {
+    if (
+      !hasPathname ||
+      allowWithoutSession ||
+      loading ||
+      configError ||
+      allowed
+    ) {
       return;
     }
     router.replace(inAdmin ? "/admin/login" : "/auth");
   }, [
+    hasPathname,
     allowWithoutSession,
     allowed,
     configError,
@@ -67,18 +91,26 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     router,
   ]);
 
-  if (allowWithoutSession) return <>{children}</>;
-  if (!allowed) {
+  if (!hasPathname || allowWithoutSession) return <>{children}</>;
+  if (loading && !loadingTimedOut) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
         <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-5 text-sm text-zinc-600 shadow-sm">
-          {configError
-            ? "Falta configurar la autenticación para acceder a esta sección."
-            : "Verificando sesión..."}
+          Verificando sesión...
         </div>
       </div>
     );
   }
+  if (configError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+        <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-5 text-sm text-zinc-600 shadow-sm">
+          Falta configurar la autenticación para acceder a esta sección.
+        </div>
+      </div>
+    );
+  }
+  if (!allowed) return null;
 
   return <>{children}</>;
 }

@@ -1,0 +1,21 @@
+# Execution
+
+- id: 2026-04-01-01-backend-handoff-plans
+- plan_id: none
+- executed_by: manuel
+- scope: safe
+- files_changed:
+  - vibe-coding/templates/backend-handoff-plan.md
+  - vibe-coding/templates/frontend-commit-handoff.md
+  - vibe-coding/README.md
+  - vibe-coding/inbox/2026-04-01-01-backend-handoff-plans.md
+  - vibe-coding/executions/2026-04-01-01-backend-handoff-plans.md
+  - vibe-coding/changelog/2026-04-01-01-backend-handoff-plans.md
+  - vibe-coding/registry/index.json
+- what_changed:
+  - Se agrego una plantilla de plan para handoff de backend dirigido al admin.
+  - Se agrego una plantilla corta para adjuntar a commits de frontend cuando queda trabajo de backend pendiente.
+  - Se documento el uso dentro de `vibe-coding/README.md`.
+- validation:
+  - Revisado contra las reglas de identidad y scope del workflow `vibe-coding`.
+- matched_plan: yes

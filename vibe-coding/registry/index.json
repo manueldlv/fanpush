@@ -108,6 +108,114 @@
       "inbox": "vibe-coding/inbox/2026-03-31-02-rtk-query-foundation.md",
       "execution": "vibe-coding/executions/2026-03-31-02-rtk-query-foundation.md",
       "changelog": "vibe-coding/changelog/2026-03-31-02-rtk-query-foundation.md"
+    },
+    {
+      "id": "2026-04-01-01-backend-handoff-plans",
+      "type": "execution",
+      "title": "Agregar templates para handoff de backend desde frontend",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-01-backend-handoff-plans.md",
+      "execution": "vibe-coding/executions/2026-04-01-01-backend-handoff-plans.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-01-backend-handoff-plans.md"
+    },
+    {
+      "id": "2026-04-01-02-post-modal-description-structure",
+      "type": "execution",
+      "title": "Mejorar estructura visual del modal de post pago",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-02-post-modal-description-structure.md",
+      "execution": "vibe-coding/executions/2026-04-01-02-post-modal-description-structure.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-02-post-modal-description-structure.md"
+    },
+    {
+      "id": "2026-04-01-03-user-launch-ux-foundation",
+      "type": "execution",
+      "title": "Mejorar base UX para lanzamiento del lado usuario",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-03-user-launch-ux-foundation.md",
+      "execution": "vibe-coding/executions/2026-04-01-03-user-launch-ux-foundation.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-03-user-launch-ux-foundation.md"
+    },
+    {
+      "id": "2026-04-01-04-saldo-tip-ux-consistency",
+      "type": "execution",
+      "title": "Mejorar consistencia UX en saldo y propinas",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-04-saldo-tip-ux-consistency.md",
+      "execution": "vibe-coding/executions/2026-04-01-04-saldo-tip-ux-consistency.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-04-saldo-tip-ux-consistency.md"
+    },
+    {
+      "id": "2026-04-01-05-profile-feed-feedback-cleanup",
+      "type": "execution",
+      "title": "Limpiar feedback brusco en perfil y feed",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-05-profile-feed-feedback-cleanup.md",
+      "execution": "vibe-coding/executions/2026-04-01-05-profile-feed-feedback-cleanup.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-05-profile-feed-feedback-cleanup.md"
+    },
+    {
+      "id": "2026-04-01-06-mobile-responsive-pass",
+      "type": "execution",
+      "title": "Mejorar responsive mobile en superficies clave del usuario",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-06-mobile-responsive-pass.md",
+      "execution": "vibe-coding/executions/2026-04-01-06-mobile-responsive-pass.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-06-mobile-responsive-pass.md"
+    },
+    {
+      "id": "2026-04-01-07-modal-confirmation-cleanup",
+      "type": "execution",
+      "title": "Limpiar confirmacion y textos finales del modal de post",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-07-modal-confirmation-cleanup.md",
+      "execution": "vibe-coding/executions/2026-04-01-07-modal-confirmation-cleanup.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-07-modal-confirmation-cleanup.md"
+    },
+    {
+      "id": "2026-04-01-08-tip-layout-refresh",
+      "type": "execution",
+      "title": "Rediseñar layout de propina segun mock",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-01-08-tip-layout-refresh.md",
+      "execution": "vibe-coding/executions/2026-04-01-08-tip-layout-refresh.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-08-tip-layout-refresh.md"
+    },
+    {
+      "id": "2026-04-01-09-admin-user-creation",
+      "type": "execution",
+      "title": "Crear usuario admin para acceso al panel",
+      "status": "completed",
+      "requested_by": "manuel",
+      "approved_by": "user_requested",
+      "scope": "needs_approval",
+      "inbox": "vibe-coding/inbox/2026-04-01-09-admin-user-creation.md",
+      "execution": "vibe-coding/executions/2026-04-01-09-admin-user-creation.md",
+      "changelog": "vibe-coding/changelog/2026-04-01-09-admin-user-creation.md"
     }
   ]
 }

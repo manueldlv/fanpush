@@ -144,8 +144,16 @@ export default function FeedLayout() {
     userId: string;
     label: string;
   } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
   const viewerBalance = useAppSelector((state) => state.viewer.commerce.balance);
-  const { data: feedData, isLoading: feedLoading } = useGetFeedQuery();
+  const {
+    data: feedData,
+    isLoading: feedLoading,
+    error: feedError,
+    refetch,
+  } = useGetFeedQuery();
 
   const openPost = posts.find((post) => post.id === selectedPost) ?? null;
   const menuPost = posts.find((post) => post.id === menuPostId) ?? null;
@@ -203,6 +211,16 @@ export default function FeedLayout() {
     dispatch(setFeedPosts(feedData.posts));
     setLoading(feedLoading);
   }, [dispatch, feedData, feedLoading]);
+
+  useEffect(() => {
+    if (!deleteError && !purchaseError && !purchaseSuccess) return;
+    const timeout = window.setTimeout(() => {
+      setDeleteError(null);
+      setPurchaseError(null);
+      setPurchaseSuccess(null);
+    }, 3600);
+    return () => window.clearTimeout(timeout);
+  }, [deleteError, purchaseError, purchaseSuccess]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -377,11 +395,14 @@ export default function FeedLayout() {
         kind: "purchase",
         albumId,
       });
+      setPurchaseError(null);
+      setPurchaseSuccess("Compra realizada. El contenido premium ya quedó habilitado.");
       window.dispatchEvent(new Event("purchases-updated"));
       window.dispatchEvent(new Event("balance-updated"));
       return true;
     } catch (error) {
-      alert(
+      setPurchaseSuccess(null);
+      setPurchaseError(
         error instanceof Error
           ? error.message
           : "No se pudo completar la compra con saldo.",
@@ -460,7 +481,7 @@ export default function FeedLayout() {
       dispatch(setFeedPosts(posts.filter((post) => post.id !== albumId)));
     } catch (err) {
       console.error(err);
-      alert("No se pudo eliminar la publicación. Revisa los permisos (RLS).");
+      setDeleteError("No se pudo eliminar la publicación. Revisa los permisos.");
     } finally {
       setMenuPostId(null);
       setConfirmDeleteId(null);
@@ -513,6 +534,53 @@ export default function FeedLayout() {
 
   return (
     <section className="flex w-full max-w-none flex-col gap-6 md:max-w-[630px] md:pr-2">
+      {feedError ? (
+        <div className="rounded-[16px] border border-rose-200 bg-rose-50 p-5 shadow-sm">
+          <div className="text-sm font-semibold text-rose-800">
+            No pudimos cargar tu feed ahora mismo
+          </div>
+          <p className="mt-2 text-sm leading-6 text-rose-700">
+            Revisá tu conexión o volvé a intentarlo. Si el problema sigue, podés
+            usar Explorar mientras tanto.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="rounded-[12px] bg-rose-600 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Reintentar
+            </button>
+            <a
+              href="/explorar"
+              className="rounded-[12px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700"
+            >
+              Ir a explorar
+            </a>
+          </div>
+        </div>
+      ) : null}
+      {deleteError ? (
+        <div className="rounded-[16px] border border-rose-200 bg-rose-50 p-4 shadow-sm">
+          <div className="text-sm font-semibold text-rose-700">
+            {deleteError}
+          </div>
+        </div>
+      ) : null}
+      {purchaseSuccess ? (
+        <div className="rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+          <div className="text-sm font-semibold text-emerald-800">
+            {purchaseSuccess}
+          </div>
+        </div>
+      ) : null}
+      {purchaseError ? (
+        <div className="rounded-[16px] border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <div className="text-sm font-semibold text-amber-900">
+            {purchaseError}
+          </div>
+        </div>
+      ) : null}
       {loading ? (
         <>
           <FeedHeroSkeleton />
@@ -1057,7 +1125,7 @@ export default function FeedLayout() {
                     className="inline-flex items-center gap-2 rounded-full bg-amber-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:bg-amber-200"
                   >
                     <Zap className="h-4 w-4" />
-                    Send Tip
+                    Enviar propina
                   </button>
                 ) : null}
               </div>

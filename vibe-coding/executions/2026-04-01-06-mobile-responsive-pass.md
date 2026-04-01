@@ -1,0 +1,21 @@
+# Execution
+
+- id: 2026-04-01-06-mobile-responsive-pass
+- plan_id: none
+- executed_by: manuel
+- scope: safe
+- files_changed:
+  - app/perfil/PerfilPageClient.tsx
+  - app/saldo/page.tsx
+  - components/PostModal.tsx
+  - vibe-coding/inbox/2026-04-01-06-mobile-responsive-pass.md
+  - vibe-coding/executions/2026-04-01-06-mobile-responsive-pass.md
+  - vibe-coding/changelog/2026-04-01-06-mobile-responsive-pass.md
+  - vibe-coding/registry/index.json
+- what_changed:
+  - Se saco el bloqueo de alto fijo del perfil para que mobile pueda scrollear bien.
+  - Se adapto mejor la tabla de historial de saldo para pantallas chicas.
+  - El modal de post ahora se apila mejor en mobile y aprovecha mejor el viewport.
+- validation:
+  - `npm run build`
+- matched_plan: yes

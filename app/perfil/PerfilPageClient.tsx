@@ -131,6 +131,10 @@ export default function PerfilPage({
   const [openPost, setOpenPost] = useState<Post | null>(null);
   const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
   const [tipOpen, setTipOpen] = useState(false);
+  const [uiMessage, setUiMessage] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -254,6 +258,14 @@ export default function PerfilPage({
     };
   }, [dispatch, profileId, routeUsername]);
 
+  useEffect(() => {
+    if (!uiMessage) return;
+    const timeout = window.setTimeout(() => {
+      setUiMessage(null);
+    }, 3600);
+    return () => window.clearTimeout(timeout);
+  }, [uiMessage]);
+
   const openPostFromProfile = async (post: Post) => {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -356,7 +368,10 @@ export default function PerfilPage({
         .eq("follower_id", currentUserId)
         .eq("following_id", viewedUserId);
       if (error) {
-        alert(`No se pudo dejar de seguir: ${error.message}`);
+        setUiMessage({
+          tone: "error",
+          text: `No se pudo dejar de seguir: ${error.message}`,
+        });
         return;
       }
       dispatch(
@@ -369,13 +384,20 @@ export default function PerfilPage({
           },
         ),
       );
+      setUiMessage({
+        tone: "success",
+        text: `Ya no seguís a @${profileName}.`,
+      });
     } else {
       const { error } = await supabase.from("follows").insert({
         follower_id: currentUserId,
         following_id: viewedUserId,
       });
       if (error) {
-        alert(`No se pudo seguir a este usuario: ${error.message}`);
+        setUiMessage({
+          tone: "error",
+          text: `No se pudo seguir a este usuario: ${error.message}`,
+        });
         return;
       }
       dispatch(
@@ -388,6 +410,10 @@ export default function PerfilPage({
           },
         ),
       );
+      setUiMessage({
+        tone: "success",
+        text: `Ahora seguís a @${profileName}.`,
+      });
 
       await supabase.from("notifications").insert({
         user_id: viewedUserId,
@@ -470,9 +496,16 @@ export default function PerfilPage({
         ),
       );
       setOpenPost(null);
+      setUiMessage({
+        tone: "success",
+        text: "La publicación se eliminó correctamente.",
+      });
     } catch (err) {
       console.error(err);
-      alert("No se pudo eliminar la publicación. Revisa los permisos (RLS).");
+      setUiMessage({
+        tone: "error",
+        text: "No se pudo eliminar la publicación. Revisa los permisos.",
+      });
     }
   };
 
@@ -483,15 +516,21 @@ export default function PerfilPage({
         kind: "purchase",
         albumId,
       });
+      setUiMessage({
+        tone: "success",
+        text: "Compra realizada. El contenido premium ya quedó habilitado.",
+      });
       window.dispatchEvent(new Event("purchases-updated"));
       window.dispatchEvent(new Event("balance-updated"));
       return true;
     } catch (error) {
-      alert(
-        error instanceof Error
-          ? error.message
-          : "No se pudo completar la compra con saldo.",
-      );
+      setUiMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "No se pudo completar la compra con saldo.",
+      });
       return false;
     }
   };
@@ -501,7 +540,7 @@ export default function PerfilPage({
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft />
       {openPost ? (
         <PostModal
@@ -527,8 +566,19 @@ export default function PerfilPage({
         }}
       />
 
-      <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-4 px-4 py-4 md:max-w-[1240px] md:gap-5 md:px-6 md:py-5">
+      <div className="flex min-h-screen md:pl-60">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-4 px-4 py-4 pb-24 md:max-w-[1240px] md:gap-5 md:px-6 md:py-5">
+          {uiMessage ? (
+            <div
+              className={`rounded-[12px] border px-4 py-3 text-sm font-medium shadow-sm ${
+                uiMessage.tone === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-rose-200 bg-rose-50 text-rose-700"
+              }`}
+            >
+              {uiMessage.text}
+            </div>
+          ) : null}
           {profileLoading ? (
             <ProfileHeaderSkeleton />
           ) : (
@@ -659,7 +709,7 @@ export default function PerfilPage({
             <ProfilePostsSkeleton />
           ) : (
             <div className="rounded-[12px] border border-zinc-200 bg-white">
-              <div className="flex items-center justify-center gap-8 border-b border-zinc-200 px-6 pt-4 text-sm font-semibold text-zinc-500">
+              <div className="flex items-center justify-center gap-5 border-b border-zinc-200 px-4 pt-4 text-sm font-semibold text-zinc-500 md:gap-8 md:px-6">
                 <button
                   onClick={() => setActiveTab("posts")}
                   className={`pb-3 ${
@@ -729,7 +779,7 @@ export default function PerfilPage({
                     );
                   })
                 ) : (
-                  <div className="col-span-3 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500">
+                  <div className="col-span-2 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500 sm:col-span-3">
                     Aun no tienes compras.
                   </div>
                 )}

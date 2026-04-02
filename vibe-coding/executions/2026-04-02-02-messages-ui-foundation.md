@@ -1,0 +1,23 @@
+# Execution
+
+- id: 2026-04-02-02-messages-ui-foundation
+- plan_id: 2026-04-02-01-messaging-system
+- executed_by: matias
+- scope: safe
+- files_changed:
+  - app/mensajes/page.tsx
+  - components/SidebarLeft.tsx
+  - app/perfil/PerfilPageClient.tsx
+  - vibe-coding/inbox/2026-04-02-01-messaging-system.md
+  - vibe-coding/plans/2026-04-02-01-messaging-system.md
+  - vibe-coding/executions/2026-04-02-02-messages-ui-foundation.md
+  - vibe-coding/changelog/2026-04-02-02-messages-ui-foundation.md
+  - vibe-coding/registry/index.json
+- what_changed:
+  - Se agrego la entrada `Mensajes` en la navegacion izquierda y mobile.
+  - Se creo la ruta `/mensajes` con layout tipo inbox/chat y composicion base de mensajes.
+  - Se agrego el boton `Enviar mensaje` en perfiles ajenos y el prefill del chat por username.
+  - Se incorporo una UX base para ofertas premium dentro del chat con tarjeta comprable.
+- validation:
+  - `npm run build`
+- matched_plan: yes

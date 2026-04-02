@@ -675,7 +675,7 @@ export default function PerfilPage({
                           Editar perfil
                         </button>
                       ) : currentUserId && viewedUserId ? (
-                        <div className="grid grid-cols-2 gap-2.5">
+                        <div className="grid grid-cols-3 gap-2.5">
                           <button
                             type="button"
                             onClick={toggleFollow}
@@ -686,6 +686,19 @@ export default function PerfilPage({
                             }`}
                           >
                             {isFollowing ? "Siguiendo" : "Seguir"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              router.push(
+                                `/mensajes?user=${encodeURIComponent(
+                                  profileData?.profile.username ?? profileName ?? "",
+                                )}`,
+                              )
+                            }
+                            className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                          >
+                            Enviar mensaje
                           </button>
                           <button
                             type="button"

@@ -7,6 +7,7 @@ import {
   LogOut,
   DollarSign,
   Search,
+  Send,
   Settings,
   ShoppingBag,
   SquarePlus,
@@ -57,6 +58,13 @@ export default function SidebarLeft() {
             >
               <Compass className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
               <span>Explorar</span>
+            </Link>
+            <Link
+              href="/mensajes"
+              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              <Send className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <span>Mensajes</span>
             </Link>
             <Link
               href="/notificaciones"
@@ -182,6 +190,13 @@ export default function SidebarLeft() {
           aria-label="Explorar"
         >
           <Compass className="h-5 w-5" />
+        </Link>
+        <Link
+          href="/mensajes"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+          aria-label="Mensajes"
+        >
+          <Send className="h-5 w-5" />
         </Link>
         {canCreate ? (
           <Link

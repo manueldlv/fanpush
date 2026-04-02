@@ -216,6 +216,30 @@
       "inbox": "vibe-coding/inbox/2026-04-01-09-admin-user-creation.md",
       "execution": "vibe-coding/executions/2026-04-01-09-admin-user-creation.md",
       "changelog": "vibe-coding/changelog/2026-04-01-09-admin-user-creation.md"
+    },
+    {
+      "id": "2026-04-02-01-messaging-system",
+      "type": "plan",
+      "title": "Sistema de mensajes con ofertas premium y supervision admin",
+      "status": "approved",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "needs_approval",
+      "inbox": "vibe-coding/inbox/2026-04-02-01-messaging-system.md",
+      "plan": "vibe-coding/plans/2026-04-02-01-messaging-system.md"
+    },
+    {
+      "id": "2026-04-02-02-messages-ui-foundation",
+      "type": "execution",
+      "title": "Crear base visible de mensajes e ingreso desde perfiles",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-02-01-messaging-system.md",
+      "plan": "vibe-coding/plans/2026-04-02-01-messaging-system.md",
+      "execution": "vibe-coding/executions/2026-04-02-02-messages-ui-foundation.md",
+      "changelog": "vibe-coding/changelog/2026-04-02-02-messages-ui-foundation.md"
     }
   ]
 }

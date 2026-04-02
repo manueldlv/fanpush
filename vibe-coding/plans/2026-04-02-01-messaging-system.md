@@ -1,0 +1,27 @@
+# Plan
+
+- id: 2026-04-02-01-messaging-system
+- title: Sistema de mensajes con ofertas premium y supervision admin
+- scope: needs_approval
+- status: approved
+- requested_by: matias
+- approved_by: matias
+- files_allowed:
+  - app/mensajes/**
+  - app/admin/**
+  - app/api/**
+  - components/**
+  - lib/**
+  - vibe-coding/**
+- files_blocked:
+  - supabase/setup.sql
+- steps:
+  - Crear la superficie visible de mensajes en sidebar, perfiles y nueva ruta `/mensajes`.
+  - Definir contratos reutilizando `notification_threads` y `notification_messages` como base tecnica para conversaciones privadas compatibles.
+  - Diseñar el flujo de oferta premium en chat con precio, tarjeta de compra y estados de desbloqueo.
+  - Extender admin para listar y auditar conversaciones sin romper el inbox actual.
+  - Documentar pendientes backend si hace falta persistencia o reglas extra de compra/entrega.
+- acceptance_criteria:
+  - El usuario puede entrar a `/mensajes` desde el sidebar y desde perfiles ajenos.
+  - Existe una UX clara para chatear y para visualizar ofertas privadas con precio.
+  - La extension real de compra/persistencia/admin queda documentada y dividida en fases.

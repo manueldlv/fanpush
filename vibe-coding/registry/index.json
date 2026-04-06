@@ -218,6 +218,30 @@
       "changelog": "vibe-coding/changelog/2026-04-01-09-admin-user-creation.md"
     },
     {
+      "id": "2026-04-06-01-post-tip-toggle",
+      "type": "execution",
+      "title": "Agregar propina on off por publicacion",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-06-01-post-tip-toggle.md",
+      "execution": "vibe-coding/executions/2026-04-06-01-post-tip-toggle.md",
+      "changelog": "vibe-coding/changelog/2026-04-06-01-post-tip-toggle.md"
+    },
+    {
+      "id": "2026-04-06-02-purchases-ux-density",
+      "type": "execution",
+      "title": "Compactar historial y paginar mis compras",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-06-02-purchases-ux-density.md",
+      "execution": "vibe-coding/executions/2026-04-06-02-purchases-ux-density.md",
+      "changelog": "vibe-coding/changelog/2026-04-06-02-purchases-ux-density.md"
+    },
+    {
       "id": "2026-04-02-01-messaging-system",
       "type": "plan",
       "title": "Sistema de mensajes con ofertas premium y supervision admin",

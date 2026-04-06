@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Image as ImageIcon, Lock, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Film,
+  Image as ImageIcon,
+  Lock,
+  X,
+} from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import Link from "next/link";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { useGetPurchasesQuery } from "@/lib/redux/api/commerceApi";
 import { formatARS } from "@/lib/utils";
 
@@ -21,12 +31,92 @@ type PurchaseItem = {
   status: string;
 };
 
+const DEMO_MEDIA = Array.from({ length: 10 }).map((_, index) => ({
+  url: `https://picsum.photos/seed/fanpush-purchase-demo-${index + 1}/600/600`,
+  kind: index % 4 === 0 ? ("video" as const) : ("image" as const),
+}));
+
 export default function ComprasPage() {
   const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [isLocalPreview, setIsLocalPreview] = useState(false);
   const { data, isLoading: loading } = useGetPurchasesQuery();
   const items = data?.items ?? [];
+  const ITEMS_PER_PAGE = 10;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const host = window.location.hostname;
+    setIsLocalPreview(host === "127.0.0.1" || host === "localhost");
+  }, []);
+
+  const displayItems = useMemo(() => {
+    if (isLocalPreview) {
+      const sourceItems: PurchaseItem[] =
+        items.length > 0
+          ? items
+          : [
+              {
+                id: "demo-purchase",
+                title: "Álbum premium demo para probar compras y paginación",
+                creator: "seed_author",
+                date: new Date().toLocaleDateString("es-AR", {
+                  day: "2-digit",
+                  month: "short",
+                }),
+                price: 90000,
+                cover: DEMO_MEDIA[0].url,
+                covers: DEMO_MEDIA.map((item) => item.url),
+                media: DEMO_MEDIA,
+                status: "approved",
+              },
+            ];
+
+      if (sourceItems.length < 30) {
+        return Array.from({ length: 30 }).map((_, index) => {
+          const base = sourceItems[index % sourceItems.length];
+          const mediaCount = (index % 10) + 1;
+          const date = new Date(Date.now() - index * 8.64e7).toLocaleDateString(
+            "es-AR",
+            {
+              day: "2-digit",
+              month: "short",
+            },
+          );
+          return {
+            ...base,
+            id: `${base.id}-preview-${index + 1}`,
+            title: `${base.title} #${index + 1}`,
+            date,
+            price: base.price + index * 350,
+            covers: DEMO_MEDIA.slice(0, mediaCount).map((item) => item.url),
+            media: DEMO_MEDIA.slice(0, mediaCount),
+          };
+        });
+      }
+    }
+    return items;
+  }, [isLocalPreview, items]);
+
+  const totalSpent = useMemo(
+    () => displayItems.reduce((acc, item) => acc + item.price, 0),
+    [displayItems],
+  );
+  const totalPages = Math.max(1, Math.ceil(displayItems.length / ITEMS_PER_PAGE));
+  const paginatedItems = useMemo(
+    () =>
+      displayItems.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
+    [displayItems, page],
+  );
+  const rangeStart =
+    displayItems.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
+  const rangeEnd = Math.min(page * ITEMS_PER_PAGE, displayItems.length);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   const handleDownload = async (purchase: PurchaseItem) => {
     if (downloadingId) return;
@@ -54,8 +144,79 @@ export default function ComprasPage() {
     }
   };
 
+  const renderThumbGrid = (purchase: PurchaseItem) => {
+    const thumbItems =
+      purchase.covers.length > 0 ? purchase.covers : [purchase.cover];
+    const visibleThumbs = thumbItems.slice(0, 10);
+    const extraCount = Math.max(thumbItems.length - 10, 0);
+    const thumbCount = visibleThumbs.length || 1;
+
+    const layout =
+      thumbCount === 1
+        ? { columns: 1, rows: 1 }
+        : thumbCount === 2
+          ? { columns: 2, rows: 1 }
+          : thumbCount === 4
+            ? { columns: 2, rows: 2 }
+            : thumbCount <= 5
+              ? { columns: thumbCount, rows: 1 }
+              : { columns: Math.ceil(thumbCount / 2), rows: 2 };
+
+    const remainder =
+      layout.rows > 1 ? thumbCount % layout.columns : 0;
+    const finalItemSpan =
+      layout.rows > 1 && remainder !== 0 ? layout.columns - remainder + 1 : 1;
+
+    return (
+      <div
+        className="relative grid h-[88px] w-[88px] gap-1 overflow-hidden rounded-[12px] border border-zinc-200 bg-zinc-100 p-1"
+        style={{
+          gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+        }}
+      >
+        {visibleThumbs.map((src, index) => {
+          const mediaKind = purchase.media[index]?.kind ?? "image";
+          const isLastVisible = index === visibleThumbs.length - 1;
+          const shouldSpan =
+            isLastVisible && finalItemSpan > 1;
+          return (
+            <div
+              key={`${purchase.id}-thumb-${index}-${src}`}
+              className="relative overflow-hidden rounded-[8px] bg-zinc-100"
+              style={shouldSpan ? { gridColumn: `span ${finalItemSpan}` } : undefined}
+            >
+              <MediaImage
+                src={src}
+                alt={purchase.title}
+                className="h-full w-full object-cover"
+                fallbackClassName="h-full w-full"
+                iconClassName="h-4 w-4"
+              />
+              {mediaKind === "video" ? (
+                <div className="absolute bottom-1 right-1 rounded-full bg-black/65 p-1 text-white">
+                  <Film className="h-3 w-3" />
+                </div>
+              ) : null}
+              {extraCount > 0 && isLastVisible ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold text-white">
+                  +{extraCount}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        {purchase.status === "Pendiente" ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-white">
+            <Lock className="h-4 w-4" />
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft />
       {openPurchase ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6">
@@ -126,8 +287,8 @@ export default function ComprasPage() {
         </div>
       ) : null}
 
-      <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1100px] md:gap-8 md:px-6 md:py-8">
+      <div className="flex min-h-screen md:pl-60">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-5 px-4 py-5 pb-24 md:max-w-[1120px] md:gap-6 md:px-6 md:py-6">
           <div>
             <h1 className="text-2xl font-semibold">Mis compras</h1>
             <p className="text-sm text-zinc-500">
@@ -135,36 +296,42 @@ export default function ComprasPage() {
             </p>
           </div>
 
-          {!loading && items.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="rounded-[12px] border border-zinc-200 bg-white p-5">
-                <div className="text-xs text-zinc-500">Publicaciones compradas</div>
-                <div className="mt-2 text-2xl font-semibold text-zinc-900">
-                  {items.length}
+          {!loading && displayItems.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+                  Publicaciones compradas
+                </div>
+                <div className="mt-2 text-xl font-semibold text-zinc-900">
+                  {displayItems.length}
                 </div>
               </div>
-              <div className="rounded-[12px] border border-zinc-200 bg-white p-5">
-                <div className="text-xs text-zinc-500">Invertido en contenido</div>
-                <div className="mt-2 text-2xl font-semibold text-zinc-900">
-                  {formatARS(items.reduce((acc, item) => acc + item.price, 0))}
+              <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+                  Invertido en contenido
+                </div>
+                <div className="mt-2 text-xl font-semibold text-zinc-900">
+                  {formatARS(totalSpent)}
                 </div>
               </div>
-              <div className="rounded-[12px] border border-zinc-200 bg-white p-5">
-                <div className="text-xs text-zinc-500">Última compra</div>
-                <div className="mt-2 text-lg font-semibold text-zinc-900">
-                  {items[0]?.date ?? "—"}
+              <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+                  Última compra
+                </div>
+                <div className="mt-2 text-base font-semibold text-zinc-900">
+                  {displayItems[0]?.date ?? "—"}
                 </div>
               </div>
             </div>
           ) : null}
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {loading ? (
               <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
                 Cargando compras...
               </div>
             ) : null}
-            {!loading && items.length === 0 ? (
+            {!loading && displayItems.length === 0 ? (
               <div className="rounded-[16px] border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
                 <div className="text-lg font-semibold text-zinc-900">
                   Aún no tienes compras
@@ -189,81 +356,121 @@ export default function ComprasPage() {
                 </div>
               </div>
             ) : null}
-            {items.map((purchase) => (
-              <div
-                key={purchase.id}
-                className="flex flex-col gap-4 rounded-[5px] border border-zinc-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <div className="relative h-20 w-20 overflow-hidden rounded-[5px] border border-zinc-200 bg-zinc-100">
-                      <MediaImage
-                        src={purchase.cover}
-                        alt={purchase.title}
-                        className="h-full w-full object-cover"
-                        fallbackClassName="h-full w-full"
-                        iconClassName="h-5 w-5"
-                      />
-                      {purchase.status === "Pendiente" ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
-                          <Lock className="h-5 w-5" />
-                        </div>
-                      ) : null}
-                    </div>
-                    {purchase.covers.length > 1 ? (
-                      <div className="flex gap-1">
-                        {purchase.covers.slice(1, 3).map((cover, index) => (
-                          <MediaImage
-                            key={`${purchase.id}-thumb-${index}`}
-                            src={cover}
-                            alt={purchase.title}
-                            className="h-10 w-10 rounded-[5px] object-cover"
-                            fallbackClassName="h-10 w-10 rounded-[5px]"
-                            iconClassName="h-4 w-4"
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+            {!loading && displayItems.length > 0 ? (
+              <div className="rounded-[14px] border border-zinc-200 bg-white">
+                <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">
-                      {purchase.title}
+                      Historial de compras
                     </div>
                     <div className="text-xs text-zinc-500">
-                      @{purchase.creator} · {purchase.date}
-                    </div>
-                    <div className="mt-2 flex items-center gap-3 text-sm">
-                      <span className="font-semibold text-zinc-900">
-                        {formatARS(purchase.price)}
-                      </span>
-                      <span className="text-xs text-zinc-500">{purchase.status}</span>
+                      Mostrando {rangeStart}-{rangeEnd} de {displayItems.length} compras
                     </div>
                   </div>
+                  {totalPages > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPage((current) => Math.max(1, current - 1))}
+                        disabled={page === 1}
+                        className="inline-flex items-center gap-1 rounded-[10px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Anterior
+                      </button>
+                      <div className="min-w-[88px] text-center text-xs font-semibold text-zinc-600">
+                        Página {page} de {totalPages}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPage((current) => Math.min(totalPages, current + 1))
+                        }
+                        disabled={page === totalPages}
+                        className="inline-flex items-center gap-1 rounded-[10px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Siguiente
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenPurchase(purchase);
-                      setOpenIndex(0);
-                    }}
-                    className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                  >
-                    <ImageIcon className="h-4 w-4" />
-                    Ver foto
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDownload(purchase)}
-                    className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={downloadingId === purchase.id}
-                  >
-                    <Download className="h-4 w-4" />
-                    {downloadingId === purchase.id ? "Descargando..." : "Descargar"}
-                  </button>
+
+                <div className="divide-y divide-zinc-200">
+                  {paginatedItems.map((purchase) => (
+                    <div
+                      key={purchase.id}
+                      className="flex flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex gap-3">
+                          <div className="shrink-0">{renderThumbGrid(purchase)}</div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <div className="truncate text-[15px] font-semibold text-zinc-900">
+                                {purchase.title}
+                              </div>
+                              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+                                {purchase.media.length} archivo
+                                {purchase.media.length === 1 ? "" : "s"}
+                              </span>
+                              <span className="text-[11px] text-zinc-500">
+                                {purchase.status}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-sm text-zinc-500">
+                              <Link
+                                href={buildUserProfileHref(purchase.creator)}
+                                className="font-medium text-zinc-700 transition hover:text-zinc-900 hover:underline"
+                              >
+                                @{purchase.creator}
+                              </Link>{" "}
+                              · {purchase.date}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-3">
+                              <span className="text-base font-semibold text-zinc-900">
+                                {formatARS(purchase.price)}
+                              </span>
+                              {purchase.media.length > 5 ? (
+                                <span className="text-xs text-zinc-500">
+                                  +{purchase.media.length - 5} más en el álbum
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenPurchase(purchase);
+                            setOpenIndex(0);
+                          }}
+                          className="inline-flex items-center justify-center gap-2 rounded-[10px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                        >
+                          <ImageIcon className="h-4 w-4" />
+                          Abrir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(purchase)}
+                          className="inline-flex items-center justify-center gap-2 rounded-[10px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={downloadingId === purchase.id}
+                        >
+                          <Download className="h-4 w-4" />
+                          {downloadingId === purchase.id
+                            ? "Descargando..."
+                            : "Descargar"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            ) : null}
           </div>
         </div>
       </div>

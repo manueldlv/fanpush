@@ -8,6 +8,7 @@ import {
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
 import { parsePayoutProfile } from "@/lib/payouts";
+import { parseUploadModerationMeta } from "@/lib/contentClassification";
 import {
   parseModerationAction,
   parseContentReport,
@@ -434,6 +435,7 @@ export async function GET(request: Request) {
             : firstLink.post
           : null;
       const moderationState = latestContentStateByAlbum.get(album.id);
+      const moderationMeta = parseUploadModerationMeta(firstPost?.caption ?? null);
       return {
         id: album.id,
         description: album.description ?? "",
@@ -449,6 +451,9 @@ export async function GET(request: Request) {
         mediaType: firstPost?.media_type ?? "image",
         itemsCount: Array.isArray(album.album_posts) ? album.album_posts.length : 0,
         moderationState: moderationState?.action ?? null,
+        contentAudience: moderationMeta?.contentAudience ?? "general",
+        moderationCategory: moderationMeta?.moderationCategory ?? "otro",
+        moderationTags: moderationMeta?.tags ?? [],
         media: Array.isArray(album.album_posts)
           ? (
               await Promise.all(

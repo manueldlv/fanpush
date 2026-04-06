@@ -1,0 +1,27 @@
+# Execution
+
+- id: 2026-04-06-01-post-tip-toggle
+- plan_id: none
+- executed_by: matias
+- scope: safe
+- files_changed:
+  - app/crear/page.tsx
+  - app/api/posts/create/route.ts
+  - app/perfil/PerfilPageClient.tsx
+  - components/FeedLayout.tsx
+  - components/PostModal.tsx
+  - lib/contentClassification.ts
+  - lib/redux/api/feedApi.ts
+  - lib/redux/api/profileApi.ts
+  - lib/store/posts.ts
+  - vibe-coding/inbox/2026-04-06-01-post-tip-toggle.md
+  - vibe-coding/executions/2026-04-06-01-post-tip-toggle.md
+  - vibe-coding/changelog/2026-04-06-01-post-tip-toggle.md
+  - vibe-coding/registry/index.json
+- what_changed:
+  - Se agrego un bloque de propina on/off en el paso `Elegi la monetizacion`.
+  - Se persiste `tipsEnabled` en la metadata de subida para cada publicacion.
+  - Feed, perfil y modal de post ahora muestran `Enviar propina` solo si la publicacion lo tiene activado.
+- validation:
+  - `npm run build`
+- matched_plan: yes

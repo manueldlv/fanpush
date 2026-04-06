@@ -1,4 +1,12 @@
 import { NextResponse } from "next/server";
+import {
+  CONTENT_AUDIENCE_OPTIONS,
+  MODERATION_CATEGORY_OPTIONS,
+  normalizeModerationTags,
+  serializeUploadModerationMeta,
+  type ContentAudience,
+  type ModerationCategory,
+} from "@/lib/contentClassification";
 import { requireApprovedAuthor } from "@/lib/server/auth/authorization";
 import { getAdminSupabase } from "@/lib/server/auth/session";
 import {
@@ -86,8 +94,35 @@ export async function POST(request: Request) {
     const description = String(formData.get("description") ?? "").trim();
     const monetization = String(formData.get("monetization") ?? "free");
     const rawPrice = Number(formData.get("price") ?? 0);
+    const rawContentAudience = String(formData.get("contentAudience") ?? "adult_18");
+    const rawModerationCategory = String(
+      formData.get("moderationCategory") ?? "otro",
+    );
+    const tipsEnabled = String(formData.get("tipsEnabled") ?? "false") === "true";
+    const rawModerationTags = formData.get("moderationTags");
     const normalizedPrice =
       monetization === "paid" ? Math.max(rawPrice || 0, MIN_PRICE_ARS) : 0;
+    const contentAudience = CONTENT_AUDIENCE_OPTIONS.some(
+      (option) => option.value === rawContentAudience,
+    )
+      ? (rawContentAudience as ContentAudience)
+      : "adult_18";
+    const moderationCategory = MODERATION_CATEGORY_OPTIONS.some(
+      (option) => option.value === rawModerationCategory,
+    )
+      ? (rawModerationCategory as ModerationCategory)
+      : "otro";
+    let moderationTags: string[] = [];
+    if (typeof rawModerationTags === "string") {
+      try {
+        const parsed = JSON.parse(rawModerationTags) as unknown;
+        moderationTags = Array.isArray(parsed)
+          ? normalizeModerationTags(parsed.join(","))
+          : normalizeModerationTags(rawModerationTags);
+      } catch {
+        moderationTags = normalizeModerationTags(rawModerationTags);
+      }
+    }
     const itemsMetaValue = formData.get("itemsMeta");
 
     if (typeof itemsMetaValue !== "string") {
@@ -134,6 +169,14 @@ export async function POST(request: Request) {
 
         const token = `${Date.now()}-${index}-${crypto.randomUUID()}`;
         const ext = getExtensionFromFile(originalFile);
+        const moderationMeta = serializeUploadModerationMeta({
+          version: 1,
+          displayCaption: caption,
+          contentAudience,
+          moderationCategory,
+          tags: moderationTags,
+          tipsEnabled,
+        });
 
         if (monetization === "paid" && !item.isPreview) {
           const previewFile = formData.get(`preview_${index}`);
@@ -183,7 +226,7 @@ export async function POST(request: Request) {
             media_type: item.kind,
             is_locked: true,
             likes_count: 0,
-            caption,
+            caption: moderationMeta,
           };
         }
 
@@ -210,7 +253,7 @@ export async function POST(request: Request) {
           media_type: item.kind,
           is_locked: false,
           likes_count: 0,
-          caption,
+          caption: moderationMeta,
         };
       }),
     );

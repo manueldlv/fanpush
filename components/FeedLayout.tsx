@@ -412,7 +412,14 @@ export default function FeedLayout() {
   };
 
   const handleOpenTip = (post: Post) => {
-    if (!currentUserId || !post.userId || post.userId === currentUserId) return;
+    if (
+      !currentUserId ||
+      !post.userId ||
+      post.userId === currentUserId ||
+      !post.tipEnabled
+    ) {
+      return;
+    }
     setTipTarget({
       userId: post.userId,
       label: post.author,
@@ -1118,7 +1125,9 @@ export default function FeedLayout() {
                 <button className="flex items-center gap-2">
                   <Send className="h-5 w-5" />
                 </button>
-                {currentUserId && post.userId !== currentUserId ? (
+                {currentUserId &&
+                post.userId !== currentUserId &&
+                post.tipEnabled ? (
                   <button
                     type="button"
                     onClick={() => handleOpenTip(post)}

@@ -8,10 +8,18 @@ import {
   Image as ImageIcon,
   Lock,
   ShieldCheck,
+  Zap,
   Upload,
 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
+import {
+  CONTENT_AUDIENCE_OPTIONS,
+  MODERATION_CATEGORY_OPTIONS,
+  normalizeModerationTags,
+  type ContentAudience,
+  type ModerationCategory,
+} from "@/lib/contentClassification";
 import { getExtensionFromFile } from "@/lib/media";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { feedApi } from "@/lib/redux/api/feedApi";
@@ -38,7 +46,13 @@ export default function CrearPage() {
   const [previewIds, setPreviewIds] = useState<string[]>([]);
   const [monetization, setMonetization] = useState<Monetization>("free");
   const [price, setPrice] = useState(String(MIN_PRICE_ARS));
+  const [tipsEnabled, setTipsEnabled] = useState(false);
   const [description, setDescription] = useState("");
+  const [contentAudience, setContentAudience] =
+    useState<ContentAudience>("adult_18");
+  const [moderationCategory, setModerationCategory] =
+    useState<ModerationCategory>("desnudo");
+  const [moderationTags, setModerationTags] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authorStatus, setAuthorStatus] = useState<
@@ -328,6 +342,13 @@ export default function CrearPage() {
       formData.append("description", description.trim());
       formData.append("monetization", monetization);
       formData.append("price", String(normalizedPrice));
+      formData.append("tipsEnabled", String(tipsEnabled));
+      formData.append("contentAudience", contentAudience);
+      formData.append("moderationCategory", moderationCategory);
+      formData.append(
+        "moderationTags",
+        JSON.stringify(normalizeModerationTags(moderationTags)),
+      );
 
       const itemsMeta = await Promise.all(
         items.map(async (item, index) => {
@@ -411,11 +432,11 @@ export default function CrearPage() {
   }, []);
 
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft />
 
-      <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[720px] md:gap-8 md:px-6 md:py-10">
+      <div className="flex min-h-screen md:pl-60">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-6 px-4 py-6 pb-24 md:max-w-[720px] md:gap-8 md:px-6 md:py-10">
           {authorStatus !== "approved" ? (
             <div className="space-y-6">
               <div>
@@ -517,6 +538,57 @@ export default function CrearPage() {
                 />
                 <div className="mt-2 text-xs text-zinc-500">
                   {description.trim().length}/500 caracteres
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold">Tipo de contenido</span>
+                  <select
+                    value={contentAudience}
+                    onChange={(event) =>
+                      setContentAudience(event.target.value as ContentAudience)
+                    }
+                    className="h-11 rounded-[18px] border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none"
+                  >
+                    {CONTENT_AUDIENCE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold">Categoría para moderación</span>
+                  <select
+                    value={moderationCategory}
+                    onChange={(event) =>
+                      setModerationCategory(
+                        event.target.value as ModerationCategory,
+                      )
+                    }
+                    className="h-11 rounded-[18px] border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none"
+                  >
+                    {MODERATION_CATEGORY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold">Etiquetas opcionales</div>
+                <input
+                  value={moderationTags}
+                  onChange={(event) => setModerationTags(event.target.value)}
+                  placeholder="Ej: cosplay, exterior, selfie"
+                  className="mt-3 h-11 w-full rounded-[18px] border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
+                />
+                <div className="mt-2 text-xs text-zinc-500">
+                  Sepáralas con coma. Esto ayuda a moderar más rápido el contenido.
                 </div>
               </div>
 
@@ -654,6 +726,49 @@ export default function CrearPage() {
                 {monetization === "free"
                   ? "Tu publicacion gratis aparecera completa en el feed para todos los usuarios."
                   : "Tu publicacion bloqueada requerira compra para ver el contenido completo."}
+              </div>
+
+              <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="max-w-[720px]">
+                    <div className="text-2xl font-semibold text-zinc-900">
+                      Propina para publicacion
+                    </div>
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Actívala si quieres que en el popup del post aparezca el
+                      botón <span className="font-medium text-zinc-700">Enviar propina</span>.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={tipsEnabled}
+                    onClick={() => setTipsEnabled((prev) => !prev)}
+                    className={`relative inline-flex h-11 w-20 shrink-0 items-center rounded-full border transition ${
+                      tipsEnabled
+                        ? "border-zinc-900 bg-zinc-900"
+                        : "border-zinc-200 bg-zinc-100"
+                    }`}
+                  >
+                    <span
+                      className={`absolute left-1 top-1 h-9 w-9 rounded-full bg-white shadow-sm transition ${
+                        tipsEnabled ? "translate-x-9" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="mt-4 rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
+                  <div className="flex items-center gap-2 font-medium text-zinc-700">
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    {tipsEnabled ? "Propina activada" : "Propina desactivada"}
+                  </div>
+                  <p className="mt-1">
+                    {tipsEnabled
+                      ? "La publicación permitirá recibir propinas sin configurar precio adicional."
+                      : "Si queda apagada, el popup del post no mostrará ninguna opción de propina."}
+                  </p>
+                </div>
               </div>
 
               {monetization === "paid" ? (

@@ -12,6 +12,7 @@ type Post = {
   likes: number;
   avatar: string | null;
   price?: number;
+  tipEnabled?: boolean;
   media: PostMediaState[];
 };
 

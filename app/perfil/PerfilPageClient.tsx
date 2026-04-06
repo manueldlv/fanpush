@@ -10,6 +10,7 @@ import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
+import { parseUploadModerationMeta } from "@/lib/contentClassification";
 import {
   getPremiumPathFromPreview,
   inferDisplayKind,
@@ -37,6 +38,7 @@ type AlbumMediaPost = {
   media_type: string | null;
   is_locked: boolean | null;
   likes_count: number | null;
+  caption?: string | null;
 };
 
 type AlbumPostRow = {
@@ -295,7 +297,7 @@ export default function PerfilPage({
       const { data: album } = await supabase
         .from("albums")
         .select(
-          "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count))",
+          "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
         )
         .eq("id", post.id)
         .maybeSingle();
@@ -321,6 +323,7 @@ export default function PerfilPage({
           ),
         );
         const mediaPostIds = media.map((item) => item.id ?? "");
+        const postMeta = parseUploadModerationMeta(media[0]?.caption ?? null);
         const avatarUrl = await resolveAvatarUrl(
           albumUser?.avatar_url ?? post.avatar ?? "",
         );
@@ -336,6 +339,7 @@ export default function PerfilPage({
           likes: media.reduce((sum, item) => sum + (item.likes_count ?? 0), 0),
           avatar: avatarUrl || null,
           price: album.price ?? post.price ?? 0,
+          tipEnabled: postMeta?.tipsEnabled ?? false,
           media: mediaWithUrls,
         };
         const accessToken = await getSessionAccessTokenWithRetry(supabase);

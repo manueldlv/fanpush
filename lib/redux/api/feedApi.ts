@@ -1,5 +1,6 @@
 import { createApi, fakeBaseQuery } from "@reduxjs/toolkit/query/react";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
+import { parseUploadModerationMeta } from "@/lib/contentClassification";
 import {
   applyResolvedMediaAccess,
   buildInitialPostMediaState,
@@ -91,7 +92,7 @@ export const feedApi = createApi({
           const { data, error } = await supabase
             .from("albums")
             .select(
-              "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count))",
+              "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
             )
             .order("created_at", { ascending: false });
           if (error) throw error;
@@ -106,6 +107,7 @@ export const feedApi = createApi({
                     media_type: string | null;
                     is_locked: boolean | null;
                     likes_count: number | null;
+                    caption?: string | null;
                   } | null;
                 }>;
                 const albumUser = normalizeSingleRelation(
@@ -130,6 +132,9 @@ export const feedApi = createApi({
                 const mediaPostIds = albumPosts
                   .map((item) => item.post?.id ?? "")
                   .filter(Boolean);
+                const postMeta = parseUploadModerationMeta(
+                  albumPosts[0]?.post?.caption ?? null,
+                );
                 const avatarUrl = resolvePublicUrl(
                   supabase,
                   albumUser?.avatar_url ?? "",
@@ -149,6 +154,7 @@ export const feedApi = createApi({
                   ),
                   avatar: avatarUrl || null,
                   price: post.price ?? 0,
+                  tipEnabled: postMeta?.tipsEnabled ?? false,
                   media: mediaWithUrls,
                 } satisfies Post;
               }),

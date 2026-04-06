@@ -15,6 +15,14 @@ import {
   X,
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
+import {
+  CONTENT_AUDIENCE_OPTIONS,
+  MODERATION_CATEGORY_OPTIONS,
+  getContentAudienceLabel,
+  getModerationCategoryLabel,
+  type ContentAudience,
+  type ModerationCategory,
+} from "@/lib/contentClassification";
 import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
 import { cn, formatARS } from "@/lib/utils";
 
@@ -176,6 +184,9 @@ type AdminDashboardData = {
     mediaType: string;
     itemsCount: number;
     moderationState: "approved" | "archived" | null;
+    contentAudience: ContentAudience;
+    moderationCategory: ModerationCategory;
+    moderationTags: string[];
     media: Array<{
       id: string;
       url: string | null;
@@ -230,6 +241,12 @@ export default function AdminPage() {
   >("queue");
   const [contentFilter, setContentFilter] = useState<
     "all" | "free" | "paid" | "image" | "video"
+  >("all");
+  const [contentAudienceFilter, setContentAudienceFilter] = useState<
+    "all" | ContentAudience
+  >("all");
+  const [contentCategoryFilter, setContentCategoryFilter] = useState<
+    "all" | ModerationCategory
   >("all");
   const [contentSearch, setContentSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -466,9 +483,28 @@ export default function AdminPage() {
       if (contentFilter === "paid" && item.price <= 0) return false;
       if (contentFilter === "image" && item.mediaType !== "image") return false;
       if (contentFilter === "video" && item.mediaType !== "video") return false;
+      if (
+        contentAudienceFilter !== "all" &&
+        item.contentAudience !== contentAudienceFilter
+      ) {
+        return false;
+      }
+      if (
+        contentCategoryFilter !== "all" &&
+        item.moderationCategory !== contentCategoryFilter
+      ) {
+        return false;
+      }
       return true;
     });
-  }, [data, pendingReportCountByAlbum, normalizedContentSearch, contentFilter]);
+  }, [
+    data,
+    pendingReportCountByAlbum,
+    normalizedContentSearch,
+    contentFilter,
+    contentAudienceFilter,
+    contentCategoryFilter,
+  ]);
   const reportedContent = useMemo(
     () =>
       filteredContentQueue.filter(
@@ -2346,7 +2382,7 @@ export default function AdminPage() {
                 </div>
 
                 {contentView !== "archived" ? (
-                  <div className="flex flex-col gap-3 sm:flex-row">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                     <label className="relative block min-w-[250px]">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                       <input
@@ -2372,6 +2408,44 @@ export default function AdminPage() {
                         <option value="free">Solo gratis</option>
                         <option value="image">Solo imágenes</option>
                         <option value="video">Solo videos</option>
+                      </select>
+                    </label>
+                    <label className="relative block min-w-[210px]">
+                      <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                      <select
+                        value={contentAudienceFilter}
+                        onChange={(event) =>
+                          setContentAudienceFilter(
+                            event.target.value as "all" | ContentAudience,
+                          )
+                        }
+                        className="w-full appearance-none rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-8 text-sm font-medium text-zinc-900 outline-none"
+                      >
+                        <option value="all">Toda audiencia</option>
+                        {CONTENT_AUDIENCE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="relative block min-w-[230px]">
+                      <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                      <select
+                        value={contentCategoryFilter}
+                        onChange={(event) =>
+                          setContentCategoryFilter(
+                            event.target.value as "all" | ModerationCategory,
+                          )
+                        }
+                        className="w-full appearance-none rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-8 text-sm font-medium text-zinc-900 outline-none"
+                      >
+                        <option value="all">Toda categoría</option>
+                        {MODERATION_CATEGORY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   </div>
@@ -2446,6 +2520,12 @@ export default function AdminPage() {
                       <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
                         {item.mediaType === "video" ? "Video" : "Imagen"}
                       </span>
+                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                        {getContentAudienceLabel(item.contentAudience)}
+                      </span>
+                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                        {getModerationCategoryLabel(item.moderationCategory)}
+                      </span>
                     </div>
                   </button>
 
@@ -2465,6 +2545,18 @@ export default function AdminPage() {
                     <div className="mt-2 line-clamp-2 min-h-8 text-xs text-zinc-600">
                       {item.description || "Sin descripción"}
                     </div>
+                    {item.moderationTags.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {item.moderationTags.slice(0, 3).map((tag) => (
+                          <span
+                            key={`${item.id}-${tag}`}
+                            className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
 
                     <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
                       <span>{item.itemsCount} archivos</span>
@@ -2672,6 +2764,42 @@ export default function AdminPage() {
                 <div className="mt-2 text-sm text-zinc-700">
                   {selectedContent.description || "Sin descripción"}
                 </div>
+              </div>
+
+              <div className="mt-4 rounded-[18px] border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  Clasificación
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
+                    {getContentAudienceLabel(selectedContent.contentAudience)}
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
+                    {getModerationCategoryLabel(selectedContent.moderationCategory)}
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
+                    {selectedContent.mediaType === "video" ? "Video" : "Imagen"}
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
+                    {selectedContent.price > 0 ? "Pago" : "Gratis"}
+                  </span>
+                </div>
+                {selectedContent.moderationTags.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedContent.moderationTags.map((tag) => (
+                      <span
+                        key={`selected-${selectedContent.id}-${tag}`}
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[12px] font-medium text-zinc-600"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-zinc-500">
+                    Sin etiquetas adicionales para moderación.
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">

@@ -396,7 +396,7 @@ export default function PostModal({
             </div>
           ) : null}
 
-          {!isOwner && onTip ? (
+          {!isOwner && onTip && post.tipEnabled ? (
             <button
               type="button"
               onClick={() => onTip(post)}

@@ -3,6 +3,7 @@ import {
   getSessionAccessTokenWithRetry,
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
+import { parseUploadModerationMeta } from "@/lib/contentClassification";
 import { loadCreatorEarnings } from "@/lib/earnings";
 import { parseProfileDetails } from "@/lib/profileDetails";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
@@ -20,6 +21,7 @@ type AlbumMediaPost = {
   media_type: string | null;
   is_locked: boolean | null;
   likes_count: number | null;
+  caption?: string | null;
 };
 
 type AlbumPostRow = {
@@ -274,7 +276,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
     supabase
       .from("albums")
       .select(
-        "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count))",
+        "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
       )
       .eq("user_id", viewedUserId)
       .order("created_at", { ascending: false }),
@@ -329,6 +331,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
           ),
         );
         const mediaPostIds = media.map((item) => item.id ?? "");
+        const postMeta = parseUploadModerationMeta(media[0]?.caption ?? null);
         const avatarUrl = await resolvePublicUrl(
           albumUser?.avatar_url ?? userRow?.avatar_url ?? "",
         );
@@ -345,6 +348,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
           likes: media.reduce((sum, item) => sum + (item.likes_count ?? 0), 0),
           avatar: avatarUrl || null,
           price: album.price ?? 0,
+          tipEnabled: postMeta?.tipsEnabled ?? false,
           media: mediaWithUrls,
         } satisfies Post;
       }),
@@ -369,6 +373,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
         likes: post.likes_count ?? 0,
         avatar: avatarUrl || null,
         price: 0,
+        tipEnabled: false,
         media: [
           buildInitialPostMediaState({
             previewUrl: await resolvePublicUrl(post.media_url),

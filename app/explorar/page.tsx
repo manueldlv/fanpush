@@ -1,116 +1,217 @@
- "use client";
+"use client";
 
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { useMemo } from "react";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
-import { useGetExploreFeedQuery } from "@/lib/redux/api/discoveryApi";
+import { useGetExploreFeedQuery, type ExploreItem } from "@/lib/redux/api/discoveryApi";
 import { buildUserProfileHref } from "@/lib/profileRoute";
+
+const exploreMockItems: ExploreItem[] = [
+  {
+    id: "mock-explore-1",
+    mediaUrl: "https://picsum.photos/seed/explore-1/700/920",
+    mediaType: "image",
+    username: "camimiranda_10",
+    avatar: "https://picsum.photos/seed/explore-avatar-1/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-2",
+    mediaUrl: "https://picsum.photos/seed/explore-2/700/920",
+    mediaType: "image",
+    username: "miliestudio",
+    avatar: "https://picsum.photos/seed/explore-avatar-2/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-3",
+    mediaUrl: "https://picsum.photos/seed/explore-3/700/920",
+    mediaType: "image",
+    username: "sofiecraft",
+    avatar: "https://picsum.photos/seed/explore-avatar-3/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-4",
+    mediaUrl: "https://picsum.photos/seed/explore-4/700/920",
+    mediaType: "image",
+    username: "luna.makeup",
+    avatar: "https://picsum.photos/seed/explore-avatar-4/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-5",
+    mediaUrl: "https://picsum.photos/seed/explore-5/700/920",
+    mediaType: "image",
+    username: "valen.vibes",
+    avatar: "https://picsum.photos/seed/explore-avatar-5/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-6",
+    mediaUrl: "https://picsum.photos/seed/explore-6/700/920",
+    mediaType: "image",
+    username: "paula.daily",
+    avatar: "https://picsum.photos/seed/explore-avatar-6/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-7",
+    mediaUrl: "https://picsum.photos/seed/explore-7/700/920",
+    mediaType: "image",
+    username: "noe.creator",
+    avatar: "https://picsum.photos/seed/explore-avatar-7/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-8",
+    mediaUrl: "https://picsum.photos/seed/explore-8/700/920",
+    mediaType: "image",
+    username: "marti.zone",
+    avatar: "https://picsum.photos/seed/explore-avatar-8/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-9",
+    mediaUrl: "https://picsum.photos/seed/explore-9/700/920",
+    mediaType: "image",
+    username: "agus.scene",
+    avatar: "https://picsum.photos/seed/explore-avatar-9/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-10",
+    mediaUrl: "https://picsum.photos/seed/explore-10/700/920",
+    mediaType: "image",
+    username: "alma.glow",
+    avatar: "https://picsum.photos/seed/explore-avatar-10/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-11",
+    mediaUrl: "https://picsum.photos/seed/explore-11/700/920",
+    mediaType: "image",
+    username: "juli.color",
+    avatar: "https://picsum.photos/seed/explore-avatar-11/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "mock-explore-12",
+    mediaUrl: "https://picsum.photos/seed/explore-12/700/920",
+    mediaType: "image",
+    username: "cata.house",
+    avatar: "https://picsum.photos/seed/explore-avatar-12/120/120",
+    description: "Contenido gratuito",
+    createdAt: new Date().toISOString(),
+  },
+];
 
 function ExploreCardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-sm">
-      <div className="fanpush-skeleton aspect-[3/4] w-full bg-zinc-100" />
-      <div className="flex items-center gap-3 p-3">
-        <div className="fanpush-skeleton h-10 w-10 rounded-full" />
+    <div className="overflow-hidden rounded-[5px] border border-zinc-200 bg-white">
+      <div className="fanpush-skeleton aspect-[280/370] w-full bg-zinc-100" />
+      <div className="flex items-center gap-2 border-t border-zinc-200 px-3 py-2">
+        <div className="fanpush-skeleton h-7 w-7 rounded-full" />
         <div className="min-w-0 flex-1">
-          <div className="fanpush-skeleton h-4 w-24 rounded-full" />
-          <div className="mt-2 fanpush-skeleton h-3 w-36 rounded-full" />
+          <div className="fanpush-skeleton h-3 w-24 rounded-full" />
+          <div className="mt-1 fanpush-skeleton h-2.5 w-12 rounded-full" />
         </div>
       </div>
     </div>
   );
 }
 
+const buildDisplayItems = (items: ExploreItem[]) => {
+  const isLocalPreview =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "localhost");
+  const sourceItems =
+    isLocalPreview && items.length < 12 ? exploreMockItems : items;
+
+  if (sourceItems.length === 0) return [];
+  const target = 12;
+  return Array.from({ length: target }, (_, index) => {
+    const base = sourceItems[index % sourceItems.length];
+    return {
+      ...base,
+      cardKey: `${base.id}-${index}`,
+    };
+  });
+};
+
 export default function ExplorarPage() {
   const { data: items = [], isLoading: loading } = useGetExploreFeedQuery();
 
+  const displayItems = useMemo(() => buildDisplayItems(items), [items]);
+
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft />
 
-      <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1280px] md:px-6 md:py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold">Explorar</h1>
-              <p className="text-sm text-zinc-500">
-                Descubre perfiles y contenido gratuito publicado en FanPush.
-              </p>
+      <div className="md:pl-60">
+        <div className="mx-auto w-full max-w-[1495px] px-4 py-6 md:px-6 md:py-7">
+          <h1 className="mb-6 text-[25px] font-semibold leading-none text-zinc-900">
+            Explorar perfiles
+          </h1>
+
+          {loading ? (
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:grid-cols-6">
+              {Array.from({ length: 12 }).map((_, index) => (
+                <ExploreCardSkeleton key={`explore-skeleton-${index}`} />
+              ))}
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:grid-cols-6">
+              {displayItems.map((item) => (
+                <Link
+                  key={item.cardKey}
+                  href={buildUserProfileHref(item.username)}
+                  className="group overflow-hidden rounded-[5px] border border-zinc-200 bg-white"
+                >
+                  <div className="relative aspect-[280/370] overflow-hidden bg-zinc-100">
+                    <MediaImage
+                      src={item.mediaUrl ?? undefined}
+                      alt={item.description || item.username}
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                      fallbackClassName="h-full w-full"
+                      iconClassName="h-7 w-7"
+                    />
+                  </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto pb-8">
-            {loading ? (
-              <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-                {Array.from({ length: 12 }).map((_, index) => (
-                  <ExploreCardSkeleton key={`explore-skeleton-${index}`} />
-                ))}
-              </div>
-            ) : items.length === 0 ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white px-6 py-10 text-center">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Aún no hay contenido gratuito para explorar
-                </div>
-                <p className="mt-2 text-sm text-zinc-500">
-                  Cuando los creadores publiquen fotos o videos públicos, los verás acá sin blur ni bloqueo.
-                </p>
-              </div>
-            ) : (
-              <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-                {items.map((item) => (
-                  <Link
-                    key={item.id}
-                    href={buildUserProfileHref(item.username)}
-                    className="group overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
-                      {item.mediaType === "video" ? (
-                        <>
-                          <video
-                            src={item.mediaUrl ?? undefined}
-                            className="h-full w-full object-cover"
-                            muted
-                            playsInline
-                            preload="metadata"
-                          />
-                          <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow">
-                            <Play className="h-4 w-4 text-zinc-900" />
-                          </div>
-                        </>
-                      ) : (
-                        <MediaImage
-                          src={item.mediaUrl ?? undefined}
-                          alt={item.description || item.username}
-                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                          fallbackClassName="h-full w-full"
-                          iconClassName="h-7 w-7"
-                        />
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 p-3">
-                      <UserAvatar
-                        src={item.avatar}
-                        alt={item.username}
-                        sizeClassName="h-10 w-10"
-                        iconClassName="h-4 w-4"
-                      />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-zinc-950">
-                          @{item.username}
-                        </div>
-                        <div className="truncate text-xs text-zinc-500">
-                          {item.description || "Contenido gratuito"}
-                        </div>
+                  <div className="flex min-h-[72px] items-center gap-3 border-t border-zinc-200 px-4 py-3">
+                    <UserAvatar
+                      src={item.avatar}
+                      alt={item.username}
+                      sizeClassName="h-10 w-10"
+                      iconClassName="h-5 w-5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[15px] font-semibold leading-none text-zinc-900">
+                        {item.username}
+                      </div>
+                      <div className="mt-2 text-[14px] font-semibold leading-none text-[#5A3EE7]">
+                        Seguir
                       </div>
                     </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

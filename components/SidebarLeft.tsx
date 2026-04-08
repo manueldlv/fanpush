@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Bell,
   Compass,
@@ -19,117 +20,124 @@ import { openSearchPanel } from "@/lib/redux/slices/uiSlice";
 
 export default function SidebarLeft() {
   const dispatch = useAppDispatch();
+  const pathname = usePathname();
   const searchOpen = useAppSelector((state) => state.ui.searchPanelOpen);
   const { data: viewer } = useGetViewerQuery();
   const [signOut] = useSignOutMutation();
   const canCreate = viewer?.access.canCreate ?? false;
 
+  const itemClass = (active = false) =>
+    `group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold leading-none tracking-[-0.01em] transition ${
+      active
+        ? "text-[#5A3EE7]"
+        : "text-[#161823] hover:bg-black/[0.035] hover:text-[#161823]"
+    }`;
+
+  const iconClass = (active = false) =>
+    `h-6 w-6 transition ${active ? "text-[#5A3EE7]" : "text-[#161823]"}`;
+
   return (
     <>
-      <aside className="fixed left-0 top-16 z-40 hidden h-[calc(100vh-4rem)] w-60 border-r border-zinc-200 bg-white/95 px-4 py-6 backdrop-blur md:block">
+      <aside className="fixed left-0 top-16 z-40 hidden h-[calc(100vh-4rem)] w-60 border-r border-black/8 bg-white px-4 py-6 md:block">
         <div className="flex h-full flex-col">
-          <nav className="mt-2 flex flex-1 flex-col gap-1">
+          <nav className="mt-2 flex flex-1 flex-col gap-0.5">
             <Link
               href="/"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/")}
             >
-              <Home className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <Home className={iconClass(pathname === "/")} />
               <span>Inicio</span>
             </Link>
             <button
               type="button"
               onClick={() => dispatch(openSearchPanel())}
-              className={`group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium transition ${
+              className={`group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold leading-none tracking-[-0.01em] transition ${
                 searchOpen
-                  ? "bg-zinc-100 text-zinc-900"
-                  : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900"
+                  ? "text-[#5A3EE7]"
+                  : "text-[#161823] hover:bg-black/[0.035] hover:text-[#161823]"
               }`}
             >
-              <Search
-                className={`h-5 w-5 transition ${
-                  searchOpen ? "text-zinc-900" : "text-zinc-500"
-                }`}
-              />
+              <Search className={`h-6 w-6 transition ${searchOpen ? "text-[#5A3EE7]" : "text-[#161823]"}`} />
               <span>Búsqueda</span>
             </button>
             <Link
               href="/explorar"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/explorar")}
             >
-              <Compass className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <Compass className={iconClass(pathname === "/explorar")} />
               <span>Explorar</span>
             </Link>
             <Link
               href="/mensajes"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/mensajes")}
             >
-              <Send className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <Send className={iconClass(pathname === "/mensajes")} />
               <span>Mensajes</span>
             </Link>
             <Link
               href="/notificaciones"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/notificaciones")}
             >
-              <Bell className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <Bell className={iconClass(pathname === "/notificaciones")} />
               <span>Notificaciones</span>
             </Link>
             {canCreate ? (
               <Link
                 href="/crear"
-                className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                className={itemClass(pathname === "/crear")}
               >
-                <SquarePlus className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+                <SquarePlus className={iconClass(pathname === "/crear")} />
                 <span>Crear</span>
               </Link>
             ) : (
               <button
                 type="button"
                 disabled
-                className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-400"
+                className="group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold tracking-[-0.01em] text-black/20"
               >
-                <SquarePlus className="h-5 w-5 text-zinc-300" />
+                <SquarePlus className="h-6 w-6 text-black/20" />
                 <span>Crear</span>
               </button>
             )}
             <Link
               href="/compras"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/compras")}
             >
-              <ShoppingBag className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <ShoppingBag className={iconClass(pathname === "/compras")} />
               <span>Mis compras</span>
             </Link>
             <Link
               href="/ventas"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/ventas")}
             >
-              <DollarSign className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <DollarSign className={iconClass(pathname === "/ventas")} />
               <span>Mis ventas</span>
             </Link>
             <Link
               href="/saldo"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/saldo")}
             >
-              <Wallet className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <Wallet className={iconClass(pathname === "/saldo")} />
               <span>Mi saldo</span>
             </Link>
             <div className="py-2" />
             <Link
               href="/settings"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/settings")}
             >
-              <Settings className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <Settings className={iconClass(pathname === "/settings")} />
               <span>Configuración</span>
             </Link>
             <Link
               href="/perfil"
-              className="group flex items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className={itemClass(pathname === "/perfil")}
             >
-              <User className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <User className={iconClass(pathname === "/perfil")} />
               <span>Perfil</span>
             </Link>
           </nav>
 
-          <div className="mt-6 rounded-[5px] border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+          <div className="mt-6 rounded-[16px] border border-black/8 bg-black/[0.02] p-4 text-xs text-zinc-600">
             <div className="font-semibold text-zinc-900">FanPush guía rápida</div>
             <div className="mt-2">
               Compra contenido al instante, deja propinas y, si quieres vender, solicita tu verificación de autor.
@@ -150,16 +158,16 @@ export default function SidebarLeft() {
             </div>
           </div>
 
-        <div className="mt-auto pt-4">
+        <div className="mt-auto border-t border-black/8 pt-4">
             <button
               type="button"
               onClick={async () => {
                 await signOut();
                 window.location.assign("/auth");
               }}
-              className="group flex w-full items-center gap-3 rounded-[5px] px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className="group flex w-full items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold tracking-[-0.01em] text-[#161823] transition hover:bg-black/[0.035]"
             >
-              <LogOut className="h-5 w-5 text-zinc-500 transition group-hover:text-zinc-900" />
+              <LogOut className="h-6 w-6 text-[#161823]" />
               <span>Cerrar sesion</span>
             </button>
         </div>

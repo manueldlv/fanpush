@@ -85,11 +85,15 @@ const buildPlaceholderPreview = (label: string, tone: string) =>
 function PremiumMessageCard({
   message,
   own,
+  confirmUnlock,
   onUnlock,
+  onCancelUnlock,
 }: {
   message: PremiumMessageItem;
   own: boolean;
+  confirmUnlock: boolean;
   onUnlock: () => void;
+  onCancelUnlock: () => void;
 }) {
   const [selectedPreviewId, setSelectedPreviewId] = useState<string>(
     () => message.attachmentPreviews[0]?.id ?? "",
@@ -228,6 +232,23 @@ function PremiumMessageCard({
         ) : message.status === "purchased" ? (
           <div className="rounded-full bg-emerald-100 px-3 py-2 text-[13px] font-semibold text-emerald-700">
             Contenido desbloqueado
+          </div>
+        ) : confirmUnlock ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCancelUnlock}
+              className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-700"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={onUnlock}
+              className="rounded-full bg-zinc-950 px-4 py-2 text-[13px] font-semibold text-white"
+            >
+              Confirmar ⚡ {formatUnits(message.price)}
+            </button>
           </div>
         ) : (
           <button
@@ -661,6 +682,7 @@ export default function MensajesPage() {
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [confirmUnlockId, setConfirmUnlockId] = useState<string | null>(null);
   const canSendPremium = Boolean(viewer?.access.canCreate);
 
   const filteredThreads = useMemo(() => {
@@ -725,6 +747,7 @@ export default function MensajesPage() {
             },
       ),
     );
+    setConfirmUnlockId(null);
   };
 
   return (
@@ -910,7 +933,15 @@ export default function MensajesPage() {
                               <PremiumMessageCard
                                 message={message}
                                 own={own}
-                                onUnlock={() => unlockPremiumMessage(message.id)}
+                                confirmUnlock={confirmUnlockId === message.id}
+                                onUnlock={() => {
+                                  if (confirmUnlockId === message.id) {
+                                    unlockPremiumMessage(message.id);
+                                    return;
+                                  }
+                                  setConfirmUnlockId(message.id);
+                                }}
+                                onCancelUnlock={() => setConfirmUnlockId(null)}
                               />
                             )}
 

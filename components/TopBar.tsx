@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -244,33 +245,47 @@ export default function TopBar() {
     <header className="fixed left-0 top-0 z-50 h-16 w-full border-b border-zinc-200 bg-white/95 backdrop-blur">
       <div className="flex h-full items-center justify-between gap-4 px-4 md:px-6">
         <div className="flex min-w-0 items-center gap-6">
-          <Link href="/" className="text-lg font-semibold tracking-tight text-zinc-950">
-            FanPush
+          <Link href="/" className="flex items-center">
+            <Image
+              src="/fanpush-logo.png"
+              alt="FanPush"
+              width={54}
+              height={40}
+              priority
+              className="h-10 w-auto"
+            />
           </Link>
 
           <nav className="hidden items-center gap-5 text-[14px] font-semibold text-zinc-500 sm:flex">
-            <Link href="/" className={pathname === "/" ? "text-zinc-950" : "hover:text-zinc-900"}>
+            <Link
+              href="/"
+              className={pathname === "/" ? "text-[#5A3EE7]" : "hover:text-zinc-900"}
+            >
               Feed
             </Link>
             <Link
               href="/explorar"
-              className={pathname?.startsWith("/explorar") ? "text-zinc-950" : "hover:text-zinc-900"}
+              className={
+                pathname?.startsWith("/explorar")
+                  ? "text-[#5A3EE7]"
+                  : "hover:text-zinc-900"
+              }
             >
               Descubrir
             </Link>
           </nav>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-4">
           <div className="relative hidden md:block" ref={searchRef}>
-            <div className="flex h-10 w-[280px] items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3">
-              <Search className="h-4 w-4 text-zinc-400" />
+            <div className="flex h-[50px] w-[360px] items-center gap-3 rounded-full border border-zinc-200 bg-white px-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <Search className="h-[22px] w-[22px] text-zinc-400" />
               <input
                 value={query}
                 onFocus={() => setSearchOpen(true)}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Buscar usuarios"
-                className="w-full bg-transparent text-[13px] text-zinc-800 outline-none placeholder:text-zinc-400"
+                className="w-full bg-transparent text-[15px] font-medium text-zinc-800 outline-none placeholder:text-zinc-400"
               />
               {query ? (
                 <button
@@ -342,12 +357,12 @@ export default function TopBar() {
             <button
               type="button"
               onClick={() => setNotificationsOpen((prev) => !prev)}
-              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900"
+              className="relative inline-flex h-[50px] w-[50px] items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-zinc-50 hover:text-zinc-900"
               aria-label="Notificaciones"
             >
-              <Bell className="h-4.5 w-4.5" />
+              <Bell className="h-[23px] w-[23px]" />
               {unreadCount > 0 ? (
-                <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-rose-500" />
+                <span className="absolute right-[13px] top-[13px] h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
               ) : null}
             </button>
 
@@ -402,10 +417,19 @@ export default function TopBar() {
           ) : (
             <Link
               href="/saldo"
-              className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[13px] font-semibold text-zinc-900"
+              className="inline-flex h-[50px] items-center gap-2.5 rounded-full border border-[#5A3EE7] bg-white px-5 text-[#5A3EE7] shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
             >
-              <span className="text-[15px] leading-none">⚡</span>
-              <span>{Number.isFinite(balance) ? formatBalanceUnits(balance) : "0"}</span>
+              <Image
+                src="/brand-lightning.png"
+                alt=""
+                width={17}
+                height={21}
+                aria-hidden="true"
+                className="h-[21px] w-auto"
+              />
+              <span className="text-[16px] font-bold tracking-[-0.01em]">
+                {Number.isFinite(balance) ? formatBalanceUnits(balance) : "0"}
+              </span>
             </Link>
           )}
 
@@ -417,13 +441,13 @@ export default function TopBar() {
               aria-label="Abrir menu de perfil"
             >
               {viewerLoading ? (
-                <div className="fanpush-skeleton h-9 w-9 rounded-full" />
+                <div className="fanpush-skeleton h-[50px] w-[50px] rounded-full" />
               ) : (
                 <UserAvatar
                   src={profile?.avatarUrl}
                   alt={profile?.username ?? "Perfil"}
-                  sizeClassName="h-9 w-9"
-                  iconClassName="h-4 w-4"
+                  sizeClassName="h-[50px] w-[50px]"
+                  iconClassName="h-5 w-5"
                 />
               )}
             </button>

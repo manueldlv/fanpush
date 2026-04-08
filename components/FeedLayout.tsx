@@ -202,6 +202,14 @@ export default function FeedLayout() {
     return `${diffDays} d`;
   };
 
+  const formatFeedLikes = (value: number) => {
+    if (value >= 1000) {
+      const formatted = (value / 1000).toFixed(1).replace(".", ",");
+      return `${formatted} mil`;
+    }
+    return value.toLocaleString("es-AR");
+  };
+
   useEffect(() => {
     if (!feedData) return;
     setCurrentUserId(feedData.currentUserId);
@@ -847,79 +855,34 @@ export default function FeedLayout() {
           </div>
         </div>
       ) : null}
-      {!loading ? (
-        <div className="rounded-[16px] border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-400">
-            FanPush
-          </div>
-          <div className="mt-2 text-lg font-semibold text-zinc-900">
-            Compra, apoya y descubre contenido exclusivo
-          </div>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">
-            Explora perfiles, desbloquea publicaciones con Mercado Pago y apoya
-            a creadores con propinas. Si quieres vender, puedes solicitar tu
-            verificación de autor desde la parte superior del sitio.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <a
-              href="/explorar"
-              className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
-            >
-              Explorar creadores
-            </a>
-            <a
-              href="/ayuda"
-              className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
-            >
-              Cómo funciona
-            </a>
-          </div>
-        </div>
-      ) : null}
-      {!loading && posts.length === 0 ? (
-        <div className="rounded-[16px] border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-lg font-semibold text-zinc-900">
-            Todavía no hay publicaciones para mostrar
-          </div>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">
-            Cuando los creadores publiquen contenido, lo verás aquí en tu feed.
-            Mientras tanto, puedes explorar perfiles o revisar la ayuda rápida de FanPush.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <a
-              href="/explorar"
-              className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
-            >
-              Ir a explorar
-            </a>
-            <a
-              href="/faq"
-              className="rounded-[12px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
-            >
-              Ver preguntas frecuentes
-            </a>
-          </div>
-        </div>
-      ) : null}
       {posts.map((post) => (
         <article
           key={post.id}
-          className="rounded-[16px] border border-zinc-200 bg-white shadow-sm"
+          className="overflow-hidden rounded-[5px] border border-zinc-200 bg-white"
         >
-          <div className="flex items-center justify-between px-5 py-4">
+          {(() => {
+            const lockedCount = post.media.filter((m) => m.locked).length;
+            const hasPaidContent = lockedCount > 0;
+            const current = activeIndex[post.id] ?? 0;
+            const primaryPostId = post.mediaPostIds?.[0];
+            const isLiked = primaryPostId ? likedPostIds.has(primaryPostId) : false;
+
+            return (
+              <>
+          <div className="flex items-center justify-between px-6 py-5">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => {
                   router.push(buildUserProfileHref(post.author));
                 }}
-                className="h-10 w-10 overflow-hidden rounded-full"
+                className="h-[52px] w-[52px] overflow-hidden rounded-full"
                 aria-label={`Ver perfil de ${post.author}`}
               >
                 <UserAvatar src={post.avatar} alt={post.author} />
               </button>
               <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                <div className="flex items-center gap-2 text-[16px] font-semibold leading-none text-zinc-900">
                   <button
                     type="button"
                     onClick={() => {
@@ -934,21 +897,23 @@ export default function FeedLayout() {
                       ✓
                     </span>
                   ) : null}
-                  <span className="text-xs font-normal text-zinc-500">
-                    · {post.time}
+                  <span className="text-[14px] font-normal text-zinc-500">
+                    {post.time}
                   </span>
                 </div>
-                <div className="text-xs text-zinc-500">{post.suggestion}</div>
+                <div className="mt-1 text-[14px] leading-none text-zinc-500">
+                  {post.suggestion}
+                </div>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               {post.userId !== currentUserId ? (
                 <button
-                  className={`text-sm font-semibold ${
+                  className={`min-w-[118px] text-right text-[17px] font-semibold leading-none tracking-[-0.02em] ${
                     followingIds.has(post.userId)
                       ? "text-zinc-700"
-                      : "text-blue-600"
+                      : "text-[#5A3EE7]"
                   }`}
                   onClick={() => toggleFollow(post.userId)}
                 >
@@ -961,7 +926,7 @@ export default function FeedLayout() {
                 className="rounded-[5px] p-2 text-zinc-500 hover:bg-zinc-100"
                 aria-label="Mas opciones"
               >
-                <MoreHorizontal className="h-5 w-5" />
+                <MoreHorizontal className="h-[18px] w-[18px]" />
               </button>
             </div>
           </div>
@@ -969,12 +934,12 @@ export default function FeedLayout() {
           <button
             type="button"
             onClick={() => setSelectedPost(post.id)}
-            className="relative aspect-square w-full overflow-hidden text-left"
+            className={`relative w-full overflow-hidden text-left ${
+              hasPaidContent ? "h-[620px]" : "aspect-square"
+            }`}
           >
             {post.media.map((item, index) => {
-              const current = activeIndex[post.id] ?? 0;
               const isActive = index === current;
-              const lockedCount = post.media.filter((m) => m.locked).length;
               return (
                 <div
                   key={`${post.id}-${index}`}
@@ -987,10 +952,10 @@ export default function FeedLayout() {
                       src={item.url}
                       alt={`Media de ${post.author}`}
                       className={`h-full w-full object-cover ${
-                        item.locked ? "blur-[6px]" : ""
+                        item.locked ? "scale-[1.02] blur-[10px]" : ""
                       }`}
                       fallbackClassName={`h-full w-full ${
-                        item.locked ? "blur-[6px]" : ""
+                        item.locked ? "scale-[1.02] blur-[10px]" : ""
                       }`}
                       iconClassName="h-7 w-7"
                     />
@@ -998,7 +963,7 @@ export default function FeedLayout() {
                     <video
                       src={item.url}
                       className={`h-full w-full object-cover ${
-                        item.locked ? "blur-[6px]" : ""
+                        item.locked ? "scale-[1.02] blur-[10px]" : ""
                       }`}
                       muted
                       playsInline
@@ -1006,45 +971,9 @@ export default function FeedLayout() {
                   )}
                   {item.locked ? (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-full max-w-[240px] rounded-[14px] bg-white/95 px-6 py-5 text-center shadow-md">
-                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-zinc-100">
-                          <Lock className="h-5 w-5 text-zinc-600" />
-                        </div>
-                        <div className="mt-3 text-sm font-semibold text-zinc-900">
-                          Desbloquear post completo
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {lockedCount} contenido bloqueado
-                        </div>
-                        <div className="mt-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                            Pago único
-                          </div>
-                          <div className="mt-1 text-center text-[18px] font-semibold text-zinc-900">
-                            {formatARS(post.price ?? 0)}
-                          </div>
-                        </div>
-                        {post.userId !== currentUserId ? (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedPost(post.id);
-                            }}
-                            className="mt-3 w-full rounded-[10px] bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-                          >
-                            Comprar
-                          </button>
-                        ) : null}
+                      <div className="flex h-[86px] w-[86px] items-center justify-center rounded-[5px] bg-white/20">
+                        <Lock className="h-9 w-9 text-white" strokeWidth={2.5} />
                       </div>
-                    </div>
-                  ) : null}
-                  {lockedCount > 0 ? (
-                    <div className="absolute right-4 top-4 rounded-[5px] bg-white/90 px-3 py-1 text-xs font-semibold text-zinc-700">
-                      <span className="inline-flex items-center gap-2">
-                        <Lock className="h-3 w-3" />
-                        {lockedCount} locked
-                      </span>
                     </div>
                   ) : null}
                 </div>
@@ -1109,47 +1038,54 @@ export default function FeedLayout() {
             ) : null}
           </button>
 
-          <div className="px-5 py-4">
-            <div className="text-sm font-semibold text-zinc-900">
-              {post.likes.toLocaleString("es-AR")} Me gusta
-            </div>
-            <div className="mt-3 flex items-center justify-between">
+          <div className="px-6 py-5">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-4 text-zinc-700">
                 <button
                   className="flex items-center gap-2"
                   onClick={() => toggleLike(post.id)}
                 >
-                  <Heart className="h-5 w-5" />
-                  <span className="text-xs">{post.likes}</span>
+                  <Heart
+                    className={`h-6 w-6 ${
+                      isLiked ? "fill-[#ff334b] text-[#ff334b]" : "fill-none text-zinc-900"
+                    }`}
+                  />
+                  <span className="text-[15px] font-semibold text-zinc-900">
+                    {formatFeedLikes(post.likes)}
+                  </span>
                 </button>
-                <button className="flex items-center gap-2">
-                  <Send className="h-5 w-5" />
-                </button>
-                {currentUserId &&
-                post.userId !== currentUserId &&
-                post.tipEnabled ? (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenTip(post)}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:bg-amber-200"
-                  >
-                    <Zap className="h-4 w-4" />
-                    Enviar propina
-                  </button>
-                ) : null}
               </div>
-              <button aria-label="Guardar">
-                <Bookmark className="h-5 w-5 text-zinc-700" />
-              </button>
+              <div className="flex items-center gap-4 text-zinc-900">
+                <button aria-label="Compartir">
+                  <Send className="h-6 w-6" />
+                </button>
+                <button aria-label="Guardar">
+                  <Bookmark className="h-6 w-6 text-zinc-900" />
+                </button>
+              </div>
             </div>
 
-            <div className="mt-4 text-sm text-zinc-700">
+            <div className="mt-5 text-[15px] leading-[1.45] text-zinc-700">
               <span className="font-semibold text-zinc-900">
                 {post.author}
               </span>{" "}
               {post.caption}
             </div>
+
+            {currentUserId && post.userId !== currentUserId && post.tipEnabled ? (
+              <button
+                type="button"
+                onClick={() => handleOpenTip(post)}
+                className="mt-5 inline-flex items-center gap-2 text-[15px] font-semibold text-[#5A3EE7]"
+              >
+                <Zap className="h-4 w-4" />
+                Enviar propina
+              </button>
+            ) : null}
           </div>
+              </>
+            );
+          })()}
         </article>
       ))}
     </section>

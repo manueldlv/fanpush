@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bookmark, Grid, Lock } from "lucide-react";
@@ -124,6 +125,15 @@ function ProfilePostsSkeleton() {
     </div>
   );
 }
+
+const profileGamificationBadges = [
+  { icon: "🌈", title: "Perfil destacado", detail: "Completó su perfil y mantuvo actividad constante." },
+  { icon: "🪩", title: "Creador activo", detail: "Publicó contenido premium de forma consistente." },
+  { icon: "💐", title: "Favorito del mes", detail: "Recibió muchas interacciones positivas este mes." },
+  { icon: "🛡️", title: "Autor verificado", detail: "Completó la validación de autor con DNI." },
+  { icon: "🏅", title: "Top ventas", detail: "Superó una marca destacada de ventas en la plataforma." },
+  { icon: "🪄", title: "Gran comunidad", detail: "Refirió a +500 usuarios y expandió su comunidad." },
+];
 
 export default function PerfilPage({
   forcedUsername,
@@ -571,7 +581,7 @@ export default function PerfilPage({
       />
 
       <div className="flex min-h-screen md:pl-60">
-        <div className="mx-auto flex w-full max-w-none flex-col gap-4 px-4 py-4 pb-24 md:max-w-[1240px] md:gap-5 md:px-6 md:py-5">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-4 px-4 py-4 pb-24 md:max-w-[1495px] md:gap-5 md:px-6 md:py-5">
           {uiMessage ? (
             <div
               className={`rounded-[12px] border px-4 py-3 text-sm font-medium shadow-sm ${
@@ -586,107 +596,112 @@ export default function PerfilPage({
           {profileLoading ? (
             <ProfileHeaderSkeleton />
           ) : (
-            <div className="rounded-[12px] border border-zinc-200 bg-white px-5 py-5 md:px-7 md:py-6">
-              <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 md:flex-row md:items-start md:gap-8">
-                <div className="flex flex-1 items-start gap-4 md:gap-6">
+            <div className="overflow-hidden rounded-[5px] border border-zinc-200 bg-white">
+              <div className="relative h-[270px] w-full overflow-hidden">
+                <Image
+                  src="/profile-banner.png"
+                  alt="Banner de perfil"
+                  fill
+                  className="object-cover"
+                  priority
+                />
+              </div>
+              <div className="relative px-5 pb-6 pt-0 md:px-7">
+                <div className="absolute left-7 top-0 -translate-y-[72%] rounded-full border-[6px] border-white bg-white">
                   <UserAvatar
                     src={profileAvatar}
                     alt={profileName || "Perfil"}
-                    sizeClassName="h-20 w-20 md:h-28 md:w-28"
-                    iconClassName="h-8 w-8 md:h-10 md:w-10"
+                    sizeClassName="h-[160px] w-[160px]"
+                    iconClassName="h-12 w-12"
                   />
-                  <div className="flex-1 md:max-w-[500px]">
-                    <div className="flex items-center gap-2">
-                      <h1 className="text-[22px] font-semibold leading-none md:text-[28px]">
-                        {profileName || "usuario"}
-                      </h1>
-                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white">
-                        ✓
-                      </span>
+                </div>
+
+                <div className="flex min-h-[178px] flex-col justify-end gap-5 pt-[58px] md:flex-row md:items-end md:justify-between">
+                  <div className="max-w-[880px]">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                      <div className="flex items-center gap-2">
+                        <h1 className="text-[25px] font-semibold leading-none text-zinc-900">
+                          {profileName || "usuario"}
+                        </h1>
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#2f7cf6] text-[10px] font-bold text-white">
+                          ✓
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[15px] leading-none text-zinc-600">
+                        <span className="whitespace-nowrap">
+                          <span className="font-semibold text-zinc-900">
+                            {statsLoading ? "..." : stats.posts}
+                          </span>{" "}
+                          publicaciones
+                        </span>
+                        <span className="whitespace-nowrap">
+                          <span className="font-semibold text-zinc-900">
+                            {statsLoading ? "..." : stats.followers}
+                          </span>{" "}
+                          seguidores
+                        </span>
+                        <span className="whitespace-nowrap">
+                          <span className="font-semibold text-zinc-900">
+                            {statsLoading ? "..." : stats.following}
+                          </span>{" "}
+                          seguidos
+                        </span>
+                        <span className="whitespace-nowrap">
+                          <span className="font-semibold text-zinc-900">
+                            {statsLoading ? "..." : formatARS(earnings)}
+                          </span>{" "}
+                          ventas
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-1.5 text-[15px] font-medium leading-snug text-zinc-700 md:text-[17px]">
-                      {profileFullName || "Sin nombre"}
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-[22px]">
+                      {profileGamificationBadges.map((badge, index) => (
+                        <div key={`profile-badge-${index}`} className="group relative">
+                          <span className="inline-flex h-8 w-8 items-center justify-center">
+                            {badge.icon}
+                          </span>
+                          <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-20 w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                            <div className="text-[14px] font-semibold leading-tight text-white">
+                              {badge.title}
+                            </div>
+                            <div className="mt-1 text-[12px] leading-snug text-white/85">
+                              {badge.detail}
+                            </div>
+                            <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-[9px] border-r-[9px] border-t-[11px] border-l-transparent border-r-transparent border-t-black" />
+                          </div>
+                        </div>
+                      ))}
                     </div>
+
                     {profileBio ? (
-                      <div className="mt-2.5 max-w-[560px] text-[13px] leading-5 text-zinc-700 md:text-[14px]">
+                      <p className="mt-4 max-w-[820px] text-[15px] leading-[1.5] text-[#464646]">
                         {profileBio}
-                      </div>
+                      </p>
                     ) : isOwnProfile ? (
-                      <div className="mt-2.5 max-w-[560px] rounded-[14px] border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
-                        Tu perfil todavía no tiene bio. Puedes agregar una desde
-                        Configuración para que se vea más completo.
-                      </div>
+                      <p className="mt-4 max-w-[820px] text-[15px] leading-[1.5] text-[#464646]">
+                        Hola ! Bienvenidos a mi perfil, aca voy a estar subiendo un poquito de todo ojalá les guste !!
+                      </p>
                     ) : null}
-                    <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-zinc-600 md:gap-x-6 md:text-[14px]">
-                      <span className="whitespace-nowrap">
-                        <span className="font-semibold text-zinc-900">
-                          {statsLoading ? "..." : stats.posts}
-                        </span>{" "}
-                        publicaciones
-                      </span>
-                      <span className="whitespace-nowrap">
-                        <span className="font-semibold text-zinc-900">
-                          {statsLoading ? "..." : stats.followers}
-                        </span>{" "}
-                        seguidores
-                      </span>
-                      <span className="whitespace-nowrap">
-                        <span className="font-semibold text-zinc-900">
-                          {statsLoading ? "..." : stats.following}
-                        </span>{" "}
-                        seguidos
-                      </span>
-                      <span className="whitespace-nowrap">
-                        <span className="font-semibold text-zinc-900">
-                          {statsLoading ? "..." : formatARS(earnings)}
-                        </span>{" "}
-                        ventas
-                      </span>
-                    </div>
-                    {profileWebsite || profileInstagram ? (
-                      <div className="mt-2.5 flex flex-wrap gap-2">
-                        {profileWebsite ? (
-                          <a
-                            href={profileWebsite}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                          >
-                            Link principal
-                          </a>
-                        ) : null}
-                        {profileInstagram ? (
-                          <a
-                            href={`https://instagram.com/${profileInstagram.replace(/^@/, "")}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                          >
-                            {profileInstagram.startsWith("@")
-                              ? profileInstagram
-                              : `@${profileInstagram}`}
-                          </a>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    <div className="mt-4 w-full max-w-[460px]">
+
+                    <div className="mt-4 flex flex-wrap gap-3">
                       {isOwnProfile ? (
                         <button
                           type="button"
                           onClick={() => router.push("/settings")}
-                          className="w-full rounded-[10px] bg-zinc-100 px-4 py-2 text-[14px] font-semibold text-zinc-900"
+                          className="fanpush-button-secondary px-5 py-3"
                         >
-                          Editar perfil
+                          Editar mi perfil
                         </button>
                       ) : currentUserId && viewedUserId ? (
-                        <div className="grid grid-cols-3 gap-2.5">
+                        <>
                           <button
                             type="button"
                             onClick={toggleFollow}
-                            className={`w-full rounded-[10px] px-4 py-2 text-[14px] font-semibold transition-colors ${
+                            className={`rounded-[5px] px-5 py-3 text-[14px] font-semibold transition-colors ${
                               isFollowing
-                                ? "bg-zinc-100 text-zinc-900"
-                                : "bg-indigo-600 text-white hover:bg-indigo-500"
+                                ? "fanpush-button-secondary"
+                                : "bg-[#5A3EE7] text-white"
                             }`}
                           >
                             {isFollowing ? "Siguiendo" : "Seguir"}
@@ -700,7 +715,7 @@ export default function PerfilPage({
                                 )}`,
                               )
                             }
-                            className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                            className="fanpush-button-secondary px-5 py-3"
                           >
                             Enviar mensaje
                           </button>
@@ -709,14 +724,15 @@ export default function PerfilPage({
                             onClick={() => {
                               setTipOpen(true);
                             }}
-                            className="w-full rounded-[10px] border border-zinc-200 bg-white px-4 py-2 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                            className="fanpush-button-secondary px-5 py-3"
                           >
                             Propina
                           </button>
-                        </div>
+                        </>
                       ) : null}
                     </div>
                   </div>
+
                 </div>
               </div>
             </div>
@@ -725,33 +741,35 @@ export default function PerfilPage({
           {postsLoading ? (
             <ProfilePostsSkeleton />
           ) : (
-            <div className="rounded-[12px] border border-zinc-200 bg-white">
-              <div className="flex items-center justify-center gap-5 border-b border-zinc-200 px-4 pt-4 text-sm font-semibold text-zinc-500 md:gap-8 md:px-6">
-                <button
-                  onClick={() => setActiveTab("posts")}
-                  className={`pb-3 ${
-                    activeTab === "posts"
-                      ? "border-b-2 border-zinc-900 text-zinc-900"
-                      : ""
-                  }`}
-                >
-                  <Grid className="mr-2 inline h-4 w-4" />
-                  Posteos
-                </button>
-                <button
-                  onClick={() => setActiveTab("purchased")}
-                  className={`pb-3 ${
-                    activeTab === "purchased"
-                      ? "border-b-2 border-zinc-900 text-zinc-900"
-                      : ""
-                  }`}
-                >
-                  <Bookmark className="mr-2 inline h-4 w-4" />
-                  Comprados
-                </button>
-              </div>
+            <div className="rounded-[5px] border border-zinc-200 bg-white p-4 md:p-5">
+              {!isOwnProfile ? (
+                <div className="mb-4 flex items-center justify-center gap-5 border-b border-zinc-200 px-4 pt-1 text-sm font-semibold text-zinc-500 md:gap-8 md:px-6">
+                  <button
+                    onClick={() => setActiveTab("posts")}
+                    className={`pb-3 ${
+                      activeTab === "posts"
+                        ? "border-b-2 border-zinc-900 text-zinc-900"
+                        : ""
+                    }`}
+                  >
+                    <Grid className="mr-2 inline h-4 w-4" />
+                    Posteos
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("purchased")}
+                    className={`pb-3 ${
+                      activeTab === "purchased"
+                        ? "border-b-2 border-zinc-900 text-zinc-900"
+                        : ""
+                    }`}
+                  >
+                    <Bookmark className="mr-2 inline h-4 w-4" />
+                    Comprados
+                  </button>
+                </div>
+              ) : null}
 
-              <div className="grid grid-cols-2 gap-[2px] p-2 sm:grid-cols-3 md:grid-cols-5 md:gap-[2px] md:p-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
                 {activeTab === "posts" ? (
                   profilePosts.map((post) => {
                     const firstMedia = post.media[0];
@@ -762,7 +780,7 @@ export default function PerfilPage({
                     return (
                       <div
                         key={post.id}
-                        className="relative aspect-[3/4] cursor-pointer overflow-hidden border border-zinc-200"
+                        className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
                         onClick={() => openPostFromProfile(post)}
                       >
                         <MediaImage
@@ -772,25 +790,13 @@ export default function PerfilPage({
                           fallbackClassName="h-full w-full border-0"
                           iconClassName="h-7 w-7"
                         />
-                        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
-                          {isPaidPost ? (
-                            <div className="rounded-full bg-zinc-950/92 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm">
-                              <span className="inline-flex items-center gap-1">
-                                <Lock className="h-3 w-3" />
-                                Pago
-                              </span>
-                            </div>
-                          ) : (
-                            <div />
-                          )}
-                          {isPaidPost ? (
-                            <div className="rounded-full bg-white/92 px-2.5 py-1 text-[10px] font-semibold text-zinc-900 shadow-sm">
-                              {formatARS(post.price ?? 0)}
-                            </div>
-                          ) : null}
-                        </div>
                         {isPaidPost ? (
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/40 via-black/10 to-transparent" />
+                          <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Lock className="h-3 w-3" />
+                              {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
+                            </span>
+                          </div>
                         ) : null}
                       </div>
                     );

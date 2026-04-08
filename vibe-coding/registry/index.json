@@ -242,6 +242,18 @@
       "changelog": "vibe-coding/changelog/2026-04-06-02-purchases-ux-density.md"
     },
     {
+      "id": "2026-04-08-01-withdrawal-cancel-and-chat-confirm",
+      "type": "execution",
+      "title": "Cancelar retiros y confirmar desbloqueo en chat",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-08-01-withdrawal-cancel-and-chat-confirm.md",
+      "execution": "vibe-coding/executions/2026-04-08-01-withdrawal-cancel-and-chat-confirm.md",
+      "changelog": "vibe-coding/changelog/2026-04-08-01-withdrawal-cancel-and-chat-confirm.md"
+    },
+    {
       "id": "2026-04-02-01-messaging-system",
       "type": "plan",
       "title": "Sistema de mensajes con ofertas premium y supervision admin",
@@ -264,6 +276,30 @@
       "plan": "vibe-coding/plans/2026-04-02-01-messaging-system.md",
       "execution": "vibe-coding/executions/2026-04-02-02-messages-ui-foundation.md",
       "changelog": "vibe-coding/changelog/2026-04-02-02-messages-ui-foundation.md"
+    },
+    {
+      "id": "2026-04-08-02-withdrawal-ledger-alignment",
+      "type": "execution",
+      "title": "Alinear retiros con el balance real del ledger",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-08-02-withdrawal-ledger-alignment.md",
+      "execution": "vibe-coding/executions/2026-04-08-02-withdrawal-ledger-alignment.md",
+      "changelog": "vibe-coding/changelog/2026-04-08-02-withdrawal-ledger-alignment.md"
+    },
+    {
+      "id": "2026-04-08-03-sales-page-ux-refresh",
+      "type": "execution",
+      "title": "Refrescar UX de Mis ventas y retiros",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-08-03-sales-page-ux-refresh.md",
+      "execution": "vibe-coding/executions/2026-04-08-03-sales-page-ux-refresh.md",
+      "changelog": "vibe-coding/changelog/2026-04-08-03-sales-page-ux-refresh.md"
     }
   ]
 }

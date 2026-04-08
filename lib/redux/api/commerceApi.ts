@@ -7,7 +7,6 @@ import { parseTipAmountFromMessage } from "@/lib/earnings";
 import { parsePayoutProfile, type PayoutProfile } from "@/lib/payouts";
 import {
   getCurrentMonthKey,
-  getWithdrawalReservedAmount,
   getWithdrawalStatusLabel,
   parseWithdrawalRecord,
   type WithdrawalStatus,
@@ -104,6 +103,8 @@ type SalesResult = {
   sales: SaleItem[];
   withdrawals: WithdrawalItem[];
   payoutProfile: PayoutProfile | null;
+  availableToWithdraw: number;
+  reservedToWithdraw: number;
 };
 
 type ExploreResult = {
@@ -113,6 +114,8 @@ type ExploreResult = {
 const buildError = (error: unknown, fallback: string) => ({
   error: error instanceof Error ? error.message : fallback,
 });
+
+const LOCAL_WITHDRAWAL_PREVIEW_BALANCE = 180_000;
 
 const getAccessToken = async () => {
   const supabase = getSupabaseClient();
@@ -341,16 +344,18 @@ export const commerceApi = createApi({
           monthKey: string;
         };
       },
-      void
+      { amount: number }
     >({
-      async queryFn() {
+      async queryFn({ amount }) {
         try {
           const accessToken = await getAccessToken();
           const response = await fetch("/api/withdrawals/request", {
             method: "POST",
             headers: {
+              "Content-Type": "application/json",
               Authorization: `Bearer ${accessToken}`,
             },
+            body: JSON.stringify({ amount }),
           });
           const result = (await response.json()) as {
             error?: string;
@@ -370,6 +375,44 @@ export const commerceApi = createApi({
         }
       },
     }),
+    cancelWithdrawal: builder.mutation<
+      {
+        record: {
+          amount: number;
+          status: WithdrawalStatus;
+          requestedAt: string;
+          monthKey: string;
+        };
+      },
+      { id: string }
+    >({
+      async queryFn({ id }) {
+        try {
+          const accessToken = await getAccessToken();
+          const response = await fetch(`/api/withdrawals/${id}/cancel`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          const result = (await response.json()) as {
+            error?: string;
+            record?: {
+              amount: number;
+              status: WithdrawalStatus;
+              requestedAt: string;
+              monthKey: string;
+            };
+          };
+          if (!response.ok || !result.record) {
+            throw new Error(result.error ?? "No se pudo cancelar el retiro.");
+          }
+          return { data: { record: result.record } };
+        } catch (error) {
+          return { error: buildError(error, "No se pudo cancelar el retiro.") };
+        }
+      },
+    }),
     getSales: builder.query<SalesResult, void>({
       async queryFn() {
         try {
@@ -377,7 +420,17 @@ export const commerceApi = createApi({
           if (!supabase) throw new Error("Falta configurar Supabase.");
           const { data: authData } = await supabase.auth.getUser();
           const userId = authData?.user?.id;
-          if (!userId) return { data: { sales: [], withdrawals: [], payoutProfile: null } };
+          if (!userId) {
+            return {
+              data: {
+                sales: [],
+                withdrawals: [],
+                payoutProfile: null,
+                availableToWithdraw: 0,
+                reservedToWithdraw: 0,
+              },
+            };
+          }
 
           const { data: postRows } = await supabase
             .from("posts")
@@ -499,6 +552,27 @@ export const commerceApi = createApi({
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
+          const balanceRow = await supabase
+            .from("user_balances")
+            .select("cash_available,cash_reserved")
+            .eq("user_id", userId)
+            .maybeSingle();
+
+          const activeReserved = withdrawals.reduce((sum, item) => {
+            if (item.status !== "requested") return sum;
+            return sum + Number(item.amount || 0);
+          }, 0);
+          const currentAvailableToWithdraw = Number(balanceRow.data?.cash_available ?? 0);
+          const reservedToWithdraw = activeReserved;
+          const isLocalPreview =
+            typeof window !== "undefined" &&
+            (window.location.hostname === "127.0.0.1" ||
+              window.location.hostname === "localhost");
+          const availableToWithdraw =
+            isLocalPreview && currentAvailableToWithdraw < LOCAL_WITHDRAWAL_PREVIEW_BALANCE
+              ? LOCAL_WITHDRAWAL_PREVIEW_BALANCE
+              : currentAvailableToWithdraw;
+
           return {
             data: {
               sales: Array.from(grouped.values()).sort((a, b) =>
@@ -506,6 +580,8 @@ export const commerceApi = createApi({
               ),
               withdrawals,
               payoutProfile: parsePayoutProfile(payoutRow.data?.message),
+              availableToWithdraw,
+              reservedToWithdraw,
             },
           };
         } catch (error) {
@@ -520,6 +596,7 @@ export const commerceApi = createApi({
 export const {
   useCreateCheckoutPreferenceMutation,
   useFinalizeMercadoPagoMutation,
+  useCancelWithdrawalMutation,
   useGetPurchasesQuery,
   useGetSalesQuery,
   useRequestWithdrawalMutation,

@@ -10,6 +10,7 @@ export type SuggestionItem = {
   note: string;
   avatar: string | null;
   verified?: boolean;
+  isFollowing?: boolean;
 };
 
 const buildError = (error: unknown, fallback: string) => ({
@@ -40,12 +41,15 @@ export const socialApi = createApi({
           const { data: authData } = await supabase.auth.getUser();
           const userId = authData?.user?.id;
 
+          const followedIds = new Set<string>();
           if (userId) {
             const { data: followRows } = await supabase
               .from("follows")
               .select("following_id")
               .eq("follower_id", userId);
-            void followRows;
+            (followRows ?? []).forEach((row) => {
+              if (row.following_id) followedIds.add(row.following_id);
+            });
           }
 
           let query = supabase.from("users").select("id,username,avatar_url").limit(5);
@@ -62,6 +66,7 @@ export const socialApi = createApi({
               handle: `@${row.username ?? "usuario"}`,
               note: "Sugerencia para ti",
               avatar: resolvePublicUrl(supabase, row.avatar_url ?? null),
+              isFollowing: followedIds.has(row.id),
             })),
           );
 

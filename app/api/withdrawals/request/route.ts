@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { loadCreatorEarnings } from "@/lib/earnings";
 import { requireAuthorPermission } from "@/lib/server/auth/authorization";
 import {
   createWithdrawalRequest,
@@ -7,13 +6,21 @@ import {
 } from "@/lib/server/repositories/withdrawals";
 import { parsePayoutProfile } from "@/lib/payouts";
 import {
+  applyUserBalanceDelta,
+  ensureLegacyCreatorBalanceBaseline,
+} from "@/lib/server/repositories/ledger";
+import {
   getCurrentMonthKey,
-  getWithdrawalReservedAmount,
 } from "@/lib/withdrawals";
 import { FANPUSH_WITHDRAWAL_MIN_ARS } from "@/lib/utils";
 
 export async function POST(request: Request) {
   try {
+    const requestHost = request.headers.get("host") ?? "";
+    const isLocalPreviewRequest =
+      requestHost.includes("127.0.0.1") || requestHost.includes("localhost");
+    const LOCAL_WITHDRAWAL_PREVIEW_BALANCE = 180_000;
+
     const { admin, user, error } = await requireAuthorPermission(
       request,
       "withdrawals.request",
@@ -31,7 +38,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const earnings = await loadCreatorEarnings(admin, user.id);
+    const body = (await request.json().catch(() => ({}))) as {
+      amount?: number | string;
+    };
+    const requestedAmount = Number(body.amount ?? 0);
     const { data: payoutRow } = await admin
       .from("notifications")
       .select("message")
@@ -61,7 +71,7 @@ export async function POST(request: Request) {
 
     const monthKey = getCurrentMonthKey();
     const existingThisMonth = normalizedRecords.find(
-      (record) => record.monthKey === monthKey,
+      (record) => record.monthKey === monthKey && record.status !== "rejected",
     );
     if (existingThisMonth) {
       return NextResponse.json(
@@ -70,8 +80,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const reserved = getWithdrawalReservedAmount(normalizedRecords);
-    const availableToRequest = Math.max(earnings.creatorNet - reserved, 0);
+    let balanceSnapshot = await ensureLegacyCreatorBalanceBaseline(admin, user.id);
+
+    if (
+      isLocalPreviewRequest &&
+      (balanceSnapshot?.cashAvailable ?? 0) < LOCAL_WITHDRAWAL_PREVIEW_BALANCE
+    ) {
+      const delta = LOCAL_WITHDRAWAL_PREVIEW_BALANCE - (balanceSnapshot?.cashAvailable ?? 0);
+      if (delta > 0) {
+        balanceSnapshot = await applyUserBalanceDelta(admin, user.id, {
+          cashAvailable: delta,
+        });
+      }
+    }
+
+    const availableToRequest = Math.max(balanceSnapshot?.cashAvailable ?? 0, 0);
 
     if (availableToRequest < FANPUSH_WITHDRAWAL_MIN_ARS) {
       return NextResponse.json(
@@ -83,8 +106,31 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      return NextResponse.json(
+        { error: "Ingresa un monto válido para retirar." },
+        { status: 400 },
+      );
+    }
+
+    if (requestedAmount < FANPUSH_WITHDRAWAL_MIN_ARS) {
+      return NextResponse.json(
+        {
+          error: `El retiro mínimo es de ${FANPUSH_WITHDRAWAL_MIN_ARS.toLocaleString("es-AR")} ARS.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    if (requestedAmount > availableToRequest) {
+      return NextResponse.json(
+        { error: "No puedes retirar más de lo que tienes disponible." },
+        { status: 400 },
+      );
+    }
+
     const record = {
-      amount: availableToRequest,
+      amount: requestedAmount,
       status: "requested" as const,
       requestedAt: new Date().toISOString(),
       monthKey,

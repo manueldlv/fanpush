@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Heart, Lock, MoreHorizontal, Send, Zap } from "lucide-react";
+import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
@@ -869,20 +869,20 @@ export default function FeedLayout() {
 
             return (
               <>
-          <div className="flex items-center justify-between px-6 py-5">
+          <div className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => {
                   router.push(buildUserProfileHref(post.author));
                 }}
-                className="h-[52px] w-[52px] overflow-hidden rounded-full"
+                className="h-[46px] w-[46px] overflow-hidden rounded-full"
                 aria-label={`Ver perfil de ${post.author}`}
               >
                 <UserAvatar src={post.avatar} alt={post.author} />
               </button>
               <div>
-                <div className="flex items-center gap-2 text-[16px] font-semibold leading-none text-zinc-900">
+                <div className="flex items-center gap-2 text-[15px] font-semibold leading-none text-zinc-900">
                   <button
                     type="button"
                     onClick={() => {
@@ -897,11 +897,11 @@ export default function FeedLayout() {
                       ✓
                     </span>
                   ) : null}
-                  <span className="text-[14px] font-normal text-zinc-500">
+                  <span className="text-[13px] font-normal text-zinc-500">
                     {post.time}
                   </span>
                 </div>
-                <div className="mt-1 text-[14px] leading-none text-zinc-500">
+                <div className="mt-1 text-[13px] leading-none text-zinc-500">
                   {post.suggestion}
                 </div>
               </div>
@@ -910,7 +910,7 @@ export default function FeedLayout() {
             <div className="flex items-center gap-3">
               {post.userId !== currentUserId ? (
                 <button
-                  className={`min-w-[118px] text-right text-[17px] font-semibold leading-none tracking-[-0.02em] ${
+                  className={`min-w-[108px] text-right text-[16px] font-semibold leading-none tracking-[-0.02em] ${
                     followingIds.has(post.userId)
                       ? "text-zinc-700"
                       : "text-[#5A3EE7]"
@@ -1078,7 +1078,12 @@ export default function FeedLayout() {
                 onClick={() => handleOpenTip(post)}
                 className="mt-5 inline-flex items-center gap-2 text-[15px] font-semibold text-[#5A3EE7]"
               >
-                <Zap className="h-4 w-4" />
+                <img
+                  src="/tip-lightning.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-4 w-4 object-contain"
+                />
                 Enviar propina
               </button>
             ) : null}

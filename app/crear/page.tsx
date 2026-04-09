@@ -8,7 +8,6 @@ import {
   Image as ImageIcon,
   Lock,
   ShieldCheck,
-  Zap,
   Upload,
 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -760,7 +759,12 @@ export default function CrearPage() {
 
                 <div className="mt-4 rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
                   <div className="flex items-center gap-2 font-medium text-zinc-700">
-                    <Zap className="h-4 w-4 text-amber-500" />
+                    <img
+                      src="/tip-lightning.png"
+                      alt=""
+                      aria-hidden="true"
+                      className="h-4 w-4 object-contain"
+                    />
                     {tipsEnabled ? "Propina activada" : "Propina desactivada"}
                   </div>
                   <p className="mt-1">

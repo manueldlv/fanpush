@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Landmark, User } from "lucide-react";
+import { Ban, Bell, Landmark, User } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import {
+  CHAT_BLOCKED_USERS_UPDATED_EVENT,
+  loadBlockedChatUsers,
+  saveBlockedChatUsers,
+  type BlockedChatUser,
+} from "@/lib/chatPreferences";
 import { profileApi } from "@/lib/redux/api/profileApi";
 import {
   useDeleteAccountMutation,
@@ -68,7 +74,9 @@ export default function SettingsPage() {
       { type: "ProfileView", id: `username:${nextUsername.toLowerCase()}` },
     ]));
   };
-  const [activeTab, setActiveTab] = useState<"profile" | "notifications" | "payments">(
+  const [activeTab, setActiveTab] = useState<
+    "profile" | "notifications" | "payments" | "blocked"
+  >(
     "profile",
   );
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -97,6 +105,7 @@ export default function SettingsPage() {
   const [savedNotificationPreferences, setSavedNotificationPreferences] =
     useState<NotificationPreferences>(buildDefaultNotificationPreferences());
   const [savingNotifications, setSavingNotifications] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<BlockedChatUser[]>([]);
 
   useEffect(() => {
     if (!settingsData) return;
@@ -123,6 +132,25 @@ export default function SettingsPage() {
       }
     };
   }, [avatarCropSource]);
+
+  useEffect(() => {
+    const syncBlockedUsers = () => {
+      setBlockedUsers(loadBlockedChatUsers());
+    };
+
+    syncBlockedUsers();
+    window.addEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, syncBlockedUsers);
+    return () => {
+      window.removeEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, syncBlockedUsers);
+    };
+  }, []);
+
+  const handleUnblockUser = (userId: string) => {
+    const nextUsers = blockedUsers.filter((user) => user.id !== userId);
+    setBlockedUsers(nextUsers);
+    saveBlockedChatUsers(nextUsers);
+    setMessage("Usuario desbloqueado.");
+  };
 
   const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
@@ -486,6 +514,18 @@ export default function SettingsPage() {
                 >
                   <Landmark className="h-4 w-4" />
                   Cobros y retiros
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("blocked")}
+                  className={`flex w-full cursor-pointer items-center gap-3 rounded-[5px] px-3 py-2 text-left text-sm font-semibold transition ${
+                    activeTab === "blocked"
+                      ? "bg-zinc-100 text-zinc-900"
+                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                  }`}
+                >
+                  <Ban className="h-4 w-4" />
+                  Personas bloqueadas
                 </button>
               </div>
             </div>
@@ -879,6 +919,56 @@ export default function SettingsPage() {
                   >
                     {savingPayout ? "Guardando..." : "Guardar datos de cobro"}
                   </button>
+                </div>
+              </div>
+            ) : activeTab === "blocked" ? (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-semibold">Personas bloqueadas</h1>
+                  <p className="text-sm text-zinc-500">
+                    Gestiona las personas que bloqueaste desde los chats.
+                  </p>
+                </div>
+
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  {blockedUsers.length > 0 ? (
+                    <div className="space-y-3">
+                      {blockedUsers.map((user) => (
+                        <div
+                          key={user.id}
+                          className="flex items-center justify-between gap-4 rounded-[5px] border border-zinc-200 px-4 py-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <UserAvatar
+                              src={user.avatarUrl}
+                              alt={user.fullName}
+                              sizeClassName="h-12 w-12"
+                              iconClassName="h-4 w-4"
+                            />
+                            <div>
+                              <div className="text-[15px] font-semibold text-zinc-900">
+                                {user.fullName}
+                              </div>
+                              <div className="text-[13px] text-zinc-500">
+                                @{user.username}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUnblockUser(user.id)}
+                            className="rounded-[5px] border border-zinc-200 px-4 py-2 text-[14px] font-semibold text-zinc-700"
+                          >
+                            Desbloquear
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-zinc-500">
+                      No tienes personas bloqueadas por ahora.
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

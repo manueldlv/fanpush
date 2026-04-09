@@ -1,3 +1,5 @@
+import { useEffect, useState, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -8,23 +10,55 @@ import {
   LogOut,
   DollarSign,
   Search,
-  Send,
   Settings,
   ShoppingBag,
   SquarePlus,
   User,
 } from "lucide-react";
 import { useGetViewerQuery, useSignOutMutation } from "@/lib/redux/api/sessionApi";
+import { useGetNotificationCenterQuery } from "@/lib/redux/api/notificationsApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { openSearchPanel } from "@/lib/redux/slices/uiSlice";
+import { EARNINGS_REFRESH_FLAG, PURCHASE_REFRESH_FLAG } from "@/lib/auth";
 
 export default function SidebarLeft() {
   const dispatch = useAppDispatch();
   const pathname = usePathname();
   const searchOpen = useAppSelector((state) => state.ui.searchPanelOpen);
   const { data: viewer } = useGetViewerQuery();
+  const { data: notificationCenter } = useGetNotificationCenterQuery();
   const [signOut] = useSignOutMutation();
+  const [purchaseBadge, setPurchaseBadge] = useState(false);
+  const [salesBadge, setSalesBadge] = useState(false);
   const canCreate = viewer?.access.canCreate ?? false;
+
+  useEffect(() => {
+    const syncBadges = () => {
+      if (typeof window === "undefined") return;
+      setPurchaseBadge(Boolean(window.sessionStorage.getItem(PURCHASE_REFRESH_FLAG)));
+      setSalesBadge(Boolean(window.sessionStorage.getItem(EARNINGS_REFRESH_FLAG)));
+    };
+
+    syncBadges();
+    window.addEventListener("purchases-updated", syncBadges);
+    window.addEventListener("earnings-updated", syncBadges);
+    return () => {
+      window.removeEventListener("purchases-updated", syncBadges);
+      window.removeEventListener("earnings-updated", syncBadges);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (pathname === "/compras") {
+      window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
+      setPurchaseBadge(false);
+    }
+    if (pathname === "/ventas") {
+      window.sessionStorage.removeItem(EARNINGS_REFRESH_FLAG);
+      setSalesBadge(false);
+    }
+  }, [pathname]);
 
   const itemClass = (active = false) =>
     `group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold leading-none tracking-[-0.01em] transition ${
@@ -35,6 +69,57 @@ export default function SidebarLeft() {
 
   const iconClass = (active = false) =>
     `h-6 w-6 transition ${active ? "text-[#5A3EE7]" : "text-[#161823]"}`;
+
+  const unreadNotifications = (notificationCenter?.activity ?? []).some(
+    (item) => !item.isRead,
+  );
+  const unreadMessages = (notificationCenter?.threads ?? []).some(
+    (thread) => thread.unread,
+  );
+  const salesActivityBadge = (notificationCenter?.activity ?? []).some(
+    (item) =>
+      !item.isRead &&
+      (item.type === "purchase" ||
+        item.type === "tip" ||
+        item.type === "withdrawal_update"),
+  );
+
+  const showBadge = (
+    _active: boolean,
+    dotVisible: boolean,
+    icon: ReactNode,
+    label: string,
+  ) => (
+    <>
+      <span className="relative">
+        {icon}
+        {dotVisible ? (
+          <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
+        ) : null}
+      </span>
+      <span>{label}</span>
+    </>
+  );
+
+  const messagesNavIcon = (
+    <Image
+      src="/messages-nav-icon.png"
+      alt=""
+      width={22}
+      height={18}
+      className="h-[18px] w-[22px] object-contain brightness-0 saturate-100"
+      unoptimized
+      aria-hidden="true"
+    />
+  );
+
+  const mobileIconWrapClass =
+    "relative flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100";
+
+  const mobileBadge = (visible: boolean) =>
+    visible ? (
+      <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
+    ) : null;
 
   return (
     <>
@@ -71,15 +156,23 @@ export default function SidebarLeft() {
               href="/mensajes"
               className={itemClass(pathname === "/mensajes")}
             >
-              <Send className={iconClass(pathname === "/mensajes")} />
-              <span>Mensajes</span>
+              {showBadge(
+                pathname === "/mensajes",
+                unreadMessages,
+                messagesNavIcon,
+                "Mensajes",
+              )}
             </Link>
             <Link
               href="/notificaciones"
               className={itemClass(pathname === "/notificaciones")}
             >
-              <Bell className={iconClass(pathname === "/notificaciones")} />
-              <span>Notificaciones</span>
+              {showBadge(
+                pathname === "/notificaciones",
+                unreadNotifications,
+                <Bell className={iconClass(pathname === "/notificaciones")} />,
+                "Notificaciones",
+              )}
             </Link>
             {canCreate ? (
               <Link
@@ -103,15 +196,23 @@ export default function SidebarLeft() {
               href="/compras"
               className={itemClass(pathname === "/compras")}
             >
-              <ShoppingBag className={iconClass(pathname === "/compras")} />
-              <span>Mis compras</span>
+              {showBadge(
+                pathname === "/compras",
+                purchaseBadge,
+                <ShoppingBag className={iconClass(pathname === "/compras")} />,
+                "Mis compras",
+              )}
             </Link>
             <Link
               href="/ventas"
               className={itemClass(pathname === "/ventas")}
             >
-              <DollarSign className={iconClass(pathname === "/ventas")} />
-              <span>Mis ventas</span>
+              {showBadge(
+                pathname === "/ventas",
+                salesBadge || salesActivityBadge,
+                <DollarSign className={iconClass(pathname === "/ventas")} />,
+                "Mis ventas",
+              )}
             </Link>
             <Link
               href="/saldo"
@@ -177,7 +278,7 @@ export default function SidebarLeft() {
       <nav className="fixed bottom-0 left-0 z-50 flex w-full items-center justify-around border-t border-zinc-200 bg-white px-2 py-2 md:hidden">
         <Link
           href="/"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+          className={mobileIconWrapClass}
           aria-label="Inicio"
         >
           <Home className="h-5 w-5" />
@@ -194,17 +295,26 @@ export default function SidebarLeft() {
         </button>
         <Link
           href="/explorar"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+          className={mobileIconWrapClass}
           aria-label="Explorar"
         >
           <Compass className="h-5 w-5" />
         </Link>
         <Link
           href="/mensajes"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+          className={mobileIconWrapClass}
           aria-label="Mensajes"
         >
-          <Send className="h-5 w-5" />
+          {mobileBadge(unreadMessages)}
+          <Image
+            src="/messages-nav-icon.png"
+            alt=""
+            width={20}
+            height={16}
+            className="h-4 w-5 object-contain brightness-0 saturate-100"
+            unoptimized
+            aria-hidden="true"
+          />
         </Link>
         {canCreate ? (
           <Link
@@ -226,14 +336,31 @@ export default function SidebarLeft() {
         )}
         <Link
           href="/notificaciones"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 transition hover:bg-zinc-100"
+          className={mobileIconWrapClass}
           aria-label="Notificaciones"
         >
+          {mobileBadge(unreadNotifications)}
           <Bell className="h-5 w-5" />
         </Link>
         <Link
+          href="/compras"
+          className={mobileIconWrapClass}
+          aria-label="Mis compras"
+        >
+          {mobileBadge(purchaseBadge)}
+          <ShoppingBag className="h-5 w-5" />
+        </Link>
+        <Link
+          href="/ventas"
+          className={mobileIconWrapClass}
+          aria-label="Mis ventas"
+        >
+          {mobileBadge(salesBadge || salesActivityBadge)}
+          <DollarSign className="h-5 w-5" />
+        </Link>
+        <Link
           href="/perfil"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+          className={mobileIconWrapClass}
           aria-label="Perfil"
         >
           <User className="h-5 w-5" />

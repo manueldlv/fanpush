@@ -596,7 +596,7 @@ export default function PerfilPage({
           {profileLoading ? (
             <ProfileHeaderSkeleton />
           ) : (
-            <div className="overflow-hidden rounded-[5px] border border-zinc-200 bg-white">
+            <div className="rounded-[5px] border border-zinc-200 bg-white">
               <div className="relative h-[270px] w-full overflow-hidden">
                 <Image
                   src="/profile-banner.png"
@@ -661,7 +661,7 @@ export default function PerfilPage({
                           <span className="inline-flex h-8 w-8 items-center justify-center">
                             {badge.icon}
                           </span>
-                          <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-20 w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[80] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
                             <div className="text-[14px] font-semibold leading-tight text-white">
                               {badge.title}
                             </div>

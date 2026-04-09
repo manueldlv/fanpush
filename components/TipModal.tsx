@@ -13,6 +13,21 @@ const formatUnits = (value: number) =>
     maximumFractionDigits: 2,
   }).format(Math.max(0, value));
 
+function TipLightningIcon({
+  className,
+}: {
+  className?: string;
+}) {
+  return (
+    <img
+      src="/tip-lightning.png"
+      alt=""
+      aria-hidden="true"
+      className={className ?? "h-4 w-4 object-contain"}
+    />
+  );
+}
+
 type TipModalProps = {
   open: boolean;
   availableBalance: number;
@@ -118,7 +133,11 @@ export default function TipModal({
                     Propina enviada
                   </h2>
                   <p className="mt-2 text-[12px] leading-5 text-zinc-500">
-                    Enviaste ⚡ {formatUnits(result.amount)} a @{recipientLabel}.
+                    <span className="inline-flex items-center gap-1.5">
+                      Enviaste
+                      <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                      {formatUnits(result.amount)} a @{recipientLabel}.
+                    </span>
                   </p>
                 </div>
               </div>
@@ -135,14 +154,16 @@ export default function TipModal({
             <div className="mt-5 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 md:px-5">
               <div className="flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
                 <span>Propina enviada</span>
-                <span className="font-semibold text-zinc-950">
-                  ⚡ {formatUnits(result.amount)}
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-950">
+                  <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                  {formatUnits(result.amount)}
                 </span>
               </div>
               <div className="mt-3 flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
                 <span>Saldo restante</span>
-                <span className="font-semibold text-zinc-950">
-                  ⚡ {formatUnits(result.balance)}
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-950">
+                  <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                  {formatUnits(result.balance)}
                 </span>
               </div>
             </div>
@@ -185,9 +206,7 @@ export default function TipModal({
                 Monto de la propina
               </label>
               <div className="mt-3 flex h-[64px] items-center rounded-[18px] border border-zinc-300 px-5 md:h-[72px]">
-                <span className="text-[22px] text-zinc-500 md:text-[24px]">
-                  ⚡
-                </span>
+                <TipLightningIcon className="h-[22px] w-[22px] object-contain md:h-[24px] md:w-[24px]" />
                 <input
                   type="number"
                   inputMode="numeric"
@@ -201,27 +220,34 @@ export default function TipModal({
                 />
               </div>
               <div className="mt-2 text-[11px] text-zinc-400">
-                Saldo disponible: ⚡ {formatUnits(availableBalance)}
+                <span className="inline-flex items-center gap-1.5">
+                  Saldo disponible:
+                  <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                  {formatUnits(availableBalance)}
+                </span>
               </div>
             </div>
 
             <div className="mt-7 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 md:px-5 md:py-5">
               <div className="flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
                 <span>Propina total</span>
-                <span className="font-semibold text-zinc-950">
-                  ⚡ {formatUnits(amountValue || 0)}
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-950">
+                  <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                  {formatUnits(amountValue || 0)}
                 </span>
               </div>
               <div className="mt-3 flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
                 <span>Recibe el creador (70%)</span>
-                <span className="font-semibold text-zinc-950">
-                  ⚡ {formatUnits(creatorReceives)}
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-950">
+                  <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                  {formatUnits(creatorReceives)}
                 </span>
               </div>
               <div className="mt-3 flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
                 <span>Comisión plataforma (30%)</span>
-                <span className="font-semibold text-zinc-950">
-                  ⚡ {formatUnits(platformFee)}
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-950">
+                  <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
+                  {formatUnits(platformFee)}
                 </span>
               </div>
             </div>

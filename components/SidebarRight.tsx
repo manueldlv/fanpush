@@ -3,20 +3,49 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { buildUserProfileHref } from "@/lib/profileRoute";
-import { useGetSuggestionsQuery } from "@/lib/redux/api/socialApi";
+import { socialApi, useGetSuggestionsQuery } from "@/lib/redux/api/socialApi";
+import { useAppDispatch } from "@/lib/redux/hooks";
+import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SidebarRight() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const { data: suggestions = [], isLoading: loading } = useGetSuggestionsQuery();
 
   const openProfile = (profile: { name: string }) => {
     router.push(buildUserProfileHref(profile.name));
   };
 
+  const toggleFollowSuggestion = async (profileId: string, isFollowing: boolean) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUserId = authData?.user?.id;
+    if (!currentUserId || currentUserId === profileId) return;
+
+    if (isFollowing) {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", currentUserId)
+        .eq("following_id", profileId);
+      if (error) return;
+    } else {
+      const { error } = await supabase.from("follows").insert({
+        follower_id: currentUserId,
+        following_id: profileId,
+      });
+      if (error) return;
+    }
+
+    dispatch(socialApi.util.invalidateTags(["SocialSuggestions"]));
+  };
+
   return (
     <aside className="hidden w-[380px] shrink-0 lg:block">
       <div className="sticky top-[88px] space-y-6">
-        <div className="h-[485px] overflow-hidden rounded-[5px] border border-zinc-200 bg-white">
+        <div className="overflow-hidden rounded-[5px] border border-zinc-200 bg-white">
           <div className="relative border-b border-zinc-200">
             <Image
               src="/suggestions-header.png"
@@ -31,12 +60,12 @@ export default function SidebarRight() {
             </h3>
           </div>
 
-          <div className="px-[18px] pt-[12px] pb-[36px]">
+          <div className="px-[16px] py-[10px]">
             {loading
               ? Array.from({ length: 5 }).map((_, index) => (
                   <div
                     key={`suggestion-skeleton-${index}`}
-                    className="flex h-[66px] items-center justify-between"
+                    className="flex h-[62px] items-center justify-between"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="fanpush-skeleton h-11 w-11 rounded-full" />
@@ -52,24 +81,24 @@ export default function SidebarRight() {
             {suggestions.map((profile) => (
               <div
                 key={profile.id}
-                className="flex h-[66px] items-center justify-between"
+                className="flex h-[62px] items-center justify-between"
               >
                 <button
                   type="button"
                   onClick={() => openProfile(profile)}
-                  className="flex min-w-0 cursor-pointer items-center gap-[20px] text-left"
+                  className="flex min-w-0 cursor-pointer items-center gap-4 text-left"
                 >
                   {profile.avatar ? (
                     <img
                       src={profile.avatar}
                       alt={profile.name}
-                      className="h-[50px] w-[50px] rounded-full object-cover"
+                      className="h-[46px] w-[46px] rounded-full object-cover"
                     />
                   ) : (
-                    <div className="h-[50px] w-[50px] rounded-full bg-zinc-100" />
+                    <div className="h-[46px] w-[46px] rounded-full bg-zinc-100" />
                   )}
                   <div>
-                    <div className="flex items-center gap-2 text-[17px] font-semibold leading-none tracking-[-0.02em] text-zinc-900">
+                    <div className="flex items-center gap-2 text-[16px] font-semibold leading-none tracking-[-0.02em] text-zinc-900">
                       <span>{profile.name}</span>
                       {profile.verified ? (
                         <span className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-sky-500 text-[10px] font-bold text-white">
@@ -81,7 +110,10 @@ export default function SidebarRight() {
                 </button>
                 <button
                   type="button"
-                  className={`min-w-[118px] text-right text-[17px] font-semibold leading-none tracking-[-0.02em] ${
+                  onClick={() =>
+                    toggleFollowSuggestion(profile.id, Boolean(profile.isFollowing))
+                  }
+                  className={`min-w-[108px] text-right text-[16px] font-semibold leading-none tracking-[-0.02em] ${
                     profile.isFollowing ? "text-[#4b4b4b]" : "text-[#5A3EE7]"
                   }`}
                 >

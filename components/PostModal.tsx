@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, MoreHorizontal, Unlock, X, Zap } from "lucide-react";
+import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import {
@@ -11,6 +11,12 @@ import {
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
 import { formatARS } from "@/lib/utils";
+
+const formatUnits = (value: number) =>
+  new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.max(0, value));
 
 type PostModalProps = {
   post: Post;
@@ -36,6 +42,7 @@ export default function PostModal({
   const [showPurchaseToast, setShowPurchaseToast] = useState(false);
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState(post.media);
+  const [ownerSalesCount, setOwnerSalesCount] = useState(0);
   const lockedCount = resolvedMedia.filter((m) => m.locked).length;
   const current = resolvedMedia[index] ?? resolvedMedia[0];
   const isOwner =
@@ -47,6 +54,17 @@ export default function PostModal({
   );
   const isPaidPost = Number(post.price ?? 0) > 0 || hasPaidContent;
   const showUnlockedStatus = !isOwner && hasPaidContent && lockedCount === 0;
+  const previewTags = ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4"];
+  const videoCount = resolvedMedia.filter((item) => item.kind === "video").length;
+  const imageCount = resolvedMedia.filter((item) => item.kind === "image").length;
+  const mediaSummary = [
+    videoCount > 0 ? `${videoCount} ${videoCount === 1 ? "video" : "videos"}` : null,
+    imageCount > 0 ? `${imageCount} ${imageCount === 1 ? "foto" : "fotos"}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const mediaLockedForViewer = Boolean(current?.locked) && !isOwner;
+  const ownerSalesGross = ownerSalesCount * Number(post.price ?? 0);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -129,6 +147,35 @@ export default function PostModal({
     return () => window.clearTimeout(timeout);
   }, [showPurchaseToast]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOwnerSales = async () => {
+      if (!isOwner || !isPaidPost) {
+        setOwnerSalesCount(0);
+        return;
+      }
+
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+
+      const { count } = await supabase
+        .from("purchases")
+        .select("id", { count: "exact", head: true })
+        .eq("album_id", post.id);
+
+      if (!cancelled) {
+        setOwnerSalesCount(count ?? 0);
+      }
+    };
+
+    void loadOwnerSales();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner, isPaidPost, post.id]);
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 md:p-6">
       <div
@@ -144,26 +191,26 @@ export default function PostModal({
       >
         <X className="h-5 w-5" />
       </button>
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[16px] bg-white md:max-h-none md:flex-row md:rounded-[5px]">
+      <div className="relative z-10 flex max-h-[92vh] w-full max-w-[1160px] flex-col overflow-hidden rounded-[16px] bg-white md:max-h-none md:flex-row md:rounded-[5px]">
         <div className="relative h-[42vh] bg-black md:h-[680px] md:flex-1">
           {current?.kind === "image" ? (
             <img
               src={current.url}
               alt={post.author}
               className={`h-full w-full object-contain ${
-                current.locked ? "blur-[10px]" : ""
+                mediaLockedForViewer ? "blur-[10px]" : ""
               }`}
-              style={{ filter: current.locked ? "blur(10px)" : "none" }}
+              style={{ filter: mediaLockedForViewer ? "blur(10px)" : "none" }}
             />
           ) : (
             <video
               src={current?.url}
               className={`h-full w-full object-contain ${
-                current?.locked ? "blur-[10px]" : ""
+                mediaLockedForViewer ? "blur-[10px]" : ""
               }`}
               muted
               playsInline
-              style={{ filter: current?.locked ? "blur(10px)" : "none" }}
+              style={{ filter: mediaLockedForViewer ? "blur(10px)" : "none" }}
             />
           )}
 
@@ -197,14 +244,6 @@ export default function PostModal({
             </div>
           ) : null}
 
-          {lockedCount > 0 ? (
-            <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-white/90 px-3 py-1 text-xs font-semibold text-zinc-700">
-              <span className="inline-flex items-center gap-2">
-                <Lock className="h-3 w-3" />
-                {lockedCount} locked
-              </span>
-            </div>
-          ) : null}
           {showUnlockedChip && lockedCount === 0 ? (
             <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-emerald-500/90 px-3 py-1 text-xs font-semibold text-white">
               <span className="inline-flex items-center gap-2">
@@ -221,51 +260,78 @@ export default function PostModal({
               </span>
             </div>
           ) : null}
-          {current?.locked && !isOwner ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <div className="w-full max-w-[260px] rounded-[14px] bg-white/95 px-6 py-5 text-center shadow-md md:px-8 md:py-6">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-zinc-100">
-                  <Lock className="h-5 w-5 text-zinc-600" />
-                </div>
-                <div className="mt-3 text-sm font-semibold text-zinc-900">
-                  Desbloquear post completo
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {lockedCount} contenido bloqueado
-                </div>
-                <div className="mt-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                    Pago único
-                  </div>
-                  <div className="mt-1 text-center text-[18px] font-semibold text-zinc-900">
-                    {formatARS(post.price ?? 0)}
-                  </div>
-                </div>
-                {!isOwner ? (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!onPurchase || purchaseLoading) return;
-                      setPurchaseLoading(true);
-                      const result = await onPurchase(post.id);
-                      if (result !== false) {
-                        const nextMedia = await fetchResolvedMedia(true);
-                        if (nextMedia) {
-                          setResolvedMedia(nextMedia);
+          {isOwner && isPaidPost ? (
+            <div className="absolute right-4 top-4 z-20 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
+              <span className="inline-flex items-center gap-1.5">
+                <Lock className="h-3 w-3" />
+                {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
+              </span>
+            </div>
+          ) : null}
+          {mediaLockedForViewer ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
+              <div className="relative w-full max-w-[840px] overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
+                <img
+                  src="/post-unlock-bg.png"
+                  alt={`Desbloqueá por $${formatUnits(post.price ?? 0)}`}
+                  className="block w-full object-cover"
+                />
+                <div className="absolute inset-0 flex items-center justify-center px-10">
+                  <div className="flex w-full max-w-[360px] -translate-y-1 flex-col items-center gap-3 text-center">
+                    <div className="flex h-[52px] w-[52px] items-center justify-center rounded-[10px] bg-[#f4f4f4] shadow-[0_10px_18px_rgba(0,0,0,0.08)]">
+                      <Lock className="h-6 w-6 text-[#5A3EE7]" />
+                    </div>
+                    <div className="pt-1 text-[20px] font-bold tracking-[-0.03em] text-[#161823]">
+                      Desbloqueá por ${formatUnits(post.price ?? 0)}
+                    </div>
+                    <div className="text-[15px] font-semibold leading-none text-[#161823]">
+                      {mediaSummary}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!onPurchase || purchaseLoading) return;
+                        setPurchaseLoading(true);
+                        const result = await onPurchase(post.id);
+                        if (result !== false) {
+                          const nextMedia = await fetchResolvedMedia(true);
+                          if (nextMedia) {
+                            setResolvedMedia(nextMedia);
+                          }
+                          setShowPurchaseToast(true);
                         }
-                        setShowPurchaseToast(true);
-                      }
-                      setPurchaseLoading(false);
-                    }}
-                    className="mt-3 w-full rounded-[10px] bg-blue-600 px-6 py-2 text-sm font-semibold text-white cursor-pointer"
-                  >
-                    {purchaseLoading ? "Procesando..." : "Comprar"}
-                  </button>
-                ) : (
-                  <div className="mt-3 rounded-[10px] border border-zinc-200 bg-zinc-100 px-6 py-2 text-sm font-semibold text-zinc-700">
-                    Contenido propio
+                        setPurchaseLoading(false);
+                      }}
+                      className="min-w-[280px] rounded-[5px] bg-[#5A3EE7] px-6 py-2.5 text-[14px] font-bold text-white"
+                    >
+                      {purchaseLoading ? "Procesando..." : "Comprar"}
+                    </button>
                   </div>
-                )}
+                </div>
+                {purchaseLoading ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/12">
+                    <div className="rounded-full bg-white/95 px-4 py-2 text-[13px] font-semibold text-[#161823]">
+                      Procesando...
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          {post.media.length > 1 ? (
+            <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+              <div className="inline-flex items-center gap-2 rounded-full bg-[#171717] px-4 py-2 shadow-[0_8px_18px_rgba(0,0,0,0.24)]">
+                {post.media.map((_, mediaIndex) => (
+                  <button
+                    key={`media-dot-${mediaIndex}`}
+                    type="button"
+                    onClick={() => setIndex(mediaIndex)}
+                    aria-label={`Ir al archivo ${mediaIndex + 1}`}
+                    className={`h-[10px] w-[10px] rounded-full transition ${
+                      mediaIndex === index ? "bg-white" : "bg-[#5f5f5f]"
+                    }`}
+                  />
+                ))}
               </div>
             </div>
           ) : null}
@@ -283,8 +349,37 @@ export default function PostModal({
           ) : null}
         </div>
 
-        <div className="relative w-full overflow-y-auto border-t border-zinc-200 bg-white p-4 md:w-[380px] md:border-l md:border-t-0 md:p-6">
-          <div className="flex items-start justify-between gap-3">
+        <div className="relative w-full overflow-y-auto border-t border-zinc-200 bg-white p-4 md:w-[390px] md:border-l md:border-t-0 md:p-0">
+          <div className="border-b border-[#E0E0E0] px-6 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <UserAvatar src={post.avatar} alt={post.author} />
+                <div className="min-w-0 text-[15px] font-semibold text-zinc-900">
+                  {post.author}
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                {!isOwner ? (
+                  <button
+                    type="button"
+                    className="text-[14px] font-semibold text-[#5A3EE7]"
+                  >
+                    Seguir
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(true)}
+                  className="rounded-[8px] px-1 py-1 text-zinc-700"
+                  aria-label="Opciones"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 py-4">
             <div className="flex items-start gap-3">
               <UserAvatar src={post.avatar} alt={post.author} />
               <div className="min-w-0">
@@ -292,122 +387,140 @@ export default function PostModal({
                   <div className="text-[15px] font-semibold text-zinc-900">
                     {post.author}
                   </div>
-                  {isPaidPost ? (
-                    <div className="rounded-full bg-zinc-950 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">
-                      Post pago
-                    </div>
-                  ) : null}
+                  <div className="text-[12px] text-[#9ca3af]">{post.time}</div>
                 </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((prev) => (isOwner ? !prev : false))}
-              className="rounded-[8px] border border-zinc-200 px-2 py-1 text-zinc-700"
-              aria-label="Opciones"
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-4">
-            {post.caption ? (
-              <div className="rounded-[14px] bg-zinc-50 px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                  Descripción
-                </div>
-                <div className="mt-1.5 text-[14px] leading-[1.45] text-zinc-700">
+                <div className="mt-1 text-[14px] leading-5 text-[#464646]">
                   {post.caption}
                 </div>
+                <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1">
+                  {previewTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-[12px] font-medium text-[#42a5ff]"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
               </div>
+            </div>
+
+            {!isOwner && onTip && post.tipEnabled ? (
+              <button
+                type="button"
+                onClick={() => onTip(post)}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[5px] bg-[#f3f3f3] px-4 py-3 text-[13px] font-semibold text-[#464646] transition hover:bg-[#ebebeb]"
+              >
+                <img
+                  src="/tip-lightning.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-4 w-4 object-contain"
+                />
+                Enviar propina
+              </button>
             ) : null}
 
-            {isPaidPost ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="rounded-full bg-zinc-950 px-3 py-1.5 text-[12px] font-semibold text-white">
-                  Pago
+            {isOwner && isPaidPost ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-[5px] bg-[#ede9ff] px-4 py-3 text-[13px] font-semibold text-[#5A3EE7]">
+                  Este post es tuyo y lo estás vendiendo en ${formatUnits(post.price ?? 0)}
                 </div>
-                <div className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
-                  {formatARS(post.price ?? 0)}
-                </div>
-              </div>
-            ) : null}
 
-            {isPaidPost ? (
-              <div className="rounded-[14px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-[13px] leading-[1.45] text-amber-950">
-                <span className="font-semibold">Contenido pago.</span> Este post
-                se desbloquea por {formatARS(post.price ?? 0)}.
+                <div className="flex items-center justify-between rounded-[5px] border border-[#E0E0E0] bg-[#fafafa] px-4 py-3">
+                  <div>
+                    <div className="text-[12px] font-medium text-[#7a7a7a]">
+                      Total vendido
+                    </div>
+                    <div className="mt-1 text-[22px] font-bold leading-none text-[#161823]">
+                      {formatARS(ownerSalesGross)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[12px] font-medium text-[#7a7a7a]">
+                      Compras
+                    </div>
+                    <div className="mt-1 text-[18px] font-semibold leading-none text-[#161823]">
+                      {ownerSalesCount}
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>
 
-          {menuOpen && isOwner ? (
-            <div className="absolute right-6 top-14 z-10 w-52 overflow-hidden rounded-[10px] border border-zinc-200 bg-white shadow-lg">
-              {post.userId && currentUserId && post.userId === currentUserId ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setConfirmDelete(true);
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
-                >
-                  Eliminar publicación
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {lockedCount > 0 && !isOwner ? (
-            <div className="mt-6 rounded-[14px] border border-zinc-200 p-4 shadow-sm">
-              <div className="text-[15px] font-semibold text-zinc-900">
-                Desbloquear post completo
-              </div>
-              <div className="mt-2 text-[13px] text-zinc-500">
-                {lockedCount} contenido bloqueado
-              </div>
-              {!isOwner ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!onPurchase || purchaseLoading) return;
-                    setPurchaseLoading(true);
-                    const result = await onPurchase(post.id);
-                    if (result !== false) {
-                      const nextMedia = await fetchResolvedMedia(true);
-                      if (nextMedia) {
-                        setResolvedMedia(nextMedia);
-                      }
-                      setShowPurchaseToast(true);
-                    }
-                    setPurchaseLoading(false);
-                  }}
-                  className="mt-4 w-full rounded-[10px] bg-zinc-900 px-4 py-3 text-[15px] font-semibold text-white"
-                >
-                  {purchaseLoading
-                    ? "Procesando..."
-                    : `Desbloquear por ${formatARS(post.price ?? 0)}`}
-                </button>
-              ) : (
-                <div className="mt-4 rounded-[10px] bg-zinc-900 px-4 py-3 text-center text-[15px] font-semibold text-white">
-                  {formatARS(post.price ?? 0)}
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {!isOwner && onTip && post.tipEnabled ? (
-            <button
-              type="button"
-              onClick={() => onTip(post)}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[10px] bg-amber-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-amber-200"
-            >
-              <Zap className="h-4 w-4" />
-              Enviar propina
-            </button>
-          ) : null}
         </div>
       </div>
+
+      {menuOpen ? (
+        <div className="fixed inset-0 z-[108] flex items-center justify-center bg-black/50 px-6 py-10">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(false)}
+            className="absolute inset-0 h-full w-full cursor-default"
+            aria-label="Cerrar menu"
+          />
+          <div className="relative w-full max-w-[520px] overflow-hidden rounded-[18px] bg-white shadow-xl">
+            {!isOwner ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+                >
+                  Denunciar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+                >
+                  Dejar de seguir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+                >
+                  Añadir a favoritos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+                >
+                  Ir a la publicación
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+                >
+                  Información sobre esta cuenta
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmDelete(true);
+                }}
+                className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+              >
+                Eliminar publicacion
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="w-full py-4 text-center text-sm font-medium text-zinc-900"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {confirmDelete ? (
         <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/40 px-4">

@@ -242,7 +242,7 @@ export default function TopBar() {
   }
 
   return (
-    <header className="fixed left-0 top-0 z-50 h-16 w-full border-b border-zinc-200 bg-white/95 backdrop-blur">
+    <header className="fixed left-0 top-0 z-[140] h-16 w-full border-b border-zinc-200 bg-white/95 backdrop-blur">
       <div className="flex h-full items-center justify-between gap-4 px-4 md:px-6">
         <div className="flex min-w-0 items-center gap-6">
           <Link href="/" className="flex items-center">
@@ -453,7 +453,7 @@ export default function TopBar() {
             </button>
 
             {profileOpen ? (
-              <div className="absolute right-0 top-12 z-50 w-48 rounded-[12px] border border-zinc-200 bg-white p-2 shadow-xl">
+              <div className="absolute right-0 top-12 z-[150] w-48 rounded-[12px] border border-zinc-200 bg-white p-2 shadow-xl">
                 <Link
                   href="/perfil"
                   className="block rounded-[8px] px-3 py-2 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-100"

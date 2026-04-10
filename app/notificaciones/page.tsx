@@ -6,6 +6,7 @@ import {
   BadgeDollarSign,
   Bell,
   CreditCard,
+  Settings2,
   RefreshCw,
   ShieldAlert,
   Sparkles,
@@ -95,16 +96,15 @@ const buildDayLabel = (value: string) =>
 
 function NotificationsSkeleton() {
   return (
-    <div className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-sm">
-      <div className="grid grid-cols-[72px_minmax(0,1fr)] border-b border-zinc-200 bg-zinc-50 px-4 py-3">
-        <div className="fanpush-skeleton h-3 w-12 rounded-full" />
-        <div className="fanpush-skeleton h-3 w-32 rounded-full" />
+    <div className="overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
+      <div className="border-b border-[#E0E0E0] px-5 py-4">
+        <div className="fanpush-skeleton h-4 w-32 rounded-full" />
       </div>
-      <div className="divide-y divide-zinc-100">
+      <div className="divide-y divide-[#F1F1F1]">
         {Array.from({ length: 7 }).map((_, index) => (
           <div
             key={`notifications-page-skeleton-${index}`}
-            className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 px-4 py-4"
+            className="grid grid-cols-[56px_minmax(0,1fr)] gap-4 px-5 py-4"
           >
             <div className="fanpush-skeleton h-11 w-11 rounded-full" />
             <div className="min-w-0 flex-1">
@@ -130,7 +130,7 @@ function NotificationRow({
   const tone = getTone(item.type);
   const Icon = tone.icon;
   const content = (
-    <div className="group grid grid-cols-[72px_minmax(0,1fr)] gap-3 px-4 py-4 transition hover:bg-zinc-50">
+    <div className="group grid grid-cols-[56px_minmax(0,1fr)] gap-4 px-5 py-4 transition hover:bg-zinc-50/80">
       {item.avatar ? (
         <UserAvatar
           src={item.avatar}
@@ -150,10 +150,10 @@ function NotificationRow({
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <span
             className={cn(
-              "inline-flex rounded-full px-3 py-1.5 text-[11px] font-semibold",
+              "inline-flex rounded-full px-3 py-1 text-[11px] font-semibold",
               tone.pillClassName,
             )}
           >
@@ -163,11 +163,11 @@ function NotificationRow({
             {item.dateLabel}
           </span>
           {!item.isRead ? (
-            <span className="h-2 w-2 rounded-full bg-zinc-950" aria-hidden="true" />
+            <span className="ml-1 h-2 w-2 rounded-full bg-[#ff334b]" aria-hidden="true" />
           ) : null}
         </div>
 
-        <p className="mt-2.5 max-w-[980px] text-[15px] leading-[1.35] text-zinc-900">
+        <p className="mt-2 max-w-[980px] text-[15px] leading-[1.45] text-zinc-900">
           {item.text}
         </p>
       </div>
@@ -235,22 +235,27 @@ export default function NotificacionesPage() {
     setPage(1);
   }, [activity.length]);
 
+  const unreadCount = unreadIds.length;
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <SidebarLeft />
 
-      <main className="mx-auto w-full max-w-[1180px] px-4 pb-16 pt-24 md:pl-[280px] md:pr-8">
-        <div className="flex items-end justify-between gap-4">
+      <main className="mx-auto w-full max-w-[1540px] px-4 pb-16 pt-24 md:pl-[280px] md:pr-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[34px] font-semibold leading-none tracking-tight text-zinc-950 md:text-[42px]">
-              Notifications
+            <h1 className="text-[25px] font-semibold leading-none text-zinc-950">
+              Notificaciones
             </h1>
+            <p className="mt-2 text-[15px] text-[#464646]">
+              Seguimiento de ventas, mensajes y actividad reciente.
+            </p>
           </div>
 
           <button
             type="button"
             onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            className="inline-flex items-center gap-2 rounded-[5px] border border-[#E0E0E0] bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50"
           >
             <RefreshCw
               className={cn("h-4 w-4", isFetching ? "animate-spin" : "")}
@@ -259,19 +264,36 @@ export default function NotificacionesPage() {
           </button>
         </div>
 
-        <div className="mt-6 h-px w-full bg-zinc-200" />
-
         {error ? (
-          <div className="mt-6 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="mt-6 rounded-[5px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {errorMessage}
           </div>
         ) : null}
 
-        <section className="mt-6">
+        <div className="mt-6 overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
+          <div className="flex items-center justify-between border-b border-[#E0E0E0] px-5 py-4">
+            <div>
+              <div className="text-[20px] font-semibold text-zinc-950">
+                Notification
+              </div>
+              <div className="mt-1 text-[13px] text-[#464646]">
+                {activity.length} eventos · {unreadCount} sin leer
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-[5px] border border-[#E0E0E0] bg-white text-zinc-600 transition hover:bg-zinc-50"
+              aria-label="Actualizar"
+            >
+              <Settings2 className="h-4 w-4" />
+            </button>
+          </div>
+
           {isLoading ? (
             <NotificationsSkeleton />
           ) : activity.length === 0 ? (
-            <div className="rounded-[20px] border border-zinc-200 bg-white px-6 py-12 text-center shadow-sm">
+            <div className="px-6 py-12 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
                 <Bell className="h-4.5 w-4.5" />
               </div>
@@ -280,22 +302,13 @@ export default function NotificacionesPage() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-4">
+            <div className="grid gap-0">
               {groupedItems.map((group) => (
-                <div
-                  key={group.day}
-                  className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-sm"
-                >
-                  <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-3">
-                    <div className="text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                      {group.day}
-                    </div>
+                <div key={group.day}>
+                  <div className="border-b border-[#F1F1F1] bg-white px-5 py-3 text-[13px] font-medium text-zinc-400">
+                    {group.day}
                   </div>
-                  <div className="grid grid-cols-[72px_minmax(0,1fr)] border-b border-zinc-100 bg-white px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    <span>Tipo</span>
-                    <span>Detalle</span>
-                  </div>
-                  <div className="divide-y divide-zinc-100">
+                  <div className="divide-y divide-[#F1F1F1] bg-white">
                     {group.items.map((item) => (
                       <NotificationRow key={item.id} item={item} />
                     ))}
@@ -303,16 +316,17 @@ export default function NotificacionesPage() {
                 </div>
               ))}
 
-              <div className="flex items-center justify-between gap-3 rounded-[18px] border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E0E0E0] bg-white px-4 py-3">
                 <div className="text-[13px] text-zinc-500">
-                  Página {page} de {totalPages}
+                  Mostrando {(page - 1) * PAGE_SIZE + 1}-
+                  {Math.min(page * PAGE_SIZE, activity.length)} de {activity.length}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={page === 1}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-zinc-200 px-4 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center rounded-[5px] border border-[#E0E0E0] bg-white px-4 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Anterior
                   </button>
@@ -322,7 +336,7 @@ export default function NotificacionesPage() {
                       setPage((current) => Math.min(totalPages, current + 1))
                     }
                     disabled={page === totalPages}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-zinc-200 px-4 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center rounded-[5px] border border-[#E0E0E0] bg-white px-4 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Siguiente
                   </button>
@@ -330,7 +344,7 @@ export default function NotificacionesPage() {
               </div>
             </div>
           )}
-        </section>
+        </div>
       </main>
     </div>
   );

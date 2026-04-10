@@ -264,13 +264,13 @@ export default function VentasPage() {
                   </div>
                   {totals.reserved > 0 ? (
                     <div className="max-w-[260px] rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      <div className="text-[14px] font-semibold text-zinc-900">
                         Retiro en proceso
                       </div>
                       <div className="mt-2 text-xl font-semibold text-zinc-950">
                         {formatARS(totals.reserved)}
                       </div>
-                      <div className="mt-1 text-xs leading-5 text-zinc-500">
+                      <div className="mt-1 text-[14px] leading-6 text-zinc-500">
                         Este monto ya fue solicitado y no se puede volver a retirar hasta que se pague o se cancele.
                       </div>
                     </div>
@@ -279,18 +279,18 @@ export default function VentasPage() {
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    <div className="text-[14px] font-semibold text-zinc-900">
                       Regla del retiro
                     </div>
-                    <div className="mt-2 text-sm text-zinc-700">
+                    <div className="mt-2 text-[15px] leading-6 text-zinc-700">
                       Puedes solicitar un retiro por mes. Si ya hay uno pedido, ese monto queda pendiente hasta que se pague o se cancele.
                     </div>
                   </div>
                   <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    <div className="text-[14px] font-semibold text-zinc-900">
                       Ventana estimada
                     </div>
-                    <div className="mt-2 text-sm text-zinc-700">
+                    <div className="mt-2 text-[15px] leading-6 text-zinc-700">
                       Entre el 1 y el 3 del próximo ciclo mensual, con hasta 72 hs hábiles de proceso.
                     </div>
                   </div>
@@ -300,13 +300,13 @@ export default function VentasPage() {
                   {payoutProfile ? (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                        <div className="text-[14px] font-semibold text-zinc-900">
                           Alias / CVU / CBU
                         </div>
                         <div className="mt-1 font-semibold text-zinc-900">{payoutProfile.alias}</div>
                       </div>
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                        <div className="text-[14px] font-semibold text-zinc-900">
                           Titular
                         </div>
                         <div className="mt-1 font-semibold text-zinc-900">
@@ -323,7 +323,7 @@ export default function VentasPage() {
               </div>
 
               <div className="self-start rounded-[20px] border border-zinc-200 bg-white p-6">
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                <div className="text-[14px] font-semibold text-zinc-900">
                   Monto a retirar
                 </div>
                 <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-zinc-200 bg-white px-4 py-4">

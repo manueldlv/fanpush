@@ -7,14 +7,16 @@ import {
   ImagePlus,
   Mail,
   MoreHorizontal,
-  Paperclip,
   Pin,
   PinOff,
+  Plus,
   Search,
   SendHorizontal,
   Smile,
   Trash2,
   X,
+  Video,
+  Package2,
 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
@@ -39,6 +41,14 @@ type MessageItem =
       kind: "text";
       sender: "me" | "them";
       body: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      kind: "attachment";
+      sender: "me" | "them";
+      body?: string;
+      attachments: AttachmentPreview[];
       createdAt: string;
     }
   | {
@@ -386,22 +396,41 @@ function PremiumComposer({
   open,
   onClose,
   onSend,
+  mode,
+  initialAttachments,
 }: {
   open: boolean;
   onClose: () => void;
+  mode: "photo" | "photo-paid" | "video-paid" | "pack-paid";
+  initialAttachments: AttachmentPreview[];
   onSend: (payload: {
-    title: string;
-    caption: string;
     price: number;
     attachmentCount: number;
     attachmentPreviews: AttachmentPreview[];
   }) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [title, setTitle] = useState("");
-  const [caption, setCaption] = useState("");
   const [price, setPrice] = useState("5500");
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
+  const mediaLabel = useMemo(() => {
+    const photos = attachments.filter((attachment) => attachment.kind === "foto").length;
+    const videos = attachments.filter((attachment) => attachment.kind === "video").length;
+    const parts: string[] = [];
+    if (videos > 0) parts.push(`${videos} ${videos === 1 ? "video" : "videos"}`);
+    if (photos > 0) parts.push(`${photos} ${photos === 1 ? "foto" : "fotos"}`);
+    return parts.join(", ") || "Sin archivos";
+  }, [attachments]);
+  const composerTitle =
+    mode === "photo-paid"
+      ? "Enviar foto paga"
+      : mode === "video-paid"
+        ? "Enviar video pago"
+        : "Enviar pack pago";
+  const composerHelp =
+    mode === "photo-paid"
+      ? "Configura el precio para enviar esta foto paga por el chat."
+      : mode === "video-paid"
+        ? "Configura el precio para enviar este video pago por el chat."
+        : "Configura el precio para enviar este pack pago por el chat.";
 
   useEffect(() => {
     return () => {
@@ -409,11 +438,14 @@ function PremiumComposer({
     };
   }, [attachments]);
 
+  useEffect(() => {
+    if (!open) return;
+    setAttachments(initialAttachments.map((attachment) => ({ ...attachment })));
+    setPrice("5500");
+  }, [initialAttachments, open]);
+
   const resetComposer = () => {
-    attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
     setAttachments([]);
-    setTitle("");
-    setCaption("");
     setPrice("5500");
   };
 
@@ -422,99 +454,59 @@ function PremiumComposer({
     onClose();
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    if (files.length === 0) return;
-
-    setAttachments((current) => {
-      const next = [
-        ...current,
-        ...files.map((file, index) => ({
-          id: `${file.name}-${file.size}-${Date.now()}-${index}`,
-          name: file.name,
-          kind: (file.type.startsWith("video/") ? "video" : "foto") as
-            | "video"
-            | "foto",
-          previewUrl: URL.createObjectURL(file),
-        })),
-      ];
-      return next.slice(0, 8);
-    });
-
-    event.target.value = "";
-  };
-
-  const removeAttachment = (attachmentId: string) => {
-    setAttachments((current) => {
-      const target = current.find((attachment) => attachment.id === attachmentId);
-      if (target) URL.revokeObjectURL(target.previewUrl);
-      return current.filter((attachment) => attachment.id !== attachmentId);
-    });
-  };
-
   const canSend = attachments.length > 0 && Number(price || 0) > 0;
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 px-4">
-      <div className="w-full max-w-[620px] rounded-[5px] border border-[#E0E0E0] bg-white p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-[#161823]">
-              Enviar contenido al usuario
-            </h2>
-            <p className="mt-2 max-w-[460px] text-[15px] leading-6 text-[#464646]">
-              Esta parte la vamos a retocar después con el uploader nuevo. Por ahora
-              ya podés armar la oferta desde el chat.
-            </p>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4">
+      <div className="w-full max-w-[700px] rounded-[22px] bg-white shadow-2xl">
+        <div className="p-5 md:px-7 md:pb-7 md:pt-7">
+          <div className="flex items-start justify-between gap-4">
+            <div className="pr-4">
+              <h2 className="text-[22px] font-semibold leading-none tracking-tight text-zinc-900 md:text-[26px]">
+                {composerTitle}
+              </h2>
+              <p className="mt-3 max-w-[520px] text-[13px] leading-[1.45] text-zinc-500 md:text-[14px]">
+                {composerHelp}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="rounded-[12px] p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600"
+              aria-label="Cerrar"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-full p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
-            aria-label="Cerrar"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
 
-        <div className="mt-6 grid gap-4">
-          <div className="rounded-[5px] border border-[#E0E0E0] bg-[#FAFAFA] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[16px] font-semibold text-[#161823]">
-                  Adjuntar archivos
-                </div>
-                <div className="mt-1 text-[14px] text-[#464646]">
-                  Fotos, videos o mezcla para vender por privado.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-[5px] bg-[#161823] px-4 py-2 text-[14px] font-semibold text-white"
-              >
-                <Paperclip className="h-4 w-4" />
-                Adjuntar
-              </button>
+          <div className="mt-7 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 md:px-5 md:py-5">
+            <div className="text-[15px] font-semibold text-zinc-700 md:text-[16px]">
+              Archivos seleccionados
+            </div>
+            <div className="mt-2 text-[13px] leading-[1.45] text-zinc-500 md:text-[14px]">
+              {mode === "photo-paid"
+                ? "Esta foto se enviará como contenido pago en el chat."
+                : mode === "video-paid"
+                  ? "Este video se enviará como contenido pago en el chat."
+                  : "Este pack se enviará como contenido pago en el chat."}
             </div>
 
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-            />
-
             {attachments.length > 0 ? (
-              <div className="mt-4 grid grid-cols-4 gap-3">
+              <div
+                className={`mt-4 grid max-w-[516px] gap-3 ${
+                  attachments.length === 1
+                    ? "grid-cols-1"
+                    : attachments.length === 2
+                      ? "grid-cols-2"
+                      : "grid-cols-4"
+                }`}
+              >
                 {attachments.map((attachment) => (
                   <div
                     key={attachment.id}
-                    className="relative overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white"
+                    className="relative h-[120px] w-[120px] overflow-hidden rounded-[14px] border border-zinc-200 bg-white"
                   >
                     {attachment.kind === "video" ? (
                       <video
@@ -529,39 +521,27 @@ function PremiumComposer({
                         className="aspect-square h-full w-full object-cover"
                       />
                     )}
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(attachment.id)}
-                      className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-1 text-white"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-[5px] border border-dashed border-[#E0E0E0] bg-white px-4 py-4 text-[14px] text-[#6b7280]">
+              <div className="mt-4 rounded-[14px] border border-dashed border-zinc-200 bg-white px-4 py-4 text-[14px] text-zinc-500">
                 Todavía no elegiste archivos.
               </div>
             )}
           </div>
 
-          <div className="grid gap-3">
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Título de la oferta"
-              className="h-12 rounded-[5px] border border-[#E0E0E0] px-4 text-[15px] outline-none placeholder:text-zinc-400"
-            />
-            <textarea
-              value={caption}
-              onChange={(event) => setCaption(event.target.value)}
-              rows={3}
-              placeholder="Descripción"
-              className="rounded-[5px] border border-[#E0E0E0] px-4 py-3 text-[15px] outline-none placeholder:text-zinc-400"
-            />
-            <div className="flex h-12 items-center gap-3 rounded-[5px] border border-[#E0E0E0] px-4">
-              <span className="text-[18px] text-[#5A3EE7]">⚡</span>
+          <div className="mt-7">
+            <label className="block text-[15px] font-semibold text-zinc-700 md:text-[16px]">
+              Precio del contenido
+            </label>
+            <div className="mt-3 flex h-[64px] items-center rounded-[18px] border border-zinc-300 px-5 md:h-[72px]">
+              <img
+                src="/tip-lightning.png"
+                alt=""
+                aria-hidden="true"
+                className="h-[22px] w-[22px] object-contain md:h-[24px] md:w-[24px]"
+              />
               <input
                 value={price}
                 onChange={(event) =>
@@ -569,37 +549,58 @@ function PremiumComposer({
                 }
                 inputMode="numeric"
                 placeholder="Precio"
-                className="w-full bg-transparent text-[16px] font-semibold outline-none"
+                className="w-full bg-transparent pl-3 text-[20px] font-semibold text-zinc-900 outline-none md:text-[22px]"
               />
             </div>
           </div>
-        </div>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-[5px] border border-[#E0E0E0] px-4 py-2.5 text-[15px] font-semibold text-[#464646]"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            disabled={!canSend}
-            onClick={() => {
-              onSend({
-                title: title.trim() || "Contenido privado",
-                caption: caption.trim() || "Contenido enviado por este chat.",
-                price: Number(price || 0),
-                attachmentCount: attachments.length,
-                attachmentPreviews: attachments.map((attachment) => ({ ...attachment })),
-              });
-              handleClose();
-            }}
-            className="rounded-[5px] bg-[#161823] px-4 py-2.5 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
-          >
-            Enviar al chat
-          </button>
+          <div className="mt-7 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 md:px-5 md:py-5">
+            <div className="flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
+              <span>Precio final</span>
+              <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-950">
+                <img
+                  src="/tip-lightning.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 object-contain"
+                />
+                {formatUnits(Number(price || 0))}
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
+              <span>Archivos</span>
+              <span className="font-semibold text-zinc-950">{mediaLabel}</span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
+              <span>Entrega</span>
+              <span className="font-semibold text-zinc-950">Se envía por chat</span>
+            </div>
+          </div>
+
+          <div className="mt-7 flex flex-col-reverse gap-3 md:flex-row md:justify-end">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="rounded-[14px] border border-zinc-200 bg-white px-5 py-2.5 text-[14px] font-semibold text-zinc-700 md:min-w-[150px]"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={!canSend}
+              onClick={() => {
+                onSend({
+                  price: Number(price || 0),
+                  attachmentCount: attachments.length,
+                  attachmentPreviews: attachments.map((attachment) => ({ ...attachment })),
+                });
+                handleClose();
+              }}
+              className="rounded-[14px] bg-zinc-950 px-5 py-2.5 text-[14px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:min-w-[210px]"
+            >
+              Enviar al chat
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -713,11 +714,57 @@ function PremiumMessageCard({
   );
 }
 
+function AttachmentMessageCard({
+  attachments,
+}: {
+  attachments: AttachmentPreview[];
+}) {
+  const visibleItems = attachments.slice(0, 4);
+  const extraCount = Math.max(attachments.length - 4, 0);
+
+  return (
+    <div className="w-full max-w-[345px] rounded-[12px] bg-[#f3f3f3] p-3">
+      <div className="grid grid-cols-2 gap-2">
+        {visibleItems.map((attachment, index) => (
+          <div
+            key={attachment.id}
+            className="relative overflow-hidden rounded-[10px] bg-white"
+          >
+            {attachment.kind === "video" ? (
+              <video
+                src={attachment.previewUrl}
+                className="aspect-square h-full w-full object-cover"
+                muted
+              />
+            ) : (
+              <img
+                src={attachment.previewUrl}
+                alt={attachment.name}
+                className="aspect-square h-full w-full object-cover"
+              />
+            )}
+            {extraCount > 0 && index === visibleItems.length - 1 ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-[15px] font-semibold text-white">
+                +{extraCount}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MensajesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const emojiRef = useRef<HTMLDivElement | null>(null);
+  const composeMenuRef = useRef<HTMLDivElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const paidPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const paidVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const paidPackInputRef = useRef<HTMLInputElement | null>(null);
   const { data: viewer } = useGetViewerQuery();
   const prefillUsername = searchParams.get("user");
 
@@ -731,9 +778,16 @@ export default function MensajesPage() {
   const [draft, setDraft] = useState("");
   const [emojiQuery, setEmojiQuery] = useState("");
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [premiumMode, setPremiumMode] = useState<
+    "photo" | "photo-paid" | "video-paid" | "pack-paid"
+  >("pack-paid");
+  const [premiumDraftAttachments, setPremiumDraftAttachments] = useState<
+    AttachmentPreview[]
+  >([]);
   const [confirmUnlockId, setConfirmUnlockId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [composeMenuOpen, setComposeMenuOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
     type: "delete" | "block";
     thread: ThreadItem;
@@ -791,6 +845,105 @@ export default function MensajesPage() {
       ),
     );
     setDraft("");
+  };
+
+  const createAttachmentPreviews = (files: File[]) =>
+    files.map((file, index) => ({
+      id: `${file.name}-${file.size}-${Date.now()}-${index}`,
+      name: file.name,
+      kind: (file.type.startsWith("video/") ? "video" : "foto") as
+        | "video"
+        | "foto",
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+  const sendDirectAttachments = (attachments: AttachmentPreview[]) => {
+    if (!selectedThread || attachments.length === 0) return;
+
+    setThreads((current) =>
+      current.map((thread) =>
+        thread.id !== selectedThread.id
+          ? thread
+          : {
+              ...thread,
+              preview:
+                attachments.length === 1
+                  ? attachments[0]?.kind === "video"
+                    ? "Tú · Video"
+                    : "Tú · Foto"
+                  : `Tú · ${attachments.length} archivos`,
+              messages: [
+                ...thread.messages,
+                {
+                  id: `${thread.id}-${Date.now()}`,
+                  kind: "attachment",
+                  sender: "me",
+                  attachments,
+                  createdAt: "Ahora",
+                },
+              ],
+            },
+      ),
+    );
+  };
+
+  const openPremiumComposerWithFiles = (
+    mode: "photo-paid" | "video-paid" | "pack-paid",
+    files: File[],
+  ) => {
+    const attachments = createAttachmentPreviews(files);
+    setPremiumDraftAttachments(attachments);
+    setPremiumMode(mode);
+    setPremiumOpen(true);
+  };
+
+  const handlePhotoSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (files[0]) {
+      sendDirectAttachments(createAttachmentPreviews([files[0]]));
+    }
+    event.target.value = "";
+  };
+
+  const handlePaidPhotoSelected = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (files[0]) {
+      openPremiumComposerWithFiles("photo-paid", [files[0]]);
+    }
+    event.target.value = "";
+  };
+
+  const handlePaidVideoSelected = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      file.type.startsWith("video/"),
+    );
+    if (files[0]) {
+      openPremiumComposerWithFiles("video-paid", [files[0]]);
+    }
+    event.target.value = "";
+  };
+
+  const handlePaidPackSelected = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? [])
+      .filter(
+        (file) =>
+          file.type.startsWith("image/") || file.type.startsWith("video/"),
+      )
+      .slice(0, 10);
+    if (files.length > 0) {
+      openPremiumComposerWithFiles("pack-paid", files);
+    }
+    event.target.value = "";
   };
 
   const threadMenuActions = {
@@ -897,6 +1050,18 @@ export default function MensajesPage() {
     return () => window.removeEventListener("mousedown", handleClickOutside);
   }, [emojiOpen]);
 
+  useEffect(() => {
+    if (!composeMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (composeMenuRef.current && !composeMenuRef.current.contains(target)) {
+        setComposeMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [composeMenuOpen]);
+
   const filteredEmojis = EMOJI_OPTIONS.filter((emoji) =>
     emojiQuery.trim() ? emoji.includes(emojiQuery.trim()) : true,
   );
@@ -907,6 +1072,8 @@ export default function MensajesPage() {
       <PremiumComposer
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
+        mode={premiumMode}
+        initialAttachments={premiumDraftAttachments}
         onSend={(payload) => {
           if (!selectedThread) return;
 
@@ -916,14 +1083,14 @@ export default function MensajesPage() {
                 ? thread
                 : {
                     ...thread,
-                    preview: `${payload.title} · $${formatUnits(payload.price)}`,
+                    preview: `Contenido privado · $${formatUnits(payload.price)}`,
                     messages: [
                       ...thread.messages,
                       {
                         id: `${thread.id}-${Date.now()}`,
                         kind: "premium",
                         sender: "me",
-                        title: payload.title,
+                        title: "Contenido privado",
                         caption: `${payload.attachmentCount} archivo${payload.attachmentCount === 1 ? "" : "s"}`,
                         price: payload.price,
                         attachmentCount: payload.attachmentCount,
@@ -1178,9 +1345,11 @@ export default function MensajesPage() {
                                   onUnlock={() => unlockPremiumMessage(message.id)}
                                   onCancelUnlock={() => setConfirmUnlockId(null)}
                                 />
+                              ) : message.kind === "attachment" ? (
+                                <AttachmentMessageCard attachments={message.attachments} />
                               ) : (
                                 <div
-                                  className={`max-w-[430px] rounded-full px-4 py-2.5 ${
+                                  className={`max-w-[430px] rounded-full px-4 py-2.5 font-semibold ${
                                     isEmojiOnlyMessage(message.body)
                                       ? "text-[30px] leading-none"
                                       : "text-[14px]"
@@ -1203,6 +1372,100 @@ export default function MensajesPage() {
 
                 <div className="border-t border-[#E0E0E0] px-6 py-4">
                   <div className="relative flex w-full items-center gap-3 rounded-full bg-[#f5f5f5] px-4 py-3">
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handlePhotoSelected}
+                    />
+                    <input
+                      ref={paidPhotoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handlePaidPhotoSelected}
+                    />
+                    <input
+                      ref={paidVideoInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={handlePaidVideoSelected}
+                    />
+                    <input
+                      ref={paidPackInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="hidden"
+                      onChange={handlePaidPackSelected}
+                    />
+                    {canSendPremium ? (
+                      <div className="relative shrink-0" ref={composeMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => setComposeMenuOpen((current) => !current)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#161823] transition hover:bg-white"
+                          aria-label="Abrir menú de contenido"
+                        >
+                          <Plus className="h-5 w-5" />
+                        </button>
+                        {composeMenuOpen ? (
+                          <div className="absolute bottom-[calc(100%+14px)] left-0 z-20 w-[240px] rounded-[24px] border border-[#E0E0E0] bg-white p-2 shadow-[0_18px_35px_rgba(0,0,0,0.08)]">
+                            {[
+                              {
+                                key: "photo" as const,
+                                label: "Foto",
+                                icon: <ImagePlus className="h-4 w-4 text-[#2563eb]" />,
+                              },
+                              {
+                                key: "photo-paid" as const,
+                                label: "Foto paga",
+                                icon: <ImagePlus className="h-4 w-4 text-[#5A3EE7]" />,
+                              },
+                              {
+                                key: "video-paid" as const,
+                                label: "Video pago",
+                                icon: <Video className="h-4 w-4 text-[#ef4444]" />,
+                              },
+                              {
+                                key: "pack-paid" as const,
+                                label: "Pack pago",
+                                icon: <Package2 className="h-4 w-4 text-[#16a34a]" />,
+                              },
+                            ].map((option) => (
+                              <button
+                                key={option.key}
+                                type="button"
+                                onClick={() => {
+                                  setComposeMenuOpen(false);
+                                  if (option.key === "photo") {
+                                    photoInputRef.current?.click();
+                                    return;
+                                  }
+                                  if (option.key === "photo-paid") {
+                                    paidPhotoInputRef.current?.click();
+                                    return;
+                                  }
+                                  if (option.key === "video-paid") {
+                                    paidVideoInputRef.current?.click();
+                                    return;
+                                  }
+                                  paidPackInputRef.current?.click();
+                                }}
+                                className="flex w-full items-center gap-3 rounded-[18px] px-4 py-3 text-left text-[15px] font-medium text-[#161823] hover:bg-[#fafafa]"
+                              >
+                                <span className="inline-flex h-6 w-6 items-center justify-center">
+                                  {option.icon}
+                                </span>
+                                <span>{option.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setEmojiOpen((current) => !current)}
@@ -1223,16 +1486,6 @@ export default function MensajesPage() {
                       placeholder="Envía un mensaje ..."
                       className="w-full bg-transparent text-[14px] text-[#161823] outline-none placeholder:text-[#8b8b8b]"
                     />
-                    {canSendPremium ? (
-                      <button
-                        type="button"
-                        onClick={() => setPremiumOpen(true)}
-                        className="inline-flex shrink-0 items-center gap-2 rounded-[5px] bg-[#161823] px-3 py-2 text-[12px] font-semibold text-white"
-                      >
-                        <ImagePlus className="h-3.5 w-3.5" />
-                        Enviar contenido al usuario
-                      </button>
-                    ) : null}
                     <button
                       type="button"
                       onClick={appendTextMessage}

@@ -42,7 +42,13 @@ export default function ComprasPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [isLocalPreview, setIsLocalPreview] = useState(false);
-  const { data, isLoading: loading } = useGetPurchasesQuery();
+  const {
+    data,
+    isLoading: loading,
+    refetch,
+  } = useGetPurchasesQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
   const items = data?.items ?? [];
   const ITEMS_PER_PAGE = 10;
 
@@ -51,6 +57,18 @@ export default function ComprasPage() {
     const host = window.location.hostname;
     setIsLocalPreview(host === "127.0.0.1" || host === "localhost");
   }, []);
+
+  useEffect(() => {
+    const refreshPurchases = () => {
+      void refetch();
+    };
+    window.addEventListener("purchases-updated", refreshPurchases);
+    window.addEventListener("balance-updated", refreshPurchases);
+    return () => {
+      window.removeEventListener("purchases-updated", refreshPurchases);
+      window.removeEventListener("balance-updated", refreshPurchases);
+    };
+  }, [refetch]);
 
   const displayItems = useMemo(() => {
     if (isLocalPreview) {

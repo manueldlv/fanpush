@@ -21,18 +21,18 @@ import {
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import {
-  loadBlockedChatUsers,
-  saveBlockedChatUsers,
-  type BlockedChatUser,
+  CHAT_BLOCKED_USERS_UPDATED_EVENT,
 } from "@/lib/chatPreferences";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { buildUserProfileHref } from "@/lib/profileRoute";
+import { getSupabaseClient } from "@/lib/supabase";
 
 type AttachmentPreview = {
   id: string;
   name: string;
   kind: "foto" | "video";
   previewUrl: string;
+  file?: File;
 };
 
 type MessageItem =
@@ -86,6 +86,8 @@ type ThreadItem = {
   pinned?: boolean;
   messages: MessageItem[];
 };
+
+type ThreadSummaryItem = Omit<ThreadItem, "messages">;
 
 const formatUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -147,6 +149,47 @@ const isEmojiOnlyMessage = (value: string) => {
   const trimmed = value.trim();
   return Boolean(trimmed) && emojiOnlyRegex.test(trimmed);
 };
+
+const chatRequest = async <T,>(input: string, init?: RequestInit) => {
+  const supabase = getSupabaseClient();
+  const session = supabase
+    ? await supabase.auth.getSession().then((result) => result.data.session)
+    : null;
+
+  const response = await fetch(input, {
+    ...init,
+    credentials: "include",
+    headers: {
+      ...(init?.headers ?? {}),
+      ...(session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {}),
+    },
+  });
+  const result = (await response.json()) as T & { error?: string };
+  if (!response.ok) {
+    throw new Error(result.error ?? "No se pudo completar la operación del chat.");
+  }
+  return result;
+};
+
+const toThreadSummary = (thread: ThreadSummaryItem | ThreadItem): ThreadSummaryItem => ({
+  id: thread.id,
+  username: thread.username,
+  fullName: thread.fullName,
+  handle: thread.handle,
+  preview: thread.preview,
+  avatarUrl: thread.avatarUrl,
+  participantIsAuthor: thread.participantIsAuthor,
+  lastSeen: thread.lastSeen,
+  unread: Boolean(thread.unread),
+  pinned: Boolean(thread.pinned),
+});
+
+const toThreadDetail = (thread: ThreadItem): ThreadItem => ({
+  ...toThreadSummary(thread),
+  messages: thread.messages ?? [],
+});
 
 const buildStarterThreads = (prefillUsername: string | null): ThreadItem[] => {
   const base: ThreadItem[] = [
@@ -407,6 +450,7 @@ function PremiumComposer({
     price: number;
     attachmentCount: number;
     attachmentPreviews: AttachmentPreview[];
+    originalFiles: File[];
   }) => void;
 }) {
   const [price, setPrice] = useState("5500");
@@ -593,6 +637,9 @@ function PremiumComposer({
                   price: Number(price || 0),
                   attachmentCount: attachments.length,
                   attachmentPreviews: attachments.map((attachment) => ({ ...attachment })),
+                  originalFiles: attachments
+                    .map((attachment) => attachment.file)
+                    .filter((file): file is File => Boolean(file)),
                 });
                 handleClose();
               }}
@@ -765,15 +812,13 @@ export default function MensajesPage() {
   const paidPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const paidVideoInputRef = useRef<HTMLInputElement | null>(null);
   const paidPackInputRef = useRef<HTMLInputElement | null>(null);
+  const prefillHandledRef = useRef(false);
   const { data: viewer } = useGetViewerQuery();
   const prefillUsername = searchParams.get("user");
 
-  const [threads, setThreads] = useState<ThreadItem[]>(() =>
-    buildStarterThreads(prefillUsername),
-  );
-  const [selectedThreadId, setSelectedThreadId] = useState<string>(
-    () => buildStarterThreads(prefillUsername)[0]?.id ?? "",
-  );
+  const [threads, setThreads] = useState<ThreadSummaryItem[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string>("");
+  const [selectedThread, setSelectedThread] = useState<ThreadItem | null>(null);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [emojiQuery, setEmojiQuery] = useState("");
@@ -790,15 +835,19 @@ export default function MensajesPage() {
   const [composeMenuOpen, setComposeMenuOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
     type: "delete" | "block";
-    thread: ThreadItem;
+    thread: ThreadSummaryItem;
   } | null>(null);
+  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [loadingThread, setLoadingThread] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const canSendPremium = Boolean(viewer?.access.canCreate);
 
   const filteredThreads = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const visibleThreads = threads
-      .filter((thread) => !thread.messages.some((message) => message.kind === "system" && false))
-      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+    const visibleThreads = [...threads].sort(
+      (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)),
+    );
     if (!term) return visibleThreads;
     return visibleThreads.filter(
       (thread) =>
@@ -807,44 +856,146 @@ export default function MensajesPage() {
     );
   }, [search, threads]);
 
-  const selectedThread =
-    filteredThreads.find((thread) => thread.id === selectedThreadId) ??
-    threads.find((thread) => thread.id === selectedThreadId) ??
-    filteredThreads[0] ??
-    threads[0] ??
-    null;
-
   useEffect(() => {
-    if (!selectedThread && filteredThreads[0]) {
+    if (!selectedThreadId && filteredThreads[0]) {
       setSelectedThreadId(filteredThreads[0].id);
     }
-  }, [filteredThreads, selectedThread]);
+  }, [filteredThreads, selectedThreadId]);
 
-  const appendTextMessage = () => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadThreads = async () => {
+      setLoadingThreads(true);
+      try {
+        const result = await chatRequest<{
+          ok: true;
+          threads: ThreadSummaryItem[];
+        }>("/api/direct-chats");
+        if (cancelled) return;
+        setThreads(result.threads.map(toThreadSummary));
+        setChatError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setThreads([]);
+        setChatError(
+          error instanceof Error ? error.message : "No se pudieron cargar los chats.",
+        );
+      } finally {
+        if (!cancelled) setLoadingThreads(false);
+      }
+    };
+
+    void loadThreads();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!prefillUsername || prefillHandledRef.current) return;
+    prefillHandledRef.current = true;
+
+    const openPrefilledThread = async () => {
+      try {
+        const result = await chatRequest<{
+          ok: true;
+          thread: ThreadItem;
+        }>("/api/direct-chats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: prefillUsername }),
+        });
+        const detail = toThreadDetail(result.thread);
+        setSelectedThread(detail);
+        setSelectedThreadId(detail.id);
+        setThreads((current) => {
+          const summary = toThreadSummary(detail);
+          const withoutCurrent = current.filter((item) => item.id !== summary.id);
+          return [summary, ...withoutCurrent];
+        });
+        setChatError(null);
+      } catch (error) {
+        setChatError(
+          error instanceof Error ? error.message : "No se pudo abrir el chat.",
+        );
+      }
+    };
+
+    void openPrefilledThread();
+  }, [prefillUsername]);
+
+  useEffect(() => {
+    if (!selectedThreadId) {
+      setSelectedThread(null);
+      return;
+    }
+    if (selectedThread?.id === selectedThreadId) return;
+
+    let cancelled = false;
+    const loadThread = async () => {
+      setLoadingThread(true);
+      try {
+        const result = await chatRequest<{
+          ok: true;
+          thread: ThreadItem;
+        }>(`/api/direct-chats/threads/${selectedThreadId}`);
+        if (cancelled) return;
+        const detail = toThreadDetail(result.thread);
+        setSelectedThread(detail);
+        setThreads((current) =>
+          current.map((thread) =>
+            thread.id === detail.id ? toThreadSummary(detail) : thread,
+          ),
+        );
+        setChatError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setChatError(
+          error instanceof Error ? error.message : "No se pudo cargar el chat.",
+        );
+      } finally {
+        if (!cancelled) setLoadingThread(false);
+      }
+    };
+
+    void loadThread();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThreadId, selectedThread?.id]);
+
+  const appendTextMessage = async () => {
     const body = draft.trim();
     if (!body || !selectedThread) return;
-
-    setThreads((current) =>
-      current.map((thread) =>
-        thread.id !== selectedThread.id
-          ? thread
-          : {
-              ...thread,
-              preview: `Tú · ${body}`,
-              messages: [
-                ...thread.messages,
-                {
-                  id: `${thread.id}-${Date.now()}`,
-                  kind: "text",
-                  sender: "me",
-                  body,
-                  createdAt: "Ahora",
-                },
-              ],
-            },
-      ),
-    );
-    setDraft("");
+    setSendingMessage(true);
+    try {
+      const formData = new FormData();
+      formData.append("kind", "text");
+      formData.append("body", body);
+      const result = await chatRequest<{
+        ok: true;
+        thread: ThreadItem;
+      }>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
+        method: "POST",
+        body: formData,
+      });
+      const detail = toThreadDetail(result.thread);
+      setSelectedThread(detail);
+      setThreads((current) =>
+        current.map((thread) =>
+          thread.id === detail.id ? toThreadSummary(detail) : thread,
+        ),
+      );
+      setDraft("");
+      setChatError(null);
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : "No se pudo enviar el mensaje.",
+      );
+    } finally {
+      setSendingMessage(false);
+    }
   };
 
   const createAttachmentPreviews = (files: File[]) =>
@@ -855,36 +1006,43 @@ export default function MensajesPage() {
         | "video"
         | "foto",
       previewUrl: URL.createObjectURL(file),
+      file,
     }));
 
-  const sendDirectAttachments = (attachments: AttachmentPreview[]) => {
+  const sendDirectAttachments = async (attachments: AttachmentPreview[]) => {
     if (!selectedThread || attachments.length === 0) return;
-
-    setThreads((current) =>
-      current.map((thread) =>
-        thread.id !== selectedThread.id
-          ? thread
-          : {
-              ...thread,
-              preview:
-                attachments.length === 1
-                  ? attachments[0]?.kind === "video"
-                    ? "Tú · Video"
-                    : "Tú · Foto"
-                  : `Tú · ${attachments.length} archivos`,
-              messages: [
-                ...thread.messages,
-                {
-                  id: `${thread.id}-${Date.now()}`,
-                  kind: "attachment",
-                  sender: "me",
-                  attachments,
-                  createdAt: "Ahora",
-                },
-              ],
-            },
-      ),
-    );
+    setSendingMessage(true);
+    try {
+      const formData = new FormData();
+      formData.append("kind", "attachment");
+      attachments.forEach((attachment, index) => {
+        if (attachment.file) {
+          formData.append(`original_${index}`, attachment.file);
+        }
+      });
+      const result = await chatRequest<{
+        ok: true;
+        thread: ThreadItem;
+      }>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
+        method: "POST",
+        body: formData,
+      });
+      attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+      const detail = toThreadDetail(result.thread);
+      setSelectedThread(detail);
+      setThreads((current) =>
+        current.map((thread) =>
+          thread.id === detail.id ? toThreadSummary(detail) : thread,
+        ),
+      );
+      setChatError(null);
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : "No se pudo enviar el adjunto.",
+      );
+    } finally {
+      setSendingMessage(false);
+    }
   };
 
   const openPremiumComposerWithFiles = (
@@ -947,84 +1105,141 @@ export default function MensajesPage() {
   };
 
   const threadMenuActions = {
-    togglePinned: (threadId: string) => {
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === threadId ? { ...thread, pinned: !thread.pinned } : thread,
-        ),
-      );
-      setOpenMenuId(null);
-    },
-    toggleUnread: (threadId: string) => {
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === threadId ? { ...thread, unread: !thread.unread } : thread,
-        ),
-      );
-      setOpenMenuId(null);
-    },
-    deleteThread: (threadId: string) => {
-      setThreads((current) => current.filter((thread) => thread.id !== threadId));
-      if (selectedThreadId === threadId) {
-        const next = threads.find((thread) => thread.id !== threadId);
-        setSelectedThreadId(next?.id ?? "");
+    togglePinned: async (threadId: string) => {
+      try {
+        const result = await chatRequest<{
+          ok: true;
+          thread: ThreadItem;
+        }>(`/api/direct-chats/threads/${threadId}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "togglePinned" }),
+        });
+        const detail = toThreadDetail(result.thread);
+        setSelectedThread((current) => (current?.id === detail.id ? detail : current));
+        setThreads((current) =>
+          current.map((thread) =>
+            thread.id === detail.id ? toThreadSummary(detail) : thread,
+          ),
+        );
+        setChatError(null);
+      } catch (error) {
+        setChatError(
+          error instanceof Error ? error.message : "No se pudo actualizar el chat.",
+        );
       }
       setOpenMenuId(null);
     },
-    blockThread: (thread: ThreadItem) => {
-      const currentBlocked = loadBlockedChatUsers();
-      const nextBlocked: BlockedChatUser[] = currentBlocked.some(
-        (item) => item.id === thread.id,
-      )
-        ? currentBlocked
-        : [
-            ...currentBlocked,
-            {
-              id: thread.id,
-              username: thread.username,
-              fullName: thread.fullName,
-              avatarUrl: thread.avatarUrl,
-              blockedAt: new Date().toISOString(),
-            },
-          ];
-      saveBlockedChatUsers(nextBlocked);
-      setThreads((current) => current.filter((item) => item.id !== thread.id));
-      if (selectedThreadId === thread.id) {
-        const next = threads.find((item) => item.id !== thread.id);
-        setSelectedThreadId(next?.id ?? "");
+    toggleUnread: async (threadId: string) => {
+      try {
+        const result = await chatRequest<{
+          ok: true;
+          thread: ThreadItem;
+        }>(`/api/direct-chats/threads/${threadId}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "toggleUnread" }),
+        });
+        const detail = toThreadDetail(result.thread);
+        setSelectedThread((current) => (current?.id === detail.id ? detail : current));
+        setThreads((current) =>
+          current.map((thread) =>
+            thread.id === detail.id ? toThreadSummary(detail) : thread,
+          ),
+        );
+        setChatError(null);
+      } catch (error) {
+        setChatError(
+          error instanceof Error ? error.message : "No se pudo actualizar el chat.",
+        );
+      }
+      setOpenMenuId(null);
+    },
+    deleteThread: async (threadId: string) => {
+      try {
+        await chatRequest<{ ok: true; deleted: true }>(
+          `/api/direct-chats/threads/${threadId}/actions`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "delete" }),
+          },
+        );
+        setThreads((current) => {
+          const nextThreads = current.filter((thread) => thread.id !== threadId);
+          if (selectedThreadId === threadId) {
+            setSelectedThread(null);
+            setSelectedThreadId(nextThreads[0]?.id ?? "");
+          }
+          return nextThreads;
+        });
+        setChatError(null);
+      } catch (error) {
+        setChatError(
+          error instanceof Error ? error.message : "No se pudo eliminar el chat.",
+        );
+      }
+      setOpenMenuId(null);
+    },
+    blockThread: async (thread: ThreadSummaryItem) => {
+      try {
+        await chatRequest<{ ok: true; blocked: true }>(
+          `/api/direct-chats/threads/${thread.id}/actions`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "block" }),
+          },
+        );
+        setThreads((current) => {
+          const nextThreads = current.filter((item) => item.id !== thread.id);
+          if (selectedThreadId === thread.id) {
+            setSelectedThread(null);
+            setSelectedThreadId(nextThreads[0]?.id ?? "");
+          }
+          return nextThreads;
+        });
+        window.dispatchEvent(new CustomEvent(CHAT_BLOCKED_USERS_UPDATED_EVENT));
+        setChatError(null);
+      } catch (error) {
+        setChatError(
+          error instanceof Error ? error.message : "No se pudo bloquear el chat.",
+        );
       }
       setOpenMenuId(null);
     },
   };
 
-  const unlockPremiumMessage = (messageId: string) => {
+  const unlockPremiumMessage = async (messageId: string) => {
     if (!selectedThread) return;
-
-    setThreads((current) =>
-      current.map((thread) =>
-        thread.id !== selectedThread.id
-          ? thread
-          : {
-              ...thread,
-              preview: "Contenido desbloqueado en el chat.",
-              messages: thread.messages.map((message) =>
-                message.kind === "premium" && message.id === messageId
-                  ? { ...message, status: "purchased" }
-                  : message,
-              ),
-            },
-      ),
-    );
-    setConfirmUnlockId(null);
+    try {
+      const result = await chatRequest<{
+        ok: true;
+        thread: ThreadItem;
+        balance: number;
+      }>(`/api/direct-chats/messages/${messageId}/purchase`, {
+        method: "POST",
+      });
+      const detail = toThreadDetail(result.thread);
+      setSelectedThread(detail);
+      setThreads((current) =>
+        current.map((thread) =>
+          thread.id === detail.id ? toThreadSummary(detail) : thread,
+        ),
+      );
+      window.dispatchEvent(new Event("purchases-updated"));
+      window.dispatchEvent(new Event("balance-updated"));
+      setChatError(null);
+    } catch (error) {
+      setChatError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo comprar el contenido del chat.",
+      );
+    } finally {
+      setConfirmUnlockId(null);
+    }
   };
-
-  useEffect(() => {
-    const blocked = loadBlockedChatUsers();
-    if (blocked.length === 0) return;
-    setThreads((current) =>
-      current.filter((thread) => !blocked.some((item) => item.id === thread.id)),
-    );
-  }, []);
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -1067,42 +1282,52 @@ export default function MensajesPage() {
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-[#FAFAFA] text-[#161823]">
+    <div className="min-h-screen bg-[#FAFAFA] text-[#161823] md:h-screen md:overflow-hidden">
       <SidebarLeft />
       <PremiumComposer
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
         mode={premiumMode}
         initialAttachments={premiumDraftAttachments}
-        onSend={(payload) => {
+        onSend={async (payload) => {
           if (!selectedThread) return;
-
-          setThreads((current) =>
-            current.map((thread) =>
-              thread.id !== selectedThread.id
-                ? thread
-                : {
-                    ...thread,
-                    preview: `Contenido privado · $${formatUnits(payload.price)}`,
-                    messages: [
-                      ...thread.messages,
-                      {
-                        id: `${thread.id}-${Date.now()}`,
-                        kind: "premium",
-                        sender: "me",
-                        title: "Contenido privado",
-                        caption: `${payload.attachmentCount} archivo${payload.attachmentCount === 1 ? "" : "s"}`,
-                        price: payload.price,
-                        attachmentCount: payload.attachmentCount,
-                        attachmentPreviews: payload.attachmentPreviews,
-                        status: "locked",
-                        createdAt: "Ahora",
-                      },
-                    ],
-                  },
-            ),
-          );
-          setPremiumOpen(false);
+          setSendingMessage(true);
+          try {
+            const formData = new FormData();
+            formData.append("kind", "premium");
+            formData.append("title", "Contenido privado");
+            formData.append("price", String(payload.price));
+            payload.originalFiles.forEach((file, index) => {
+              formData.append(`original_${index}`, file);
+            });
+            const result = await chatRequest<{
+              ok: true;
+              thread: ThreadItem;
+            }>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
+              method: "POST",
+              body: formData,
+            });
+            payload.attachmentPreviews.forEach((attachment) =>
+              URL.revokeObjectURL(attachment.previewUrl),
+            );
+            const detail = toThreadDetail(result.thread);
+            setSelectedThread(detail);
+            setThreads((current) =>
+              current.map((thread) =>
+                thread.id === detail.id ? toThreadSummary(detail) : thread,
+              ),
+            );
+            setPremiumOpen(false);
+            setChatError(null);
+          } catch (error) {
+            setChatError(
+              error instanceof Error
+                ? error.message
+                : "No se pudo enviar el contenido pago.",
+            );
+          } finally {
+            setSendingMessage(false);
+          }
         }}
       />
 
@@ -1148,8 +1373,8 @@ export default function MensajesPage() {
         </div>
       ) : null}
 
-      <main className="h-[calc(100dvh-64px)] w-full overflow-hidden md:pl-[240px]">
-        <div className="grid h-full grid-cols-1 border-r border-[#E0E0E0] bg-white md:grid-cols-[420px_minmax(0,1fr)]">
+      <main className="min-h-[calc(100dvh-64px)] w-full md:h-[calc(100dvh-64px)] md:overflow-hidden md:pl-[240px]">
+        <div className="grid min-h-[calc(100dvh-64px)] grid-cols-1 border-r border-[#E0E0E0] bg-white md:h-full md:grid-cols-[420px_minmax(0,1fr)]">
           <aside className="overflow-y-auto border-b border-[#E0E0E0] md:border-b-0 md:border-r">
             <div className="px-5 pb-5 pt-4">
               <div className="text-[28px] font-semibold tracking-[-0.03em] text-[#161823]">
@@ -1170,8 +1395,20 @@ export default function MensajesPage() {
               Mensajes
             </div>
 
+            {chatError ? (
+              <div className="mx-5 mb-3 rounded-[5px] border border-[#fecaca] bg-[#fff5f5] px-3 py-2 text-[13px] text-[#b42318]">
+                {chatError}
+              </div>
+            ) : null}
+
             <div className="flex flex-col pb-5">
-              {filteredThreads.map((thread) => {
+              {loadingThreads ? (
+                <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">Cargando chats...</div>
+              ) : filteredThreads.length === 0 ? (
+                <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">
+                  Todavía no tienes conversaciones activas.
+                </div>
+              ) : filteredThreads.map((thread) => {
                 const active = selectedThread?.id === thread.id;
                 return (
                   <button
@@ -1311,7 +1548,12 @@ export default function MensajesPage() {
                   </button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
+                  {loadingThread ? (
+                    <div className="pb-4 text-center text-[14px] text-[#8b8b8b]">
+                      Cargando conversación...
+                    </div>
+                  ) : null}
                   <div className="flex min-h-full w-full flex-col justify-end gap-4">
                     {selectedThread.messages.map((message, index) => {
                       const own = message.sender === "me";
@@ -1370,7 +1612,7 @@ export default function MensajesPage() {
                   </div>
                 </div>
 
-                <div className="border-t border-[#E0E0E0] px-6 py-4">
+                <div className="border-t border-[#E0E0E0] px-4 py-4 md:px-6">
                   <div className="relative flex w-full items-center gap-3 rounded-full bg-[#f5f5f5] px-4 py-3">
                     <input
                       ref={photoInputRef}
@@ -1480,16 +1722,18 @@ export default function MensajesPage() {
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          appendTextMessage();
+                          void appendTextMessage();
                         }
                       }}
                       placeholder="Envía un mensaje ..."
+                      disabled={!selectedThread || sendingMessage}
                       className="w-full bg-transparent text-[14px] text-[#161823] outline-none placeholder:text-[#8b8b8b]"
                     />
                     <button
                       type="button"
-                      onClick={appendTextMessage}
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#5A3EE7] text-white"
+                      onClick={() => void appendTextMessage()}
+                      disabled={!selectedThread || sendingMessage}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#5A3EE7] text-white disabled:opacity-50"
                       aria-label="Enviar"
                     >
                       <SendHorizontal className="h-4 w-4" />
@@ -1498,7 +1742,7 @@ export default function MensajesPage() {
                     {emojiOpen ? (
                       <div
                         ref={emojiRef}
-                        className="absolute bottom-[calc(100%+14px)] left-0 z-20 w-[420px] rounded-[24px] border border-[#E0E0E0] bg-white p-4 shadow-[0_18px_35px_rgba(0,0,0,0.08)]"
+                        className="absolute bottom-[calc(100%+14px)] left-0 z-20 w-[min(420px,calc(100vw-48px))] rounded-[24px] border border-[#E0E0E0] bg-white p-4 shadow-[0_18px_35px_rgba(0,0,0,0.08)]"
                       >
                         <div className="flex h-12 items-center rounded-full border border-[#E0E0E0] bg-[#f7f7f7] px-4">
                           <Search className="h-4 w-4 text-[#9ca3af]" />

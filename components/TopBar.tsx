@@ -303,10 +303,7 @@ export default function TopBar() {
             </div>
 
             {searchOpen ? (
-              <div className="absolute right-0 top-12 w-[320px] overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-xl">
-                <div className="border-b border-zinc-100 px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                  Buscar
-                </div>
+              <div className="absolute right-0 top-[56px] w-[360px] overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-xl">
                 {debouncedQuery.trim().length < 2 ? (
                   <div className="px-4 py-4 text-[13px] text-zinc-500">
                     Escribí al menos 2 letras para buscar perfiles.

@@ -606,17 +606,17 @@ export default function PerfilPage({
                   priority
                 />
               </div>
-              <div className="relative px-5 pb-6 pt-0 md:px-7">
-                <div className="absolute left-7 top-0 -translate-y-[72%] rounded-full border-[6px] border-white bg-white">
+              <div className="relative px-4 pb-6 pt-0 md:px-7">
+                <div className="absolute left-4 top-0 -translate-y-[68%] rounded-full border-[6px] border-white bg-white md:left-7 md:-translate-y-[72%]">
                   <UserAvatar
                     src={profileAvatar}
                     alt={profileName || "Perfil"}
-                    sizeClassName="h-[160px] w-[160px]"
-                    iconClassName="h-12 w-12"
+                    sizeClassName="h-[120px] w-[120px] md:h-[160px] md:w-[160px]"
+                    iconClassName="h-10 w-10 md:h-12 md:w-12"
                   />
                 </div>
 
-                <div className="flex min-h-[178px] flex-col justify-end gap-5 pt-[58px] md:flex-row md:items-end md:justify-between">
+                <div className="flex min-h-[178px] flex-col justify-end gap-5 pt-[42px] md:flex-row md:items-end md:justify-between md:pt-[58px]">
                   <div className="max-w-[880px]">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                       <div className="flex items-center gap-2">

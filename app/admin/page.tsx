@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
@@ -1022,7 +1021,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
         <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
-          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-5">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-400">
                 FanPush Admin
@@ -1035,12 +1034,6 @@ export default function AdminPage() {
                 contenido publicado desde un solo lugar.
               </p>
             </div>
-            <Link
-              href="/admin/inbox"
-              className="inline-flex items-center gap-2 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
-            >
-              Inbox admin
-            </Link>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">

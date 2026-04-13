@@ -6,8 +6,6 @@ import {
   BadgeDollarSign,
   Bell,
   CreditCard,
-  Settings2,
-  RefreshCw,
   ShieldAlert,
   Sparkles,
   UserPlus,
@@ -191,7 +189,6 @@ export default function NotificacionesPage() {
     isLoading,
     isFetching,
     error,
-    refetch,
   } = useGetNotificationCenterQuery();
   const [markNotificationsAsRead] = useMarkNotificationsAsReadMutation();
   const activity = centerData?.activity ?? [];
@@ -241,7 +238,7 @@ export default function NotificacionesPage() {
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <SidebarLeft />
 
-      <main className="mx-auto w-full max-w-[1540px] px-4 pb-16 pt-24 md:pl-[280px] md:pr-8">
+      <main className="mx-auto w-full max-w-[1540px] px-3 pb-24 pt-3 sm:px-4 md:pl-[280px] md:pr-8 md:pt-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[25px] font-semibold leading-none text-zinc-950">
@@ -251,17 +248,6 @@ export default function NotificacionesPage() {
               Seguimiento de ventas, mensajes y actividad reciente.
             </p>
           </div>
-
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-[5px] border border-[#E0E0E0] bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-50"
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", isFetching ? "animate-spin" : "")}
-            />
-            {isFetching ? "Actualizando..." : "Actualizar"}
-          </button>
         </div>
 
         {error ? (
@@ -270,24 +256,21 @@ export default function NotificacionesPage() {
           </div>
         ) : null}
 
-        <div className="mt-6 overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
+        <div className="mt-4 overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
           <div className="flex items-center justify-between border-b border-[#E0E0E0] px-5 py-4">
             <div>
               <div className="text-[20px] font-semibold text-zinc-950">
-                Notification
+                Todas las notificaciones
               </div>
               <div className="mt-1 text-[13px] text-[#464646]">
                 {activity.length} eventos · {unreadCount} sin leer
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-[5px] border border-[#E0E0E0] bg-white text-zinc-600 transition hover:bg-zinc-50"
-              aria-label="Actualizar"
-            >
-              <Settings2 className="h-4 w-4" />
-            </button>
+            {isFetching ? (
+              <div className="text-[12px] font-medium text-zinc-400">
+                Actualizando...
+              </div>
+            ) : null}
           </div>
 
           {isLoading ? (

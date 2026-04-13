@@ -1,120 +1,66 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { Suspense, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { History, Info, RefreshCw } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
+import UserAvatar from "@/components/UserAvatar";
 import { useCreateCheckoutPreferenceMutation } from "@/lib/redux/api/commerceApi";
 import { useGetSessionQuery, useGetViewerQuery } from "@/lib/redux/api/sessionApi";
-import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
-import UserAvatar from "@/components/UserAvatar";
 
-const RECHARGE_OPTIONS = [1000, 5000, 20000, 50000, 100000] as const;
-
-type RechargeHistoryItem = {
-  id: string;
-  amount: number;
-  status: string | null;
-  provider: string | null;
-  providerPaymentId: string | null;
-  createdAt: string;
-};
+const RECHARGE_OPTIONS = [1000, 5000, 10000, 20000, 50000, 100000, 500000] as const;
 
 const formatSaldoUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
     maximumFractionDigits: 0,
   }).format(Math.max(0, value));
 
-const formatDateTime = (value: string) =>
-  new Date(value).toLocaleString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-const formatHistoryStatus = (value: string | null) => {
-  if (value === "posted") return "Acreditada";
-  if (value === "pending") return "Pendiente";
-  if (value === "failed") return "Fallida";
-  return "Procesando";
-};
-
 function SaldoPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [selectedAmount, setSelectedAmount] = useState<number | null>(5000);
-  const [customAmount, setCustomAmount] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<RechargeHistoryItem[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [historyError, setHistoryError] = useState<string | null>(null);
   const { data: session, isLoading: sessionLoading } = useGetSessionQuery();
   const { data: viewer } = useGetViewerQuery();
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+  const [customMode, setCustomMode] = useState(false);
+  const [customAmount, setCustomAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [createCheckoutPreference, { isLoading: submitting }] =
     useCreateCheckoutPreferenceMutation();
 
   const depositSuccess = searchParams.get("checkout") === "deposit";
   const depositedTotal = Number(searchParams.get("deposit_total") || 0);
 
-  const amountNumber = useMemo(() => {
+  const selectedValue = useMemo(() => {
     if (selectedAmount !== null) return selectedAmount;
-    return Number(customAmount);
+    if (!customAmount.trim()) return 0;
+    return Math.floor(Number(customAmount.replace(/[^\d]/g, "")) || 0);
   }, [customAmount, selectedAmount]);
 
-  const loadHistory = async () => {
-    if (!session?.isAuthenticated || !session.userId) {
-      setHistory([]);
-      setHistoryError(null);
-      setHistoryLoading(false);
-      return;
-    }
+  const isCustomSelected = customMode && selectedAmount === null;
+  const canPurchase =
+    Number.isFinite(selectedValue) && selectedValue >= 1000 && !sessionLoading;
 
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      setHistory([]);
-      setHistoryError("No pudimos conectar tu historial de recargas.");
-      setHistoryLoading(false);
-      return;
-    }
-
-    setHistoryLoading(true);
-    setHistoryError(null);
-    const { data, error: nextHistoryError } = await supabase
-      .from("ledger_transactions")
-      .select(
-        "id,transaction_amount,status,external_provider,provider_payment_id,created_at",
-      )
-      .eq("buyer_user_id", session.userId)
-      .eq("kind", "deposit")
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (nextHistoryError) {
-      setHistory([]);
-      setHistoryError("No pudimos cargar tu historial de recargas.");
-      setHistoryLoading(false);
-      return;
-    }
-
-    setHistory(
-      (data ?? []).map((item) => ({
-        id: item.id,
-        amount: Number(item.transaction_amount ?? 0),
-        status: item.status ?? null,
-        provider: item.external_provider ?? null,
-        providerPaymentId: item.provider_payment_id ?? null,
-        createdAt: item.created_at,
-      })),
-    );
-    setHistoryLoading(false);
+  const handlePresetClick = (amount: number) => {
+    setError(null);
+    setCustomMode(false);
+    setSelectedAmount(amount);
+    setCustomAmount("");
   };
 
-  useEffect(() => {
-    void loadHistory();
-  }, [session?.isAuthenticated, session?.userId, depositSuccess, depositedTotal]);
+  const handleCustomSelect = () => {
+    setError(null);
+    setCustomMode(true);
+    setSelectedAmount(null);
+  };
+
+  const handleCustomChange = (value: string) => {
+    setCustomMode(true);
+    setSelectedAmount(null);
+    setError(null);
+    setCustomAmount(value.replace(/[^\d]/g, ""));
+  };
 
   const handleDeposit = async () => {
     if (sessionLoading) {
@@ -127,16 +73,17 @@ function SaldoPageContent() {
       return;
     }
 
-    if (!Number.isFinite(amountNumber) || amountNumber < 1000) {
-      setError("Ingresa un monto válido de al menos $1.000 para recargar saldo.");
+    if (!Number.isFinite(selectedValue) || selectedValue < 1000) {
+      setError("Elegí un saldo válido de al menos $1.000 para continuar.");
       return;
     }
 
     setError(null);
+
     try {
       const result = await createCheckoutPreference({
         kind: "deposit",
-        amount: amountNumber,
+        amount: selectedValue,
         returnPath: "/saldo",
       }).unwrap();
       window.location.assign(result.initPoint);
@@ -144,259 +91,175 @@ function SaldoPageContent() {
       setError(
         depositError instanceof Error
           ? depositError.message
-          : "No se pudo iniciar la recarga.",
+          : "No se pudo iniciar la compra de saldo.",
       );
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f7f7] text-zinc-900">
+    <div className="min-h-screen bg-[#FAFAFA] text-zinc-900">
       <SidebarLeft />
 
-      <main className="mx-auto w-full max-w-[1180px] px-4 pb-16 pt-8 md:pl-[280px] md:pr-8 md:pt-10">
-        <div className="grid gap-5">
-          <section className="rounded-[22px] border border-zinc-100 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-3">
-                <UserAvatar
-                  src={viewer?.profile.avatarUrl}
-                  alt={viewer?.profile.username ?? "Perfil"}
-                  sizeClassName="h-12 w-12"
-                  iconClassName="h-5 w-5"
-                />
-                <div>
-                  <div className="text-[13px] font-medium text-zinc-500">Mi saldo</div>
-                  <div className="text-[20px] font-semibold tracking-tight text-zinc-950">
-                    {viewer?.profile.fullName || viewer?.profile.username || "Tu cuenta"}
-                  </div>
-                </div>
-              </div>
+      <main className="w-full px-4 pb-24 pt-6 sm:px-6 md:pl-[348px] md:pr-8 md:pt-10">
+        <div className="max-w-[900px]">
+          <h1 className="text-[25px] font-semibold text-zinc-950">Mi saldo</h1>
 
-              <div className="min-w-[250px] rounded-[22px] border border-amber-200 bg-[linear-gradient(135deg,#fff7dd_0%,#fff3c4_100%)] px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-700">
-                  Saldo disponible
-                </div>
-                <div className="mt-2 flex items-end gap-2 text-zinc-950">
-                  <span className="rounded-full bg-white/80 px-2 py-1 text-[16px] leading-none shadow-sm">
-                    ⚡
-                  </span>
-                  <span className="text-[30px] font-semibold tracking-tight">
-                    {formatSaldoUnits(viewer?.commerce.balance ?? 0)}
-                  </span>
-                </div>
-                <div className="mt-2 text-[12px] text-amber-800/80">
-                  Usalo para compras y acciones dentro del sitio.
-                </div>
-              </div>
+          {depositSuccess && depositedTotal > 0 ? (
+            <div className="mt-5 rounded-[5px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[14px] font-medium text-emerald-700">
+              Se acreditaron {formatARS(depositedTotal)} en tu saldo.
+            </div>
+          ) : null}
+
+          <section className="mt-5 flex flex-wrap items-center gap-4">
+            <UserAvatar
+              src={viewer?.profile.avatarUrl}
+              alt={viewer?.profile.username ?? "Perfil"}
+              sizeClassName="h-[68px] w-[68px]"
+              iconClassName="h-7 w-7"
+            />
+
+            <div className="flex items-center gap-3">
+              <Image
+                src="/brand-lightning.png"
+                alt="Saldo"
+                width={24}
+                height={24}
+                className="h-6 w-6 brightness-0"
+              />
+              <span className="text-[20px] font-bold text-zinc-950">
+                {formatARS(viewer?.commerce.balance ?? 0)}
+              </span>
             </div>
 
-            {!sessionLoading && !session?.isAuthenticated ? (
-              <div className="mt-4 flex flex-col gap-3 rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-medium text-zinc-700 md:inline-flex">
-                <div>Iniciá sesión para ver tu saldo y continuar con la recarga.</div>
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => router.push("/auth")}
-                    className="inline-flex items-center justify-center rounded-[12px] bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white"
-                  >
-                    Ir a iniciar sesión
-                  </button>
-                </div>
-              </div>
-            ) : null}
+            <Link
+              href="/ventas?tab=withdrawals"
+              className="text-[14px] font-semibold text-[#5A3EE7] transition hover:opacity-80"
+            >
+              retirar
+            </Link>
           </section>
 
-          <section className="rounded-[22px] border border-zinc-100 bg-white p-5 shadow-sm md:p-7">
-            <div className="mx-auto w-full max-w-[920px]">
-              <h1 className="text-[28px] font-semibold tracking-tight text-zinc-950 md:text-[32px]">
-                Recargá
-              </h1>
+          <section className="mt-12">
+            <h2 className="text-[25px] font-semibold text-zinc-950">Comprar saldo</h2>
 
-              {depositSuccess && depositedTotal > 0 ? (
-                <div className="mt-4 rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-                  Se acreditaron {formatARS(depositedTotal)} en tu saldo.
-                </div>
-              ) : null}
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+              {RECHARGE_OPTIONS.map((amount) => {
+                const active = selectedAmount === amount;
 
-              <div className="mt-5 flex items-center gap-2 text-[14px] font-medium text-zinc-500">
-                <Info className="h-4 w-4 text-zinc-400" />
-                Elegí un monto. Cada ⚡ equivale a $1 y la recarga se completa en Mercado Pago.
-              </div>
-
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {RECHARGE_OPTIONS.map((option) => {
-                  const active = selectedAmount === option;
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => {
-                        setSelectedAmount(option);
-                        setCustomAmount("");
-                      }}
-                      className={`rounded-[18px] border px-5 py-5 text-center transition ${
-                        active
-                          ? "border-zinc-950 bg-zinc-50"
-                          : "border-zinc-100 bg-zinc-50 hover:border-zinc-200"
-                      }`}
-                    >
-                      <div className="inline-flex items-center justify-center gap-2">
-                        <span className="text-[20px] leading-none">⚡</span>
-                        <span className="text-[24px] font-semibold tracking-tight text-zinc-950 md:text-[26px]">
-                          {formatSaldoUnits(option)}
-                        </span>
-                      </div>
-                      <div className="mt-2 text-[14px] text-zinc-400">
-                        {formatARS(option)}
-                      </div>
-                    </button>
-                  );
-                })}
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedAmount(null)}
-                  className={`rounded-[18px] border px-5 py-5 text-center transition ${
-                    selectedAmount === null
-                      ? "border-zinc-950 bg-zinc-50"
-                      : "border-zinc-100 bg-zinc-50 hover:border-zinc-200"
-                  }`}
-                >
-                  <div className="inline-flex items-center justify-center gap-2">
-                    <span className="text-[20px] leading-none">⚡</span>
-                    <span className="text-[21px] font-semibold tracking-tight text-zinc-950">
-                      Personalizado
+                return (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => handlePresetClick(amount)}
+                    className={`flex h-[92px] items-center justify-center rounded-[5px] border px-4 text-center transition ${
+                      active
+                        ? "border-[#5A3EE7] bg-[#f8f6ff] text-zinc-950 ring-1 ring-[#5A3EE7]"
+                        : "border-[#E0E0E0] bg-white text-zinc-950 hover:border-[#cfcfcf]"
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-2 text-[18px] font-semibold">
+                      <span
+                        className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${
+                          active
+                            ? "bg-[linear-gradient(90deg,#5A3EE7_0%,#CF4BDB_100%)]"
+                            : "bg-transparent"
+                        }`}
+                      >
+                        <Image
+                          src="/brand-lightning.png"
+                          alt=""
+                          width={18}
+                          height={18}
+                          className={`h-[18px] w-[18px] ${
+                            active ? "brightness-0 invert" : "brightness-0"
+                          }`}
+                        />
+                      </span>
+                      {formatSaldoUnits(amount)}
                     </span>
-                  </div>
-                  <div className="mt-2 text-[14px] text-zinc-400">
-                    Elegí el monto exacto
-                  </div>
-                </button>
-              </div>
-
-              {selectedAmount === null ? (
-                <div className="mt-4 max-w-[340px]">
-                  <label className="block text-sm font-medium text-zinc-700">
-                    Monto personalizado
-                    <div className="mt-2 flex items-center rounded-[14px] border border-zinc-200 bg-white px-4 py-3">
-                      <span className="text-sm font-semibold text-zinc-500">$</span>
-                      <input
-                        value={customAmount}
-                        onChange={(event) => {
-                          const nextValue = event.target.value.replace(/[^\d.,]/g, "");
-                          setCustomAmount(nextValue.replace(",", "."));
-                        }}
-                        inputMode="decimal"
-                        placeholder="1000"
-                        className="w-full bg-transparent pl-3 text-[15px] font-semibold text-zinc-900 outline-none"
-                      />
-                    </div>
-                  </label>
-                  <div className="mt-2 text-[12px] text-zinc-500">
-                    Monto mínimo sugerido: $1.000.
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mt-6 flex items-center gap-3 text-[17px] md:text-[18px]">
-                <span className="text-zinc-700">Total</span>
-                <span className="font-semibold text-zinc-950">
-                  {formatARS(amountNumber || 0)}
-                </span>
-              </div>
-
-              {error ? (
-                <div className="mt-4 max-w-[520px] rounded-[16px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {error}
-                </div>
-              ) : null}
+                  </button>
+                );
+              })}
 
               <button
                 type="button"
-                onClick={handleDeposit}
-                disabled={submitting}
-                className="mt-6 inline-flex min-w-[220px] items-center justify-center rounded-[14px] bg-rose-300 px-7 py-4 text-[15px] font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                onClick={handleCustomSelect}
+                className={`flex h-[92px] items-center justify-center rounded-[5px] border px-4 text-center transition ${
+                  isCustomSelected
+                    ? "border-[#5A3EE7] bg-[#f8f6ff] text-zinc-950 ring-1 ring-[#5A3EE7]"
+                    : "border-[#E0E0E0] bg-white text-zinc-950 hover:border-[#cfcfcf]"
+                }`}
               >
-                {submitting
-                  ? "Abriendo Mercado Pago..."
-                  : !sessionLoading && !session?.isAuthenticated
-                    ? "Iniciar sesión"
-                    : "Recargar"}
+                <span className="inline-flex items-center gap-2 text-[18px] font-semibold">
+                  <span
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${
+                      isCustomSelected
+                        ? "bg-[linear-gradient(90deg,#5A3EE7_0%,#CF4BDB_100%)]"
+                        : "bg-transparent"
+                    }`}
+                  >
+                    <Image
+                      src="/brand-lightning.png"
+                      alt=""
+                      width={18}
+                      height={18}
+                      className={`h-[18px] w-[18px] ${
+                        isCustomSelected ? "brightness-0 invert" : "brightness-0"
+                      }`}
+                    />
+                  </span>
+                  Personalizado
+                </span>
               </button>
             </div>
-          </section>
 
-          <section className="rounded-[22px] border border-zinc-100 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <History className="h-4 w-4 text-zinc-500" />
-                <h2 className="text-[18px] font-semibold tracking-tight text-zinc-950">
-                  Historial de recargas
-                </h2>
+            {isCustomSelected ? (
+              <div className="mt-4 max-w-[300px]">
+                <label className="block">
+                  <span className="sr-only">Monto personalizado</span>
+                  <div className="flex h-[52px] items-center rounded-[5px] border border-[#E0E0E0] bg-white px-4">
+                    <Image
+                        src="/brand-lightning.png"
+                        alt=""
+                        width={18}
+                        height={18}
+                        className="h-[18px] w-[18px] brightness-0"
+                      />
+                    <input
+                      value={customAmount}
+                      onFocus={handleCustomSelect}
+                      onChange={(event) => handleCustomChange(event.target.value)}
+                      inputMode="numeric"
+                      placeholder="Escribe el saldo"
+                      className="w-full bg-transparent pl-3 text-[16px] font-semibold text-zinc-950 outline-none placeholder:text-zinc-500"
+                    />
+                  </div>
+                </label>
               </div>
-              {session?.isAuthenticated ? (
-                <button
-                  type="button"
-                  onClick={() => void loadHistory()}
-                  className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-[12px] font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Actualizar
-                </button>
-              ) : null}
-            </div>
+            ) : null}
 
-            <div className="mt-4 overflow-hidden rounded-[18px] border border-zinc-200">
-              <div className="grid grid-cols-[1.1fr_0.8fr] gap-3 bg-zinc-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
-                <span>Movimiento</span>
-                <span>Monto</span>
-                <span className="hidden md:block">Estado</span>
-                <span className="hidden md:block">Referencia</span>
+            {error ? (
+              <div className="mt-4 max-w-[540px] rounded-[5px] border border-rose-200 bg-rose-50 px-4 py-3 text-[14px] text-rose-700">
+                {error}
               </div>
+            ) : null}
 
-              {historyLoading ? (
-                <div className="px-4 py-6 text-[13px] text-zinc-500">
-                  Cargando historial...
-                </div>
-              ) : historyError ? (
-                <div className="px-4 py-6 text-[13px] text-rose-700">
-                  {historyError}
-                </div>
-              ) : !session?.isAuthenticated ? (
-                <div className="px-4 py-6 text-[13px] text-zinc-500">
-                  Iniciá sesión para ver tus recargas anteriores.
-                </div>
-              ) : history.length === 0 ? (
-                <div className="px-4 py-6 text-[13px] text-zinc-500">
-                  Todavía no tenés recargas registradas.
-                </div>
-              ) : (
-                <div className="divide-y divide-zinc-100">
-                  {history.map((item) => (
-                    <div
-                      key={item.id}
-                      className="grid grid-cols-[1.1fr_0.8fr] gap-3 px-4 py-3 text-[13px] text-zinc-700 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]"
-                    >
-                      <div className="min-w-0">
-                        <div>{formatDateTime(item.createdAt)}</div>
-                        <div className="mt-1 text-[12px] text-zinc-500 md:hidden">
-                          {formatHistoryStatus(item.status)}
-                        </div>
-                      </div>
-                      <span className="font-semibold text-zinc-950">
-                        {formatARS(item.amount)}
-                      </span>
-                      <span className="hidden md:block">
-                        {formatHistoryStatus(item.status)}
-                      </span>
-                      <span className="hidden truncate md:block">
-                        {item.providerPaymentId || item.provider || "Mercado Pago"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              disabled={!canPurchase || submitting}
+              onClick={handleDeposit}
+              className={`mt-4 inline-flex h-[48px] min-w-[148px] items-center justify-center rounded-[5px] px-6 text-[15px] font-semibold transition ${
+                canPurchase && !submitting
+                  ? "bg-[linear-gradient(90deg,#5A3EE7_0%,#6E46F2_100%)] text-white hover:opacity-95"
+                  : "bg-[#d8d8d8] text-white"
+              }`}
+            >
+              {submitting
+                ? "Abriendo Mercado Pago..."
+                : !sessionLoading && !session?.isAuthenticated
+                  ? "Iniciar sesión"
+                  : "Comprar"}
+            </button>
           </section>
         </div>
       </main>
@@ -408,16 +271,12 @@ export default function SaldoPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#f7f7f7] text-zinc-900">
+        <div className="min-h-screen bg-[#FAFAFA] text-zinc-900">
           <SidebarLeft />
-          <main className="mx-auto w-full max-w-[1180px] px-4 pb-16 pt-8 md:pl-[280px] md:pr-8 md:pt-10">
-            <section className="rounded-[22px] border border-zinc-100 bg-white p-5 shadow-sm md:p-7">
-              <div className="mx-auto w-full max-w-[920px]">
-                <h1 className="text-[28px] font-semibold tracking-tight text-zinc-950 md:text-[34px]">
-                  Recargá
-                </h1>
-              </div>
-            </section>
+          <main className="w-full px-4 pb-24 pt-6 sm:px-6 md:pl-[348px] md:pr-8 md:pt-10">
+            <div className="max-w-[900px]">
+              <h1 className="text-[25px] font-semibold text-zinc-950">Mi saldo</h1>
+            </div>
           </main>
         </div>
       }

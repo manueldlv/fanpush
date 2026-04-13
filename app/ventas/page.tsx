@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import { buildUserProfileHref } from "@/lib/profileRoute";
@@ -15,6 +16,7 @@ import { FANPUSH_WITHDRAWAL_MIN_ARS, formatARS } from "@/lib/utils";
 const SALES_PAGE_SIZE = 10;
 
 export default function VentasPage() {
+  const searchParams = useSearchParams();
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
@@ -24,6 +26,17 @@ export default function VentasPage() {
   const { data, isLoading: loading, refetch } = useGetSalesQuery();
   const [requestWithdrawal, { isLoading: requesting }] = useRequestWithdrawalMutation();
   const [cancelWithdrawal, { isLoading: cancelling }] = useCancelWithdrawalMutation();
+
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (
+      requestedTab === "overview" ||
+      requestedTab === "sales" ||
+      requestedTab === "withdrawals"
+    ) {
+      setTab(requestedTab);
+    }
+  }, [searchParams]);
 
   const sales = data?.sales ?? [];
   const withdrawals = data?.withdrawals ?? [];
@@ -164,11 +177,11 @@ export default function VentasPage() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft />
 
-      <div className="flex h-full md:pl-60">
-        <div className="mx-auto flex h-full w-full max-w-none flex-col gap-6 px-4 py-6 md:max-w-[1140px] md:gap-8 md:px-6 md:py-8">
+      <div className="flex min-h-screen md:pl-60">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-6 px-4 py-5 pb-24 md:max-w-[1140px] md:gap-8 md:px-6 md:py-8">
           <div>
             <h1 className="text-2xl font-semibold">Mis ventas</h1>
             <p className="text-sm text-zinc-500">

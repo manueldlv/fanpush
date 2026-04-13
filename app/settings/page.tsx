@@ -7,8 +7,6 @@ import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import {
   CHAT_BLOCKED_USERS_UPDATED_EVENT,
-  loadBlockedChatUsers,
-  saveBlockedChatUsers,
   type BlockedChatUser,
 } from "@/lib/chatPreferences";
 import { profileApi } from "@/lib/redux/api/profileApi";
@@ -106,6 +104,7 @@ export default function SettingsPage() {
     useState<NotificationPreferences>(buildDefaultNotificationPreferences());
   const [savingNotifications, setSavingNotifications] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<BlockedChatUser[]>([]);
+  const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
 
   useEffect(() => {
     if (!settingsData) return;
@@ -134,22 +133,73 @@ export default function SettingsPage() {
   }, [avatarCropSource]);
 
   useEffect(() => {
-    const syncBlockedUsers = () => {
-      setBlockedUsers(loadBlockedChatUsers());
+    const syncBlockedUsers = async () => {
+      setBlockedUsersLoading(true);
+      try {
+        const supabase = getSupabaseClient();
+        const session = supabase
+          ? await supabase.auth.getSession().then((result) => result.data.session)
+          : null;
+        const response = await fetch("/api/direct-chats/blocked", {
+          credentials: "include",
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : undefined,
+        });
+        const result = (await response.json()) as {
+          error?: string;
+          users?: BlockedChatUser[];
+        };
+        if (!response.ok) {
+          throw new Error(result.error ?? "No se pudieron cargar los bloqueados.");
+        }
+        setBlockedUsers(result.users ?? []);
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudieron cargar los bloqueados.",
+        );
+      } finally {
+        setBlockedUsersLoading(false);
+      }
     };
 
-    syncBlockedUsers();
-    window.addEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, syncBlockedUsers);
+    void syncBlockedUsers();
+    const handleBlockedUpdate = () => {
+      void syncBlockedUsers();
+    };
+    window.addEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, handleBlockedUpdate);
     return () => {
-      window.removeEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, syncBlockedUsers);
+      window.removeEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, handleBlockedUpdate);
     };
   }, []);
 
-  const handleUnblockUser = (userId: string) => {
-    const nextUsers = blockedUsers.filter((user) => user.id !== userId);
-    setBlockedUsers(nextUsers);
-    saveBlockedChatUsers(nextUsers);
-    setMessage("Usuario desbloqueado.");
+  const handleUnblockUser = async (userId: string) => {
+    try {
+      const supabase = getSupabaseClient();
+      const session = supabase
+        ? await supabase.auth.getSession().then((result) => result.data.session)
+        : null;
+      const response = await fetch(`/api/direct-chats/blocked/${userId}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : undefined,
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo desbloquear al usuario.");
+      }
+      setBlockedUsers((current) => current.filter((user) => user.id !== userId));
+      window.dispatchEvent(new CustomEvent(CHAT_BLOCKED_USERS_UPDATED_EVENT));
+      setMessage("Usuario desbloqueado.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo desbloquear al usuario.",
+      );
+    }
   };
 
   const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -931,7 +981,9 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
-                  {blockedUsers.length > 0 ? (
+                  {blockedUsersLoading ? (
+                    <div className="text-sm text-zinc-500">Cargando bloqueados...</div>
+                  ) : blockedUsers.length > 0 ? (
                     <div className="space-y-3">
                       {blockedUsers.map((user) => (
                         <div
@@ -956,7 +1008,7 @@ export default function SettingsPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => handleUnblockUser(user.id)}
+                            onClick={() => void handleUnblockUser(user.id)}
                             className="rounded-[5px] border border-zinc-200 px-4 py-2 text-[14px] font-semibold text-zinc-700"
                           >
                             Desbloquear

@@ -20,6 +20,7 @@ import { useGetNotificationCenterQuery } from "@/lib/redux/api/notificationsApi"
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { openSearchPanel } from "@/lib/redux/slices/uiSlice";
 import { EARNINGS_REFRESH_FLAG, PURCHASE_REFRESH_FLAG } from "@/lib/auth";
+import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SidebarLeft() {
   const dispatch = useAppDispatch();
@@ -30,7 +31,42 @@ export default function SidebarLeft() {
   const [signOut] = useSignOutMutation();
   const [purchaseBadge, setPurchaseBadge] = useState(false);
   const [salesBadge, setSalesBadge] = useState(false);
+  const [messagesBadge, setMessagesBadge] = useState(false);
   const canCreate = viewer?.access.canCreate ?? false;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadDirectChatUnread = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        const session = supabase
+          ? await supabase.auth.getSession().then((result) => result.data.session)
+          : null;
+        const response = await fetch("/api/direct-chats", {
+          credentials: "include",
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : undefined,
+        });
+        const result = (await response.json()) as {
+          error?: string;
+          threads?: Array<{ unread?: boolean }>;
+        };
+        if (!response.ok || cancelled) return;
+        setMessagesBadge(Boolean((result.threads ?? []).some((thread) => thread.unread)));
+      } catch {
+        if (!cancelled) setMessagesBadge(false);
+      }
+    };
+
+    void loadDirectChatUnread();
+    window.addEventListener("focus", loadDirectChatUnread);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", loadDirectChatUnread);
+    };
+  }, []);
 
   useEffect(() => {
     const syncBadges = () => {
@@ -72,9 +108,6 @@ export default function SidebarLeft() {
 
   const unreadNotifications = (notificationCenter?.activity ?? []).some(
     (item) => !item.isRead,
-  );
-  const unreadMessages = (notificationCenter?.threads ?? []).some(
-    (thread) => thread.unread,
   );
   const salesActivityBadge = (notificationCenter?.activity ?? []).some(
     (item) =>
@@ -158,7 +191,7 @@ export default function SidebarLeft() {
             >
               {showBadge(
                 pathname === "/mensajes",
-                unreadMessages,
+                messagesBadge,
                 messagesNavIcon,
                 "Mensajes",
               )}
@@ -305,7 +338,7 @@ export default function SidebarLeft() {
           className={mobileIconWrapClass}
           aria-label="Mensajes"
         >
-          {mobileBadge(unreadMessages)}
+          {mobileBadge(messagesBadge)}
           <Image
             src="/messages-nav-icon.png"
             alt=""

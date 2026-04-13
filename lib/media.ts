@@ -3,6 +3,7 @@ export const PREMIUM_MEDIA_BUCKET = "premium";
 
 const LOCKED_PREVIEW_SEGMENT = "locked-previews";
 const PREMIUM_SEGMENT = "premium";
+const DIRECT_SEGMENT = "direct-messages";
 
 export const buildPublicMediaPath = (
   userId: string,
@@ -26,6 +27,29 @@ export const buildPremiumMediaPath = (
   token: string,
   originalExt: string,
 ) => `${PREMIUM_SEGMENT}/${userId}/${token}.${originalExt}`;
+
+export const buildDirectPublicMediaPath = (
+  userId: string,
+  token: string,
+  fileName: string,
+) => {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
+  return `${DIRECT_SEGMENT}/public/${userId}/${token}-${safeName}`;
+};
+
+export const buildDirectLockedPreviewPath = (
+  userId: string,
+  token: string,
+  originalKind: "image" | "video",
+  originalExt: string,
+) =>
+  `${DIRECT_SEGMENT}/${LOCKED_PREVIEW_SEGMENT}/${userId}/${token}__${originalKind}__${originalExt}.jpg`;
+
+export const buildDirectPremiumMediaPath = (
+  userId: string,
+  token: string,
+  originalExt: string,
+) => `${DIRECT_SEGMENT}/${PREMIUM_SEGMENT}/${userId}/${token}.${originalExt}`;
 
 export const parseLockedPreviewPath = (path: string | null | undefined) => {
   if (!path?.startsWith(`${LOCKED_PREVIEW_SEGMENT}/`)) return null;

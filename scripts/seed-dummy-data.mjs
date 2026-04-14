@@ -198,6 +198,14 @@ const throwIfError = (error, fallback) => {
   }
 };
 
+const isMissingTableError = (error) =>
+  Boolean(
+    error &&
+      typeof error.message === "string" &&
+      (/relation .* does not exist/i.test(error.message) ||
+        /schema cache/i.test(error.message)),
+  );
+
 const serializeProfileDetails = (value) =>
   JSON.stringify({
     bio: value.bio.trim(),
@@ -1620,6 +1628,72 @@ async function cleanSeedData() {
   const userIds = seedUsers.map((user) => user.id);
   log(`Borrando seed previo para ${seedUsers.map((user) => user.username).join(", ")}...`);
 
+  const { data: ownedPostsRows, error: ownedPostsError } = await admin
+    .from("posts")
+    .select("id")
+    .in("user_id", userIds);
+  throwIfError(ownedPostsError, "No se pudieron leer los posts dummy");
+  const ownedPostIds = (ownedPostsRows ?? []).map((row) => row.id);
+
+  const { data: ownedAlbumsRows, error: ownedAlbumsError } = await admin
+    .from("albums")
+    .select("id")
+    .in("user_id", userIds);
+  throwIfError(ownedAlbumsError, "No se pudieron leer los albums dummy");
+  const ownedAlbumIds = (ownedAlbumsRows ?? []).map((row) => row.id);
+
+  const { data: mediaRows, error: mediaRowsError } = await admin
+    .from("media")
+    .select("id")
+    .or(
+      [
+        `user_id.in.(${userIds.join(",")})`,
+        ownedPostIds.length ? `post_id.in.(${ownedPostIds.join(",")})` : null,
+        ownedAlbumIds.length ? `album_id.in.(${ownedAlbumIds.join(",")})` : null,
+      ]
+        .filter(Boolean)
+        .join(","),
+    );
+  throwIfError(mediaRowsError, "No se pudieron leer los media dummy");
+  const mediaIds = (mediaRows ?? []).map((row) => row.id);
+
+  const { data: directThreads, error: directThreadsError } = await admin
+    .from("direct_threads")
+    .select("id")
+    .or(
+      [
+        `participant_low.in.(${userIds.join(",")})`,
+        `participant_high.in.(${userIds.join(",")})`,
+      ].join(","),
+    );
+  if (directThreadsError && !isMissingTableError(directThreadsError)) {
+    throw new Error(`No se pudieron leer los chats dummy: ${directThreadsError.message}`);
+  }
+  const directThreadIds = (directThreads ?? []).map((row) => row.id);
+
+  const { data: directMessages, error: directMessagesError } =
+    directThreadIds.length > 0
+      ? await admin.from("direct_messages").select("id").in("thread_id", directThreadIds)
+      : { data: [], error: null };
+  if (directMessagesError && !isMissingTableError(directMessagesError)) {
+    throw new Error(`No se pudieron leer los mensajes dummy: ${directMessagesError.message}`);
+  }
+  const directMessageIds = (directMessages ?? []).map((row) => row.id);
+
+  const { data: notificationThreads, error: notificationThreadsError } = await admin
+    .from("notification_threads")
+    .select("id")
+    .in("user_id", userIds);
+  if (
+    notificationThreadsError &&
+    !isMissingTableError(notificationThreadsError)
+  ) {
+    throw new Error(
+      `No se pudieron leer los hilos de notificación dummy: ${notificationThreadsError.message}`,
+    );
+  }
+  const notificationThreadIds = (notificationThreads ?? []).map((row) => row.id);
+
   const { data: transactions, error: transactionSelectError } = await admin
     .from("ledger_transactions")
     .select("id")
@@ -1650,14 +1724,251 @@ async function cleanSeedData() {
         .delete()
         .in("transaction_id", transactionIds);
       throwIfError(entriesError, "No se pudo limpiar ledger_entries");
-
-      const { error: transactionsError } = await admin
-        .from("ledger_transactions")
-        .delete()
-        .in("id", transactionIds);
-      throwIfError(transactionsError, "No se pudo limpiar ledger_transactions");
     }
   }
+
+  if (directMessageIds.length > 0) {
+    const { error: directPurchasesError } = await admin
+      .from("direct_message_purchases")
+      .delete()
+      .or(
+        [
+          `buyer_user_id.in.(${userIds.join(",")})`,
+          `message_id.in.(${directMessageIds.join(",")})`,
+        ].join(","),
+      );
+    if (
+      directPurchasesError &&
+      !isMissingTableError(directPurchasesError)
+    ) {
+      throw new Error(`No se pudieron limpiar compras del chat: ${directPurchasesError.message}`);
+    }
+  }
+
+  if (directThreadIds.length > 0) {
+    const { error: directMessagesDeleteError } = await admin
+      .from("direct_messages")
+      .delete()
+      .in("thread_id", directThreadIds);
+    if (
+      directMessagesDeleteError &&
+      !isMissingTableError(directMessagesDeleteError)
+    ) {
+      throw new Error(`No se pudieron limpiar mensajes del chat: ${directMessagesDeleteError.message}`);
+    }
+
+    const { error: directMembersError } = await admin
+      .from("direct_thread_members")
+      .delete()
+      .or(
+        [`thread_id.in.(${directThreadIds.join(",")})`, `user_id.in.(${userIds.join(",")})`].join(
+          ",",
+        ),
+      );
+    if (
+      directMembersError &&
+      !isMissingTableError(directMembersError)
+    ) {
+      throw new Error(`No se pudieron limpiar miembros del chat: ${directMembersError.message}`);
+    }
+
+    const { error: directThreadsDeleteError } = await admin
+      .from("direct_threads")
+      .delete()
+      .in("id", directThreadIds);
+    if (
+      directThreadsDeleteError &&
+      !isMissingTableError(directThreadsDeleteError)
+    ) {
+      throw new Error(`No se pudieron limpiar hilos del chat: ${directThreadsDeleteError.message}`);
+    }
+  }
+
+  const { error: directBlocksError } = await admin
+    .from("direct_user_blocks")
+    .delete()
+    .or(
+      [`blocker_user_id.in.(${userIds.join(",")})`, `blocked_user_id.in.(${userIds.join(",")})`].join(
+        ",",
+      ),
+    );
+  if (directBlocksError && !isMissingTableError(directBlocksError)) {
+    throw new Error(`No se pudieron limpiar bloqueos del chat: ${directBlocksError.message}`);
+  }
+
+  if (notificationThreadIds.length > 0) {
+    const { error: notificationMessagesError } = await admin
+      .from("notification_messages")
+      .delete()
+      .in("thread_id", notificationThreadIds);
+    if (
+      notificationMessagesError &&
+      !isMissingTableError(notificationMessagesError)
+    ) {
+      throw new Error(
+        `No se pudieron limpiar mensajes de notificación: ${notificationMessagesError.message}`,
+      );
+    }
+
+    const { error: notificationThreadsDeleteError } = await admin
+      .from("notification_threads")
+      .delete()
+      .in("id", notificationThreadIds);
+    if (
+      notificationThreadsDeleteError &&
+      !isMissingTableError(notificationThreadsDeleteError)
+    ) {
+      throw new Error(
+        `No se pudieron limpiar hilos de notificación: ${notificationThreadsDeleteError.message}`,
+      );
+    }
+  }
+
+  const { error: notificationsError } = await admin
+    .from("notifications")
+    .delete()
+    .or([`user_id.in.(${userIds.join(",")})`, `actor_id.in.(${userIds.join(",")})`].join(","));
+  throwIfError(notificationsError, "No se pudieron limpiar notificaciones dummy");
+
+  const { error: followsError } = await admin
+    .from("follows")
+    .delete()
+    .or(
+      [`follower_id.in.(${userIds.join(",")})`, `following_id.in.(${userIds.join(",")})`].join(","),
+    );
+  throwIfError(followsError, "No se pudieron limpiar follows dummy");
+
+  const { error: likesByUserError } = await admin
+    .from("likes")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(likesByUserError, "No se pudieron limpiar likes dummy");
+
+  if (ownedPostIds.length > 0) {
+    const { error: likesByPostError } = await admin
+      .from("likes")
+      .delete()
+      .in("post_id", ownedPostIds);
+    throwIfError(likesByPostError, "No se pudieron limpiar likes de posts dummy");
+
+    const { error: purchasesByPostError } = await admin
+      .from("purchases")
+      .delete()
+      .in("post_id", ownedPostIds);
+    throwIfError(purchasesByPostError, "No se pudieron limpiar compras de posts dummy");
+
+    const { error: postMetaError } = await admin
+      .from("post_meta")
+      .delete()
+      .in("post_id", ownedPostIds);
+    throwIfError(postMetaError, "No se pudo limpiar post_meta dummy");
+  }
+
+  const { error: purchasesByUserError } = await admin
+    .from("purchases")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(purchasesByUserError, "No se pudieron limpiar compras dummy");
+
+  if (mediaIds.length > 0) {
+    const { error: mediaMetaError } = await admin
+      .from("media_meta")
+      .delete()
+      .in("media_id", mediaIds);
+    throwIfError(mediaMetaError, "No se pudo limpiar media_meta dummy");
+  }
+
+  const mediaDeleteFilters = [
+    `user_id.in.(${userIds.join(",")})`,
+    ownedPostIds.length ? `post_id.in.(${ownedPostIds.join(",")})` : null,
+    ownedAlbumIds.length ? `album_id.in.(${ownedAlbumIds.join(",")})` : null,
+  ]
+    .filter(Boolean)
+    .join(",");
+  if (mediaDeleteFilters) {
+    const { error: mediaDeleteError } = await admin
+      .from("media")
+      .delete()
+      .or(mediaDeleteFilters);
+    throwIfError(mediaDeleteError, "No se pudieron limpiar media dummy");
+  }
+
+  const albumPostFilters = [
+    ownedAlbumIds.length ? `album_id.in.(${ownedAlbumIds.join(",")})` : null,
+    ownedPostIds.length ? `post_id.in.(${ownedPostIds.join(",")})` : null,
+  ]
+    .filter(Boolean)
+    .join(",");
+  if (albumPostFilters) {
+    const { error: albumPostsError } = await admin
+      .from("album_posts")
+      .delete()
+      .or(albumPostFilters);
+    throwIfError(albumPostsError, "No se pudieron limpiar album_posts dummy");
+  }
+
+  if (ownedPostIds.length > 0) {
+    const { error: postsDeleteError } = await admin.from("posts").delete().in("id", ownedPostIds);
+    throwIfError(postsDeleteError, "No se pudieron limpiar posts dummy");
+  }
+
+  if (ownedAlbumIds.length > 0) {
+    const { error: albumsDeleteError } = await admin
+      .from("albums")
+      .delete()
+      .in("id", ownedAlbumIds);
+    throwIfError(albumsDeleteError, "No se pudieron limpiar albums dummy");
+  }
+
+  const { error: withdrawalsError } = await admin
+    .from("withdrawal_requests")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(withdrawalsError, "No se pudieron limpiar retiros dummy");
+
+  if (transactionIds.length > 0) {
+    const { error: transactionsError } = await admin
+      .from("ledger_transactions")
+      .delete()
+      .in("id", transactionIds);
+    throwIfError(transactionsError, "No se pudo limpiar ledger_transactions");
+  }
+
+  const { error: balancesError } = await admin
+    .from("user_balances")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(balancesError, "No se pudieron limpiar balances dummy");
+
+  const { error: commissionProfilesError } = await admin
+    .from("user_commission_profiles")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(commissionProfilesError, "No se pudieron limpiar comisiones dummy");
+
+  const { error: userMetaError } = await admin
+    .from("user_meta")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(userMetaError, "No se pudo limpiar user_meta dummy");
+
+  const { error: userRolesError } = await admin
+    .from("user_roles")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(userRolesError, "No se pudieron limpiar roles dummy");
+
+  const { error: profilesDeleteError } = await admin
+    .from("profiles")
+    .delete()
+    .in("id", userIds);
+  throwIfError(profilesDeleteError, "No se pudieron limpiar profiles dummy");
+
+  const { error: usersDeleteError } = await admin
+    .from("users")
+    .delete()
+    .in("id", userIds);
+  throwIfError(usersDeleteError, "No se pudieron limpiar users dummy");
 
   for (const userId of userIds) {
     await Promise.all([
@@ -1673,11 +1984,7 @@ async function cleanSeedData() {
     ]);
   }
 
-  for (const userId of userIds) {
-    await deleteAuthUser(userId);
-  }
-
-  log("Seed dummy limpiado.");
+  log("Seed dummy limpiado. Las cuentas auth se preservaron, pero ya no tienen datos visibles.");
 }
 
 const printHelp = () => {

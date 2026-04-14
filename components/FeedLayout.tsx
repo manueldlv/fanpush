@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { Bookmark, Heart, Lock, MoreHorizontal, Send } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
+import PurchaseSuccessToast from "@/components/PurchaseSuccessToast";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
@@ -26,6 +28,7 @@ import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
 import { formatARS } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { buildHashtagHref, extractHashtags } from "@/lib/hashtags";
 
 type AlbumMediaPost = {
   id: string | null;
@@ -67,6 +70,24 @@ const normalizeSingleRelation = <T,>(
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
 };
+
+function renderCaptionWithHashtags(caption: string) {
+  const parts = caption.split(/(#[\p{L}\p{N}_]+)/gu);
+  return parts.map((part, index) => {
+    if (/^#[\p{L}\p{N}_]+$/u.test(part)) {
+      return (
+        <Link
+          key={`${part}-${index}`}
+          href={buildHashtagHref(part)}
+          className="font-medium text-[#5A3EE7] hover:underline"
+        >
+          {part}
+        </Link>
+      );
+    }
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
 
 function FeedHeroSkeleton() {
   return (
@@ -226,7 +247,7 @@ export default function FeedLayout() {
       setDeleteError(null);
       setPurchaseError(null);
       setPurchaseSuccess(null);
-    }, 3600);
+    }, 6500);
     return () => window.clearTimeout(timeout);
   }, [deleteError, purchaseError, purchaseSuccess]);
 
@@ -404,7 +425,9 @@ export default function FeedLayout() {
         albumId,
       });
       setPurchaseError(null);
-      setPurchaseSuccess("Compra realizada. El contenido premium ya quedó habilitado.");
+      setPurchaseSuccess(
+        "El contenido premium ya quedó habilitado. También lo vas a encontrar en tu panel de compras.",
+      );
       window.dispatchEvent(new Event("purchases-updated"));
       window.dispatchEvent(new Event("balance-updated"));
       return true;
@@ -582,13 +605,10 @@ export default function FeedLayout() {
           </div>
         </div>
       ) : null}
-      {purchaseSuccess ? (
-        <div className="rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
-          <div className="text-sm font-semibold text-emerald-800">
-            {purchaseSuccess}
-          </div>
-        </div>
-      ) : null}
+      <PurchaseSuccessToast
+        message={purchaseSuccess}
+        onClose={() => setPurchaseSuccess(null)}
+      />
       {purchaseError ? (
         <div className="rounded-[16px] border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <div className="text-sm font-semibold text-amber-900">
@@ -1069,7 +1089,7 @@ export default function FeedLayout() {
               <span className="font-semibold text-zinc-900">
                 {post.author}
               </span>{" "}
-              {post.caption}
+              {renderCaptionWithHashtags(post.caption)}
             </div>
 
             {currentUserId && post.userId !== currentUserId && post.tipEnabled ? (

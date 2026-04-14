@@ -133,6 +133,72 @@ export const creditApprovedAlbumPurchase = async ({
   };
 };
 
+export const recordInternalAlbumPurchase = async ({
+  admin,
+  buyerUserId,
+  albumId,
+  transactionId,
+  amount,
+  sellerUserId,
+}: {
+  admin: SupabaseClient;
+  buyerUserId: string;
+  albumId: string;
+  transactionId: string;
+  amount: number;
+  sellerUserId: string;
+}) => {
+  const postIds = await getAlbumPostIds(admin, albumId);
+  if (postIds.length === 0) {
+    throw new Error("No se encontró contenido para acreditar.");
+  }
+
+  const purchaseRows = postIds.map((postId, index) => ({
+    user_id: buyerUserId,
+    post_id: postId,
+    payment_id: `${transactionId}-${postId}`,
+    amount: index === 0 ? amount : 0,
+    status: "approved",
+  }));
+
+  const { data: existingRows, error: existingError } = await admin
+    .from("purchases")
+    .select("payment_id")
+    .in(
+      "payment_id",
+      purchaseRows.map((row) => row.payment_id),
+    );
+
+  throwRepositoryError(existingError, "No se pudieron validar compras previas");
+
+  const existingPaymentIds = new Set((existingRows ?? []).map((row) => row.payment_id));
+  const missingRows = purchaseRows.filter((row) => !existingPaymentIds.has(row.payment_id));
+
+  if (missingRows.length > 0) {
+    const { error: insertError } = await admin.from("purchases").insert(missingRows);
+    throwRepositoryError(insertError, "No se pudo acreditar la compra interna");
+  }
+
+  if (existingPaymentIds.size === 0) {
+    const { error: notificationError } = await admin.from("notifications").insert({
+      user_id: sellerUserId,
+      actor_id: buyerUserId,
+      type: "purchase",
+      entity_id: albumId,
+      message: "compró tu contenido.",
+      is_read: false,
+    });
+
+    throwRepositoryError(notificationError, "No se pudo notificar la compra interna");
+  }
+
+  return {
+    postIds,
+    insertedRows: missingRows.length,
+    alreadyCredited: missingRows.length === 0,
+  };
+};
+
 export const creditApprovedTip = async ({
   admin,
   targetUserId,

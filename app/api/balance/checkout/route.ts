@@ -4,7 +4,10 @@ import {
   processInternalAlbumPurchase,
   processInternalTipPayment,
 } from "@/lib/server/repositories/ledger";
-import { getPurchaseAlbumTarget } from "@/lib/server/repositories/payments";
+import {
+  getPurchaseAlbumTarget,
+  recordInternalAlbumPurchase,
+} from "@/lib/server/repositories/payments";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
 
 type CheckoutBody =
@@ -69,6 +72,16 @@ export async function POST(request: Request) {
         buyerUserId: user.id,
         albumId: body.albumId,
       });
+      if (result.sellerUserId) {
+        await recordInternalAlbumPurchase({
+          admin,
+          buyerUserId: user.id,
+          albumId: body.albumId,
+          transactionId: result.transactionId,
+          amount: result.transactionAmount,
+          sellerUserId: result.sellerUserId,
+        });
+      }
       const balance = await getUserBalanceSnapshot(admin, user.id);
 
       return NextResponse.json({

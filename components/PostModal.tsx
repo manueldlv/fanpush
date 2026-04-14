@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
@@ -11,12 +12,31 @@ import {
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
 import { formatARS } from "@/lib/utils";
+import { buildHashtagHref, extractHashtags } from "@/lib/hashtags";
 
 const formatUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(Math.max(0, value));
+
+function renderCaptionWithHashtags(caption: string) {
+  const parts = caption.split(/(#[\p{L}\p{N}_]+)/gu);
+  return parts.map((part, index) => {
+    if (/^#[\p{L}\p{N}_]+$/u.test(part)) {
+      return (
+        <Link
+          key={`${part}-${index}`}
+          href={buildHashtagHref(part)}
+          className="font-medium text-[#42a5ff] hover:underline"
+        >
+          {part}
+        </Link>
+      );
+    }
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
 
 type PostModalProps = {
   post: Post;
@@ -39,7 +59,6 @@ export default function PostModal({
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState(false);
-  const [showPurchaseToast, setShowPurchaseToast] = useState(false);
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState(post.media);
   const [ownerSalesCount, setOwnerSalesCount] = useState(0);
@@ -54,7 +73,7 @@ export default function PostModal({
   );
   const isPaidPost = Number(post.price ?? 0) > 0 || hasPaidContent;
   const showUnlockedStatus = !isOwner && hasPaidContent && lockedCount === 0;
-  const previewTags = ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4"];
+  const previewTags = extractHashtags(post.caption);
   const videoCount = resolvedMedia.filter((item) => item.kind === "video").length;
   const imageCount = resolvedMedia.filter((item) => item.kind === "image").length;
   const mediaSummary = [
@@ -79,7 +98,6 @@ export default function PostModal({
     setMenuOpen(false);
     setConfirmDelete(false);
     setPurchaseLoading(false);
-    setShowPurchaseToast(false);
     setShowUnlockedChip(false);
     setResolvedMedia(post.media);
   }, [post.id, post.media]);
@@ -137,15 +155,6 @@ export default function PostModal({
       cancelled = true;
     };
   }, [currentUserId, post.id, post.media, post.mediaPostIds]);
-
-  useEffect(() => {
-    if (!showPurchaseToast) return;
-    const timeout = window.setTimeout(() => {
-      setShowPurchaseToast(false);
-      setShowUnlockedChip(true);
-    }, 2000);
-    return () => window.clearTimeout(timeout);
-  }, [showPurchaseToast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,7 +307,7 @@ export default function PostModal({
                           if (nextMedia) {
                             setResolvedMedia(nextMedia);
                           }
-                          setShowPurchaseToast(true);
+                          setShowUnlockedChip(true);
                         }
                         setPurchaseLoading(false);
                       }}
@@ -332,18 +341,6 @@ export default function PostModal({
                     }`}
                   />
                 ))}
-              </div>
-            </div>
-          ) : null}
-          {showPurchaseToast ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <div className="rounded-[5px] bg-white/95 px-6 py-4 text-center shadow-md">
-                <div className="text-sm font-semibold text-zinc-900">
-                  Compra realizada
-                </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Ahora puedes ver el contenido completo.
-                </div>
               </div>
             </div>
           ) : null}
@@ -390,16 +387,17 @@ export default function PostModal({
                   <div className="text-[12px] text-[#9ca3af]">{post.time}</div>
                 </div>
                 <div className="mt-1 text-[14px] leading-5 text-[#464646]">
-                  {post.caption}
+                  {renderCaptionWithHashtags(post.caption)}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1">
                   {previewTags.map((tag) => (
-                    <span
+                    <Link
                       key={tag}
-                      className="text-[12px] font-medium text-[#42a5ff]"
+                      href={buildHashtagHref(tag)}
+                      className="text-[12px] font-medium text-[#42a5ff] hover:underline"
                     >
                       {tag}
-                    </span>
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -419,6 +417,23 @@ export default function PostModal({
                 />
                 Enviar propina
               </button>
+            ) : null}
+
+            {!isOwner && isPaidPost ? (
+              <div className="mt-4 flex items-center justify-between rounded-[5px] border border-[#E0E0E0] bg-[#fafafa] px-4 py-3">
+                <div>
+                  <div className="text-[12px] font-medium text-[#7a7a7a]">
+                    Precio del post
+                  </div>
+                  <div className="mt-1 text-[18px] font-bold leading-none text-[#161823]">
+                    {formatARS(Number(post.price ?? 0))}
+                  </div>
+                </div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-[12px] font-semibold text-zinc-900 shadow-sm">
+                  <Lock className="h-3.5 w-3.5" />
+                  Pago
+                </div>
+              </div>
             ) : null}
 
             {isOwner && isPaidPost ? (

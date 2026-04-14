@@ -7,6 +7,7 @@ import { Bookmark, Grid, Lock } from "lucide-react";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
+import PurchaseSuccessToast from "@/components/PurchaseSuccessToast";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
@@ -274,7 +275,7 @@ export default function PerfilPage({
     if (!uiMessage) return;
     const timeout = window.setTimeout(() => {
       setUiMessage(null);
-    }, 3600);
+    }, uiMessage.text.includes("Compra realizada") ? 6500 : 3600);
     return () => window.clearTimeout(timeout);
   }, [uiMessage]);
 
@@ -582,16 +583,26 @@ export default function PerfilPage({
 
       <div className="flex min-h-screen md:pl-60">
         <div className="mx-auto flex w-full max-w-none flex-col gap-4 px-4 py-4 pb-24 md:max-w-[1495px] md:gap-5 md:px-6 md:py-5">
+          <PurchaseSuccessToast
+            message={
+              uiMessage?.tone === "success" && uiMessage.text.includes("Compra realizada")
+                ? uiMessage.text
+                : null
+            }
+            onClose={() => setUiMessage(null)}
+          />
           {uiMessage ? (
-            <div
-              className={`rounded-[12px] border px-4 py-3 text-sm font-medium shadow-sm ${
-                uiMessage.tone === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-rose-200 bg-rose-50 text-rose-700"
-              }`}
-            >
-              {uiMessage.text}
-            </div>
+            uiMessage.tone === "success" && uiMessage.text.includes("Compra realizada") ? null : (
+              <div
+                className={`rounded-[12px] border px-4 py-3 text-sm font-medium shadow-sm ${
+                  uiMessage.tone === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-rose-200 bg-rose-50 text-rose-700"
+                }`}
+              >
+                {uiMessage.text}
+              </div>
+            )
           ) : null}
           {profileLoading ? (
             <ProfileHeaderSkeleton />

@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "@/lib/supabase";
+import { redirectToSaldoIfNeeded } from "@/lib/purchaseRedirect";
 
 type PurchaseCheckoutInput = {
   kind: "purchase";
@@ -53,6 +54,9 @@ export const runBalanceCheckout = async (
   };
 
   if (!response.ok || !result.ok) {
+    if (input.kind === "purchase") {
+      redirectToSaldoIfNeeded(result.error);
+    }
     throw new Error(result.error ?? "No se pudo completar el checkout con saldo.");
   }
 

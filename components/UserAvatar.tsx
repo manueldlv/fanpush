@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { User } from "lucide-react";
 
 type UserAvatarProps = {
   src?: string | null;
@@ -19,27 +18,18 @@ export default function UserAvatar({
   className = "",
 }: UserAvatarProps) {
   const [failed, setFailed] = useState(false);
+  const resolvedSrc = src && !failed ? src : "/default-avatar.svg";
 
   useEffect(() => {
     setFailed(false);
   }, [src]);
 
-  if (src && !failed) {
-    return (
-      <img
-        src={src}
-        alt={alt}
-        onError={() => setFailed(true)}
-        className={`${sizeClassName} rounded-full object-cover ${className}`.trim()}
-      />
-    );
-  }
-
   return (
-    <div
-      className={`flex ${sizeClassName} items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-zinc-500 ${className}`.trim()}
-    >
-      <User className={iconClassName} />
-    </div>
+    <img
+      src={resolvedSrc}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className={`${sizeClassName} rounded-full object-cover ${className}`.trim()}
+    />
   );
 }

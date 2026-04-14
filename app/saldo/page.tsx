@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import { useCreateCheckoutPreferenceMutation } from "@/lib/redux/api/commerceApi";
@@ -22,15 +23,18 @@ function SaldoPageContent() {
   const searchParams = useSearchParams();
   const { data: session, isLoading: sessionLoading } = useGetSessionQuery();
   const { data: viewer } = useGetViewerQuery();
-  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(10000);
   const [customMode, setCustomMode] = useState(false);
   const [customAmount, setCustomAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [checkoutPending, setCheckoutPending] = useState(false);
   const [createCheckoutPreference, { isLoading: submitting }] =
     useCreateCheckoutPreferenceMutation();
 
   const depositSuccess = searchParams.get("checkout") === "deposit";
+  const depositCancelled = searchParams.get("checkout") === "cancelled";
   const depositedTotal = Number(searchParams.get("deposit_total") || 0);
+  const mercadoPagoStatus = searchParams.get("mp_status");
 
   const selectedValue = useMemo(() => {
     if (selectedAmount !== null) return selectedAmount;
@@ -79,6 +83,7 @@ function SaldoPageContent() {
     }
 
     setError(null);
+    setCheckoutPending(true);
 
     try {
       const result = await createCheckoutPreference({
@@ -88,6 +93,7 @@ function SaldoPageContent() {
       }).unwrap();
       window.location.assign(result.initPoint);
     } catch (depositError) {
+      setCheckoutPending(false);
       setError(
         depositError instanceof Error
           ? depositError.message
@@ -98,6 +104,27 @@ function SaldoPageContent() {
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-zinc-900">
+      {checkoutPending ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-4">
+          <div className="w-full max-w-[420px] rounded-[16px] border border-[#E0E0E0] bg-white px-6 py-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#f3efff]">
+              <Loader2 className="h-6 w-6 animate-spin text-[#5A3EE7]" />
+            </div>
+            <h2 className="mt-4 text-[20px] font-semibold text-zinc-950">
+              Estamos abriendo Mercado Pago
+            </h2>
+            <p className="mt-2 text-[15px] leading-[1.5] text-[#464646]">
+              Estamos resolviendo tu compra de saldo. En unos segundos deberías ser
+              redirigido al checkout.
+            </p>
+            <p className="mt-3 text-[13px] leading-[1.45] text-zinc-500">
+              Si algo falla, te vamos a mostrar el error acá mismo para que puedas
+              intentar de nuevo.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <SidebarLeft />
 
       <main className="w-full px-4 pb-24 pt-6 sm:px-6 md:pl-[348px] md:pr-8 md:pt-10">
@@ -107,6 +134,12 @@ function SaldoPageContent() {
           {depositSuccess && depositedTotal > 0 ? (
             <div className="mt-5 rounded-[5px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[14px] font-medium text-emerald-700">
               Se acreditaron {formatARS(depositedTotal)} en tu saldo.
+            </div>
+          ) : depositCancelled ? (
+            <div className="mt-5 rounded-[5px] border border-amber-200 bg-amber-50 px-4 py-3 text-[14px] font-medium text-amber-700">
+              {mercadoPagoStatus === "pending"
+                ? "La compra de saldo quedó pendiente. Cuando Mercado Pago la apruebe, se acreditará automáticamente."
+                : "La compra de saldo no se completó. Puedes volver a intentarlo cuando quieras."}
             </div>
           ) : null}
 

@@ -24,6 +24,7 @@ import {
   CHAT_BLOCKED_USERS_UPDATED_EVENT,
 } from "@/lib/chatPreferences";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
+import { redirectToSaldoIfNeeded } from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 
@@ -1231,10 +1232,15 @@ export default function MensajesPage() {
       window.dispatchEvent(new Event("balance-updated"));
       setChatError(null);
     } catch (error) {
-      setChatError(
+      const message =
         error instanceof Error
           ? error.message
-          : "No se pudo comprar el contenido del chat.",
+          : "No se pudo comprar el contenido del chat.";
+      if (redirectToSaldoIfNeeded(message)) {
+        return;
+      }
+      setChatError(
+        message,
       );
     } finally {
       setConfirmUnlockId(null);

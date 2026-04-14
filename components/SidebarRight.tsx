@@ -6,6 +6,7 @@ import { buildUserProfileHref } from "@/lib/profileRoute";
 import { socialApi, useGetSuggestionsQuery } from "@/lib/redux/api/socialApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
+import UserAvatar from "@/components/UserAvatar";
 
 export default function SidebarRight() {
   const router = useRouter();
@@ -88,15 +89,11 @@ export default function SidebarRight() {
                   onClick={() => openProfile(profile)}
                   className="flex min-w-0 cursor-pointer items-center gap-4 text-left"
                 >
-                  {profile.avatar ? (
-                    <img
-                      src={profile.avatar}
-                      alt={profile.name}
-                      className="h-[46px] w-[46px] rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-[46px] w-[46px] rounded-full bg-zinc-100" />
-                  )}
+                  <UserAvatar
+                    src={profile.avatar}
+                    alt={profile.name}
+                    sizeClassName="h-[46px] w-[46px]"
+                  />
                   <div>
                     <div className="flex items-center gap-2 text-[16px] font-semibold leading-none tracking-[-0.02em] text-zinc-900">
                       <span>{profile.name}</span>

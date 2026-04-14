@@ -23,6 +23,17 @@ function CheckoutReturnContent() {
     [searchParams],
   );
 
+  const redirectToTarget = (checkoutState: string, extraParams?: Record<string, string>) => {
+    clearPendingCheckout();
+    const url = new URL(target, window.location.origin);
+    url.searchParams.set("checkout", checkoutState);
+    Object.entries(extraParams ?? {}).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
+    const finalTarget = `${url.pathname}${url.search}${url.hash}`;
+    router.replace(finalTarget);
+  };
+
   useEffect(() => {
     const run = async () => {
       const status =
@@ -35,12 +46,18 @@ function CheckoutReturnContent() {
         "";
 
       if (!paymentId) {
-        setMessage("No recibimos un identificador de pago de Mercado Pago.");
+        setMessage("La operación no se completó. Redirigiéndote de nuevo...");
+        window.setTimeout(() => {
+          redirectToTarget("cancelled", { mp_status: "cancelled" });
+        }, 500);
         return;
       }
 
       if (status && status !== "approved") {
-        setMessage(`El pago quedó en estado ${status}.`);
+        setMessage("La operación no fue aprobada. Redirigiéndote de nuevo...");
+        window.setTimeout(() => {
+          redirectToTarget("cancelled", { mp_status: status || "cancelled" });
+        }, 500);
         return;
       }
 
@@ -100,11 +117,12 @@ function CheckoutReturnContent() {
       }
 
       if (!result?.ok) {
-        setMessage(
-          result.status
-            ? `El pago quedó en estado ${result.status}.`
-            : "El pago no quedó aprobado todavía.",
-        );
+        setMessage("La operación no quedó aprobada. Redirigiéndote de nuevo...");
+        window.setTimeout(() => {
+          redirectToTarget("cancelled", {
+            mp_status: result?.status || "pending",
+          });
+        }, 500);
         return;
       }
 

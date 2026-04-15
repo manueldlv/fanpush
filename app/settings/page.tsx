@@ -610,7 +610,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <label
-                      className={`rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white ${
+                      className={`rounded-[5px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 ${
                         updatingAvatar
                           ? "pointer-events-none opacity-70"
                           : "cursor-pointer"
@@ -741,7 +741,7 @@ export default function SettingsPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="rounded-[5px] bg-zinc-900 px-6 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                    className="fanpush-button-primary px-6 py-2 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     {saving ? "Guardando..." : "Guardar cambios"}
                   </button>
@@ -965,7 +965,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={handleSavePayout}
                     disabled={savingPayout}
-                    className="mt-5 rounded-[5px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    className="fanpush-button-primary mt-5 px-4 py-2 disabled:opacity-60"
                   >
                     {savingPayout ? "Guardando..." : "Guardar datos de cobro"}
                   </button>
@@ -1119,7 +1119,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={handleSaveNotifications}
                       disabled={savingNotifications || !hasUnsavedNotificationChanges}
-                      className="rounded-[12px] bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="fanpush-button-primary rounded-[12px] px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {savingNotifications
                         ? "Guardando..."

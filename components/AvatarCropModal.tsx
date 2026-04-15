@@ -107,7 +107,7 @@ export default function AvatarCropModal({
 
           <div className="border-t border-zinc-200 bg-zinc-50 p-5 md:border-l md:border-t-0">
             <div className="rounded-[18px] border border-zinc-200 bg-white p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <div className="text-sm font-semibold text-zinc-900">
                 {previewLabel}
               </div>
               <div className="mt-4 flex justify-center">
@@ -139,9 +139,7 @@ export default function AvatarCropModal({
             </div>
 
             <div className="mt-5 rounded-[18px] border border-zinc-200 bg-white p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                Zoom
-              </div>
+              <div className="text-sm font-semibold text-zinc-900">Zoom</div>
               <div className="mt-4 flex items-center gap-3">
                 <button
                   type="button"
@@ -211,7 +209,7 @@ export default function AvatarCropModal({
                   }
                 }}
                 disabled={processing || !croppedAreaPixels}
-                className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="fanpush-button-primary rounded-[12px] px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {processing ? "Procesando..." : confirmLabel}
               </button>

@@ -637,7 +637,7 @@ export default function CrearPage() {
                   type="button"
                   onClick={() => setStep(2)}
                   disabled={items.length === 0}
-                  className="w-full rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+                  className="fanpush-button-primary w-full rounded-[5px] px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Siguiente
                 </button>
@@ -848,7 +848,7 @@ export default function CrearPage() {
                       }
                       setStep(3);
                     }}
-                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white"
+                    className="fanpush-button-primary flex-1 px-6 py-3"
                   >
                     Siguiente
                   </button>
@@ -960,7 +960,7 @@ export default function CrearPage() {
                   <button
                     type="button"
                     onClick={() => setStep(4)}
-                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white"
+                    className="fanpush-button-primary flex-1 px-6 py-3"
                   >
                     Siguiente
                   </button>
@@ -1098,7 +1098,7 @@ export default function CrearPage() {
                   <button
                     type="button"
                     onClick={handlePublish}
-                    className="flex-1 rounded-[5px] bg-zinc-900 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                    className="fanpush-button-primary flex-1 rounded-[5px] px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-70"
                     disabled={publishing}
                   >
                     {publishing

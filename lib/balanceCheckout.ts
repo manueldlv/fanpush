@@ -54,9 +54,7 @@ export const runBalanceCheckout = async (
   };
 
   if (!response.ok || !result.ok) {
-    if (input.kind === "purchase") {
-      redirectToSaldoIfNeeded(result.error);
-    }
+    redirectToSaldoIfNeeded(result.error);
     throw new Error(result.error ?? "No se pudo completar el checkout con saldo.");
   }
 

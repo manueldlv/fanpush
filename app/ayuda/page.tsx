@@ -59,7 +59,7 @@ export default function AyudaPage() {
           </p>
           <a
             href="/faq"
-            className="mt-4 inline-flex rounded-[12px] bg-zinc-950 px-4 py-2 text-sm font-semibold text-white"
+            className="fanpush-button-primary mt-4 inline-flex rounded-[12px] px-4 py-2 text-sm"
           >
             Ver preguntas frecuentes
           </a>

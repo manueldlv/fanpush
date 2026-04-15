@@ -57,7 +57,6 @@ export default function TipModal({
     Boolean(recipientUserId) &&
     Number.isFinite(amountValue) &&
     amountValue > 0 &&
-    amountValue <= availableBalance &&
     !submitting;
 
   useEffect(() => {
@@ -85,11 +84,6 @@ export default function TipModal({
       setError("Ingresá un monto válido para la propina.");
       return;
     }
-    if (amountValue > availableBalance) {
-      setError("No tenés saldo suficiente para enviar esta propina.");
-      return;
-    }
-
     setSubmitting(true);
     setError(null);
     try {
@@ -172,7 +166,7 @@ export default function TipModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-[14px] bg-zinc-950 px-5 py-2.5 text-[14px] font-semibold text-white"
+                className="fanpush-button-primary rounded-[14px] px-5 py-2.5 text-[14px]"
               >
                 Cerrar
               </button>
@@ -270,7 +264,7 @@ export default function TipModal({
                 type="button"
                 onClick={() => void handleSubmit()}
                 disabled={!canSubmit}
-                className="rounded-[14px] bg-zinc-950 px-5 py-2.5 text-[14px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:min-w-[210px]"
+                className="fanpush-button-primary rounded-[14px] px-5 py-2.5 text-[14px] disabled:cursor-not-allowed disabled:opacity-60 md:min-w-[210px]"
               >
                 {submitting ? "Procesando..." : "Enviar propina"}
               </button>

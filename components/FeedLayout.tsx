@@ -623,6 +623,26 @@ export default function FeedLayout() {
           <FeedPostSkeleton />
         </>
       ) : null}
+      {!loading && !feedError && posts.length === 0 ? (
+        <div className="rounded-[5px] border border-zinc-200 bg-white px-6 py-8">
+          <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-zinc-950">
+            Aún no hay publicaciones
+          </h2>
+          <p className="mt-3 max-w-[620px] text-[15px] leading-7 text-[#464646]">
+            Todavía no hay publicaciones para mostrar. Si quieres empezar a subir
+            contenido y aparecer en el feed, conviértete en autor para publicar
+            tus propios posteos dentro del sitio.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href="/explorar"
+              className="inline-flex h-11 items-center justify-center rounded-[5px] border border-zinc-200 px-5 text-[14px] font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            >
+              Explorar perfiles
+            </Link>
+          </div>
+        </div>
+      ) : null}
       {openPost ? (
         <PostModal
           post={openPost}
@@ -803,7 +823,7 @@ export default function FeedLayout() {
                     type="button"
                     onClick={handleReport}
                     disabled={reportSubmitting}
-                    className="flex-1 rounded-[18px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                    className="fanpush-button-primary flex-1 rounded-[18px] px-4 py-3 text-sm disabled:opacity-60"
                   >
                     {reportSubmitting ? "Enviando..." : "Enviar denuncia"}
                   </button>
@@ -831,7 +851,7 @@ export default function FeedLayout() {
                     setReportError(null);
                     setReportSent(false);
                   }}
-                  className="mt-6 w-full rounded-[18px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+                  className="fanpush-button-primary mt-6 w-full rounded-[18px] px-4 py-3 text-sm"
                 >
                   Cerrar
                 </button>

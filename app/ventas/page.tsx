@@ -201,7 +201,7 @@ export default function VentasPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <a
                   href="/crear"
-                  className="rounded-[12px] bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white"
+                  className="rounded-[12px] bg-[#5A3EE7] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4931bc]"
                 >
                   Crear mi primera publicación
                 </a>
@@ -251,7 +251,7 @@ export default function VentasPage() {
                     onClick={() => setTab(item.id)}
                     className={`rounded-[12px] px-4 py-2.5 text-sm font-semibold transition ${
                       active
-                        ? "bg-zinc-950 text-white"
+                        ? "bg-zinc-100 text-zinc-950"
                         : "bg-white text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                     }`}
                   >
@@ -408,7 +408,7 @@ export default function VentasPage() {
                   type="button"
                   onClick={handleRequestWithdrawal}
                   disabled={requesting || !canSubmitWithdrawal}
-                  className="mt-5 w-full rounded-[16px] bg-zinc-950 px-4 py-3.5 text-base font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="fanpush-button-primary mt-5 w-full rounded-[16px] px-4 py-3.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {requesting ? "Solicitando..." : "Solicitar retiro"}
                 </button>

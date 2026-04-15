@@ -23,7 +23,7 @@ export default function GlobalError({ error, reset }: AppErrorProps) {
               <button
                 type="button"
                 onClick={reset}
-                className="flex-1 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white"
+                className="fanpush-button-primary flex-1 px-4 py-3"
               >
                 Reintentar
               </button>

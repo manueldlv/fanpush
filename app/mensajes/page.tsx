@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Ban,
+  Check,
   ImagePlus,
   Mail,
   MoreHorizontal,
@@ -191,250 +192,6 @@ const toThreadDetail = (thread: ThreadItem): ThreadItem => ({
   ...toThreadSummary(thread),
   messages: thread.messages ?? [],
 });
-
-const buildStarterThreads = (prefillUsername: string | null): ThreadItem[] => {
-  const base: ThreadItem[] = [
-    {
-      id: "yoga-con-mari",
-      username: "mariela.guzman",
-      fullName: "Mariela Guzmán",
-      handle: "yogaconmari",
-      avatarUrl: buildPlaceholderPreview("M", "#f59e0b"),
-      participantIsAuthor: true,
-      preview: "Dale ahi te mando.",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [
-        {
-          id: "t-1",
-          kind: "text",
-          sender: "me",
-          body: "Hola",
-          createdAt: "06/04/2026 16:45",
-        },
-        {
-          id: "t-2",
-          kind: "text",
-          sender: "me",
-          body: "Haces tutoriales personalizados?",
-          createdAt: "06/04/2026 16:45",
-        },
-        {
-          id: "t-3",
-          kind: "text",
-          sender: "them",
-          body: "Hola, sí claro! Enviame los detalles!",
-          createdAt: "06/04/2026 16:46",
-        },
-        {
-          id: "t-4",
-          kind: "text",
-          sender: "me",
-          body: "Mandame algo custom para ver, pone tu precio",
-          createdAt: "06/04/2026 16:47",
-        },
-        {
-          id: "t-5",
-          kind: "text",
-          sender: "them",
-          body: "Dale ahi te mando.",
-          createdAt: "06/04/2026 16:48",
-        },
-        {
-          id: "t-6",
-          kind: "premium",
-          sender: "them",
-          title: "Mariela Guzmán te envió contenido privado",
-          caption: "1 video",
-          price: 5500,
-          attachmentCount: 6,
-          attachmentPreviews: [
-            {
-              id: "pv1",
-              name: "vista-1.jpg",
-              kind: "foto",
-              previewUrl: buildPlaceholderPreview("Vista previa", "#b45309"),
-            },
-            {
-              id: "pv2",
-              name: "vista-2.jpg",
-              kind: "foto",
-              previewUrl: buildPlaceholderPreview("Vista previa", "#7c3aed"),
-            },
-            {
-              id: "pv3",
-              name: "vista-3.jpg",
-              kind: "foto",
-              previewUrl: buildPlaceholderPreview("Vista previa", "#f97316"),
-            },
-            {
-              id: "pv4",
-              name: "vista-4.jpg",
-              kind: "foto",
-              previewUrl: buildPlaceholderPreview("Vista previa", "#e11d48"),
-            },
-            {
-              id: "pv5",
-              name: "vista-5.jpg",
-              kind: "foto",
-              previewUrl: buildPlaceholderPreview("Vista previa", "#0ea5e9"),
-            },
-            {
-              id: "pv6",
-              name: "vista-6.mp4",
-              kind: "video",
-              previewUrl: buildPlaceholderPreview("Vista previa", "#22c55e"),
-            },
-          ],
-          status: "locked",
-          createdAt: "Hoy 17:50",
-        },
-        {
-          id: "t-7",
-          kind: "system",
-          sender: "system",
-          body: "seed_author compró el contenido que le enviaste por $5500. Vas a ver el saldo reflejado en tus ventas",
-          createdAt: "Hoy 17:51",
-        },
-        {
-          id: "t-8",
-          kind: "text",
-          sender: "me",
-          body: "Buenisimo, ahi te lo compré, gracias!",
-          createdAt: "Hoy 17:52",
-        },
-        {
-          id: "t-9",
-          kind: "text",
-          sender: "them",
-          body: "de nada, gracias a vos!",
-          createdAt: "Hoy 17:53",
-        },
-      ],
-    },
-    {
-      id: "bebu",
-      username: "bebu",
-      fullName: "Bebu",
-      handle: "bebukun",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [
-        {
-          id: "b1",
-          kind: "text",
-          sender: "them",
-          body: "Hola como estas?",
-          createdAt: "Hoy 14:05",
-        },
-      ],
-    },
-    {
-      id: "lore",
-      username: "lore",
-      fullName: "Lore",
-      handle: "lore.fanpush",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [],
-    },
-    {
-      id: "max",
-      username: "max",
-      fullName: "Max",
-      handle: "max.crea",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [],
-    },
-    {
-      id: "pedro",
-      username: "pedro",
-      fullName: "Pedro",
-      handle: "pedrito",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [],
-    },
-    {
-      id: "jose",
-      username: "jose",
-      fullName: "Jose",
-      handle: "jose84",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [],
-    },
-    {
-      id: "joel",
-      username: "joel",
-      fullName: "Joel",
-      handle: "joel.zen",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [],
-    },
-    {
-      id: "random",
-      username: "nombre-random",
-      fullName: "Nombre Random",
-      handle: "rand",
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Hola como estas?",
-      lastSeen: "15 min",
-      unread: false,
-      pinned: false,
-      messages: [],
-    },
-  ];
-
-  if (
-    prefillUsername &&
-    !base.some((thread) => thread.username.toLowerCase() === prefillUsername.toLowerCase())
-  ) {
-    base.unshift({
-      id: `prefill-${prefillUsername}`,
-      username: prefillUsername,
-      fullName: prefillUsername,
-      handle: `${prefillUsername}.fanpush`,
-      avatarUrl: null,
-      participantIsAuthor: false,
-      preview: "Tú · Iniciá la conversación",
-      lastSeen: "Ahora",
-      unread: false,
-      pinned: false,
-      messages: [],
-    });
-  }
-
-  return base;
-};
 
 function PremiumComposer({
   open,
@@ -1411,9 +1168,25 @@ export default function MensajesPage() {
               {loadingThreads ? (
                 <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">Cargando chats...</div>
               ) : filteredThreads.length === 0 ? (
-                <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">
-                  Todavía no tienes conversaciones activas.
-                </div>
+                search.trim() ? (
+                  <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">
+                    No encontramos chats para tu búsqueda.
+                  </div>
+                ) : (
+                  <div className="flex min-h-[420px] flex-col items-center justify-center px-6 py-12 text-center">
+                    <div className="flex h-[92px] w-[92px] items-center justify-center rounded-full border-2 border-[#b9d9b6] bg-[#edfbe8]">
+                      <div className="flex h-[64px] w-[64px] items-center justify-center rounded-full border-2 border-[#b9d9b6] bg-[#f7fff3]">
+                        <Check className="h-9 w-9 text-[#36503a]" strokeWidth={2.5} />
+                      </div>
+                    </div>
+                    <h3 className="mt-8 text-[22px] font-semibold tracking-[-0.03em] text-[#161823]">
+                      Todavía no tienes chats
+                    </h3>
+                    <p className="mt-3 text-[15px] text-[#464646]">
+                      Cuando empieces una conversación, va a aparecer acá.
+                    </p>
+                  </div>
+                )
               ) : filteredThreads.map((thread) => {
                 const active = selectedThread?.id === thread.id;
                 return (

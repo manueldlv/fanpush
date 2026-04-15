@@ -18,7 +18,7 @@ import {
 } from "@/lib/redux/slices/searchSlice";
 import { closeSearchPanel } from "@/lib/redux/slices/uiSlice";
 import { buildUserProfileHref } from "@/lib/profileRoute";
-import { Loader2, Search, X } from "lucide-react";
+import { Clock3, Loader2, Search, X } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 
 const RECENT_SEARCHES_KEY = "fanpush_recent_searches";
@@ -154,12 +154,12 @@ export default function SearchPanel() {
         <button
           type="button"
           onClick={() => dispatch(closeSearchPanel())}
-          className="fixed inset-0 z-30 h-full w-full cursor-default bg-black/10"
+          className="fixed inset-0 z-[110] h-full w-full cursor-default bg-black/10"
           aria-label="Cerrar búsqueda"
         />
       ) : null}
       <aside
-        className={`fixed left-0 top-16 z-50 h-[calc(100vh-4rem)] w-[420px] border-r border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
+        className={`fixed left-0 top-16 z-[120] h-[calc(100vh-4rem)] w-[420px] border-r border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -206,9 +206,15 @@ export default function SearchPanel() {
             {!query.trim() ? (
               recentSearches.length > 0 ? (
                 <div>
-                  <div className="mb-4 flex items-center justify-between">
-                    <div className="text-lg font-semibold text-zinc-900">
-                      Recientes
+                  <div className="mb-5 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
+                        <Clock3 className="h-4 w-4 text-zinc-400" />
+                        Búsquedas recientes
+                      </div>
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Vuelve rápido a los perfiles que buscaste hace poco.
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -257,8 +263,13 @@ export default function SearchPanel() {
                   </div>
                 </div>
               ) : (
-                <div className="text-sm text-zinc-500">
-                  No hay búsquedas recientes.
+                <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-5">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    No hay búsquedas recientes
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-zinc-500">
+                    Cuando abras un perfil desde esta búsqueda, va a quedar guardado acá para volver más rápido.
+                  </p>
                 </div>
               )
             ) : (

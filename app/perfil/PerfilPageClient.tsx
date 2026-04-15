@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bookmark, Grid, Lock } from "lucide-react";
+import AvatarCropModal from "@/components/AvatarCropModal";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
@@ -13,6 +14,7 @@ import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import { parseUploadModerationMeta } from "@/lib/contentClassification";
+import { MAX_AVATAR_IMAGE_BYTES, validateImageFile } from "@/lib/imageFiles";
 import {
   getPremiumPathFromPreview,
   inferDisplayKind,
@@ -29,7 +31,9 @@ import {
   profileApi,
   useGetProfileViewQuery,
 } from "@/lib/redux/api/profileApi";
+import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 import type { Post } from "@/lib/store/posts";
@@ -144,24 +148,38 @@ export default function PerfilPage({
   const [openPost, setOpenPost] = useState<Post | null>(null);
   const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
   const [tipOpen, setTipOpen] = useState(false);
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null);
+  const [avatarCropFileName, setAvatarCropFileName] = useState("avatar.jpg");
+  const [avatarCropMimeType, setAvatarCropMimeType] = useState("image/jpeg");
+  const [updatingAvatar, setUpdatingAvatar] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
+  const [followStateOverride, setFollowStateOverride] = useState<boolean | null>(null);
   const [uiMessage, setUiMessage] = useState<{
     tone: "success" | "error";
     text: string;
   } | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const { data: viewer } = useGetViewerQuery();
   const searchParams = useSearchParams();
   const router = useRouter();
   const dispatch = useAppDispatch();
   const availableBalance = useAppSelector(
     (state) => state.viewer.commerce.balance,
   );
-  const routeUsername = forcedUsername ?? searchParams.get("user");
+  const routeUsername =
+    forcedUsername ??
+    searchParams.get("user") ??
+    viewer?.profile.username ??
+    null;
   const profileId = searchParams.get("id");
   const profileQueryArg = {
     userId: profileId,
     username: routeUsername,
   };
   const { data: profileData, isLoading: profileQueryLoading } =
-    useGetProfileViewQuery(profileQueryArg);
+    useGetProfileViewQuery(profileQueryArg, {
+      refetchOnMountOrArgChange: true,
+    });
 
   const profileName =
     profileData?.profile.username ?? routeUsername ?? "usuario";
@@ -175,16 +193,31 @@ export default function PerfilPage({
   const profilePosts = profileData?.posts ?? [];
   const currentUserId = profileData?.currentUserId ?? null;
   const viewedUserId = profileData?.viewedUserId ?? null;
+  const isOwnProfile = Boolean(
+    currentUserId && viewedUserId && currentUserId === viewedUserId,
+  );
+  const selfProfileQueryArg = {
+    userId: null,
+    username: viewer?.profile.username ?? null,
+  };
+  const connectionsBaseHref = isOwnProfile
+    ? "/perfil/conexiones"
+    : `${buildUserProfileHref(profileName || "usuario")}/conexiones`;
   const stats = profileData?.stats ?? {
     posts: 0,
     followers: 0,
     following: 0,
   };
-  const isFollowing = profileData?.isFollowing ?? false;
+  const isFollowing =
+    followStateOverride ?? profileData?.isFollowing ?? false;
   const earnings = profileData?.earnings ?? 0;
   const profileLoading = !profileData && profileQueryLoading;
   const postsLoading = !profileData && profileQueryLoading;
   const statsLoading = !profileData && profileQueryLoading;
+
+  useEffect(() => {
+    setFollowStateOverride(profileData?.isFollowing ?? null);
+  }, [profileData?.isFollowing, viewedUserId]);
 
   const resolveAccessibleMedia = async (
     supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
@@ -258,18 +291,24 @@ export default function PerfilPage({
             type: "ProfileView",
             id: getProfileViewCacheKey(profileQueryArg),
           },
+          {
+            type: "ProfileView",
+            id: getProfileViewCacheKey(selfProfileQueryArg),
+          },
         ]),
       );
     };
     window.addEventListener("profile-updated", handler as EventListener);
+    window.addEventListener("follow-updated", invalidateProfile);
     window.addEventListener("purchases-updated", invalidateProfile);
     window.addEventListener("earnings-updated", invalidateProfile);
     return () => {
       window.removeEventListener("profile-updated", handler as EventListener);
+      window.removeEventListener("follow-updated", invalidateProfile);
       window.removeEventListener("purchases-updated", invalidateProfile);
       window.removeEventListener("earnings-updated", invalidateProfile);
     };
-  }, [dispatch, profileId, routeUsername]);
+  }, [dispatch, profileId, routeUsername, viewer?.profile.username]);
 
   useEffect(() => {
     if (!uiMessage) return;
@@ -278,6 +317,14 @@ export default function PerfilPage({
     }, uiMessage.text.includes("Compra realizada") ? 6500 : 3600);
     return () => window.clearTimeout(timeout);
   }, [uiMessage]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarCropSource?.startsWith("blob:")) {
+        URL.revokeObjectURL(avatarCropSource);
+      }
+    };
+  }, [avatarCropSource]);
 
   const openPostFromProfile = async (post: Post) => {
     const supabase = getSupabaseClient();
@@ -375,8 +422,28 @@ export default function PerfilPage({
     const supabase = getSupabaseClient();
     if (!supabase || !currentUserId || !viewedUserId) return;
     if (currentUserId === viewedUserId) return;
+    if (followPending) return;
+    setFollowPending(true);
 
-    if (isFollowing) {
+    const { data: existingFollow, error: existingFollowError } = await supabase
+      .from("follows")
+      .select("follower_id")
+      .eq("follower_id", currentUserId)
+      .eq("following_id", viewedUserId)
+      .limit(1);
+
+    if (existingFollowError) {
+      setUiMessage({
+        tone: "error",
+        text: `No se pudo validar el seguimiento: ${existingFollowError.message}`,
+      });
+      setFollowPending(false);
+      return;
+    }
+
+    const actualIsFollowing = Boolean(existingFollow?.length);
+
+    if (actualIsFollowing) {
       const { error } = await supabase
         .from("follows")
         .delete()
@@ -387,8 +454,10 @@ export default function PerfilPage({
           tone: "error",
           text: `No se pudo dejar de seguir: ${error.message}`,
         });
+        setFollowPending(false);
         return;
       }
+      setFollowStateOverride(false);
       dispatch(
         profileApi.util.updateQueryData(
           "getProfileView",
@@ -399,22 +468,36 @@ export default function PerfilPage({
           },
         ),
       );
-      setUiMessage({
-        tone: "success",
-        text: `Ya no seguís a @${profileName}.`,
-      });
+      dispatch(
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          selfProfileQueryArg,
+          (draft) => {
+            draft.stats.following = Math.max((draft.stats.following ?? 0) - 1, 0);
+          },
+        ),
+      );
+      dispatch(
+        profileApi.util.invalidateTags([
+          { type: "ProfileView", id: getProfileViewCacheKey(profileQueryArg) },
+          { type: "ProfileView", id: getProfileViewCacheKey(selfProfileQueryArg) },
+        ]),
+      );
     } else {
       const { error } = await supabase.from("follows").insert({
         follower_id: currentUserId,
         following_id: viewedUserId,
       });
-      if (error) {
+      const duplicateFollow = error && "code" in error && error.code === "23505";
+      if (error && !duplicateFollow) {
         setUiMessage({
           tone: "error",
           text: `No se pudo seguir a este usuario: ${error.message}`,
         });
+        setFollowPending(false);
         return;
       }
+      setFollowStateOverride(true);
       dispatch(
         profileApi.util.updateQueryData(
           "getProfileView",
@@ -425,20 +508,34 @@ export default function PerfilPage({
           },
         ),
       );
-      setUiMessage({
-        tone: "success",
-        text: `Ahora seguís a @${profileName}.`,
-      });
+      dispatch(
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          selfProfileQueryArg,
+          (draft) => {
+            draft.stats.following = (draft.stats.following ?? 0) + 1;
+          },
+        ),
+      );
+      dispatch(
+        profileApi.util.invalidateTags([
+          { type: "ProfileView", id: getProfileViewCacheKey(profileQueryArg) },
+          { type: "ProfileView", id: getProfileViewCacheKey(selfProfileQueryArg) },
+        ]),
+      );
 
-      await supabase.from("notifications").insert({
-        user_id: viewedUserId,
-        actor_id: currentUserId,
-        type: "follow",
-        entity_id: currentUserId,
-        message: "comenzó a seguirte.",
-        is_read: false,
-      });
+      if (!duplicateFollow) {
+        await supabase.from("notifications").insert({
+          user_id: viewedUserId,
+          actor_id: currentUserId,
+          type: "follow",
+          entity_id: currentUserId,
+          message: "comenzó a seguirte.",
+          is_read: false,
+        });
+      }
     }
+    setFollowPending(false);
   };
 
   const handleDelete = async (albumId: string) => {
@@ -550,9 +647,100 @@ export default function PerfilPage({
     }
   };
 
-  const isOwnProfile = Boolean(
-    currentUserId && viewedUserId && currentUserId === viewedUserId,
-  );
+  const canCreateContent = Boolean(viewer?.access.canCreate);
+
+  const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      validateImageFile(file, {
+        label: "La foto de perfil",
+        maxBytes: MAX_AVATAR_IMAGE_BYTES,
+      });
+      const nextCropSource = URL.createObjectURL(file);
+      if (avatarCropSource?.startsWith("blob:")) {
+        URL.revokeObjectURL(avatarCropSource);
+      }
+      setUiMessage(null);
+      setAvatarCropSource(nextCropSource);
+      setAvatarCropFileName(file.name || "avatar.jpg");
+      setAvatarCropMimeType(file.type || "image/jpeg");
+    } catch (error) {
+      setUiMessage({
+        tone: "error",
+        text: error instanceof Error ? error.message : "No se pudo cargar la foto.",
+      });
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleAvatarUploaded = async (file: File) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error("Falta configurar Supabase.");
+    }
+
+    setUpdatingAvatar(true);
+    setUiMessage(null);
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) {
+        throw new Error("Necesitas iniciar sesión.");
+      }
+
+      const safeUsername =
+        profileName.trim() || authData?.user?.email?.split("@")[0] || "usuario";
+      const path = `avatars/${userId}/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from(PUBLIC_MEDIA_BUCKET)
+        .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
+
+      if (uploadError) {
+        if (/bucket not found/i.test(uploadError.message)) {
+          throw new Error(
+            "El almacenamiento de imágenes todavía no está preparado. Intenta de nuevo en unos minutos.",
+          );
+        }
+        throw uploadError;
+      }
+
+      const uploadedAvatarUrl =
+        supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
+
+      if (avatarCropSource?.startsWith("blob:")) {
+        URL.revokeObjectURL(avatarCropSource);
+      }
+      setAvatarCropSource(null);
+
+      window.dispatchEvent(
+        new CustomEvent("profile-updated", {
+          detail: {
+            username: safeUsername,
+            avatarUrl: uploadedAvatarUrl,
+          },
+        }),
+      );
+
+      dispatch(
+        profileApi.util.invalidateTags([
+          { type: "ProfileView", id: getProfileViewCacheKey(profileQueryArg) },
+          { type: "ProfileView", id: "self" },
+          { type: "ProfileView", id: `id:${userId}` },
+          { type: "ProfileView", id: `username:${safeUsername.toLowerCase()}` },
+        ]),
+      );
+
+      setUiMessage({
+        tone: "success",
+        text: "Foto de perfil actualizada.",
+      });
+    } finally {
+      setUpdatingAvatar(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -579,6 +767,19 @@ export default function PerfilPage({
           window.dispatchEvent(new Event("balance-updated"));
           window.dispatchEvent(new Event("earnings-updated"));
         }}
+      />
+      <AvatarCropModal
+        open={Boolean(avatarCropSource)}
+        imageSrc={avatarCropSource ?? ""}
+        fileName={avatarCropFileName}
+        mimeType={avatarCropMimeType}
+        onCancel={() => {
+          if (avatarCropSource?.startsWith("blob:")) {
+            URL.revokeObjectURL(avatarCropSource);
+          }
+          setAvatarCropSource(null);
+        }}
+        onConfirm={handleAvatarUploaded}
       />
 
       <div className="flex min-h-screen md:pl-60">
@@ -618,14 +819,35 @@ export default function PerfilPage({
                 />
               </div>
               <div className="relative px-4 pb-6 pt-0 md:px-7">
-                <div className="absolute left-4 top-0 -translate-y-[68%] rounded-full border-[6px] border-white bg-white md:left-7 md:-translate-y-[72%]">
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handleAvatarChange}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isOwnProfile || updatingAvatar) return;
+                    avatarInputRef.current?.click();
+                  }}
+                  className={`absolute left-4 top-0 -translate-y-[68%] rounded-full border-[6px] border-white bg-white md:left-7 md:-translate-y-[72%] ${
+                    isOwnProfile
+                      ? "cursor-pointer transition hover:scale-[1.01]"
+                      : "cursor-default"
+                  }`}
+                  aria-label={
+                    isOwnProfile ? "Cambiar foto de perfil" : "Avatar de perfil"
+                  }
+                >
                   <UserAvatar
                     src={profileAvatar}
                     alt={profileName || "Perfil"}
                     sizeClassName="h-[120px] w-[120px] md:h-[160px] md:w-[160px]"
                     iconClassName="h-10 w-10 md:h-12 md:w-12"
                   />
-                </div>
+                </button>
 
                 <div className="flex min-h-[178px] flex-col justify-end gap-5 pt-[42px] md:flex-row md:items-end md:justify-between md:pt-[58px]">
                   <div className="max-w-[880px]">
@@ -645,18 +867,30 @@ export default function PerfilPage({
                           </span>{" "}
                           publicaciones
                         </span>
-                        <span className="whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(`${connectionsBaseHref}?tab=followers`)
+                          }
+                          className="whitespace-nowrap transition hover:text-zinc-900"
+                        >
                           <span className="font-semibold text-zinc-900">
                             {statsLoading ? "..." : stats.followers}
                           </span>{" "}
                           seguidores
-                        </span>
-                        <span className="whitespace-nowrap">
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(`${connectionsBaseHref}?tab=following`)
+                          }
+                          className="whitespace-nowrap transition hover:text-zinc-900"
+                        >
                           <span className="font-semibold text-zinc-900">
                             {statsLoading ? "..." : stats.following}
                           </span>{" "}
                           seguidos
-                        </span>
+                        </button>
                         <span className="whitespace-nowrap">
                           <span className="font-semibold text-zinc-900">
                             {statsLoading ? "..." : formatARS(earnings)}
@@ -712,11 +946,12 @@ export default function PerfilPage({
                           <button
                             type="button"
                             onClick={toggleFollow}
+                            disabled={followPending}
                             className={`rounded-[5px] px-5 py-3 text-[14px] font-semibold transition-colors ${
                               isFollowing
                                 ? "fanpush-button-secondary"
                                 : "bg-[#5A3EE7] text-white"
-                            }`}
+                            } ${followPending ? "cursor-wait opacity-60" : ""}`}
                           >
                             {isFollowing ? "Siguiendo" : "Seguir"}
                           </button>
@@ -756,7 +991,7 @@ export default function PerfilPage({
             <ProfilePostsSkeleton />
           ) : (
             <div className="rounded-[5px] border border-zinc-200 bg-white p-4 md:p-5">
-              {!isOwnProfile ? (
+              {isOwnProfile ? (
                 <div className="mb-4 flex items-center justify-center gap-5 border-b border-zinc-200 px-4 pt-1 text-sm font-semibold text-zinc-500 md:gap-8 md:px-6">
                   <button
                     onClick={() => setActiveTab("posts")}
@@ -785,36 +1020,68 @@ export default function PerfilPage({
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
                 {activeTab === "posts" ? (
-                  profilePosts.map((post) => {
-                    const firstMedia = post.media[0];
-                    if (!firstMedia) return null;
-                    const isPaidPost =
-                      Number(post.price ?? 0) > 0 ||
-                      post.media.some((item) => item.locked);
-                    return (
-                      <div
-                        key={post.id}
-                        className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
-                        onClick={() => openPostFromProfile(post)}
-                      >
-                        <MediaImage
-                          src={firstMedia.url}
-                          alt={profileName || "Post"}
-                          className="h-full w-full object-cover"
-                          fallbackClassName="h-full w-full border-0"
-                          iconClassName="h-7 w-7"
-                        />
-                        {isPaidPost ? (
-                          <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Lock className="h-3 w-3" />
-                              {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
-                            </span>
-                          </div>
-                        ) : null}
+                  profilePosts.length > 0 ? (
+                    profilePosts.map((post) => {
+                      const firstMedia = post.media[0];
+                      if (!firstMedia) return null;
+                      const isPaidPost =
+                        Number(post.price ?? 0) > 0 ||
+                        post.media.some((item) => item.locked);
+                      return (
+                        <div
+                          key={post.id}
+                          className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
+                          onClick={() => openPostFromProfile(post)}
+                        >
+                          <MediaImage
+                            src={firstMedia.url}
+                            alt={profileName || "Post"}
+                            className="h-full w-full object-cover"
+                            fallbackClassName="h-full w-full border-0"
+                            iconClassName="h-7 w-7"
+                          />
+                          {isPaidPost ? (
+                            <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Lock className="h-3 w-3" />
+                                {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="col-span-2 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 sm:col-span-3 xl:col-span-5">
+                      <div className="text-[24px] font-semibold text-zinc-900">
+                        Todavía no hay posts
                       </div>
-                    );
-                  })
+                      <p className="mt-3 max-w-[720px] text-[15px] leading-7 text-[#464646]">
+                        Cuando empieces a publicar contenido, tus posteos van a aparecer
+                        acá. Puedes empezar preparando tu perfil de autor y cargar tu
+                        primera publicación.
+                      </p>
+                      <div className="mt-5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              canCreateContent ? "/crear" : "/autor/solicitud",
+                            )
+                          }
+                          className={
+                            canCreateContent
+                              ? "fanpush-button-primary px-5 py-3 text-[14px] font-semibold"
+                              : "rounded-[5px] border border-zinc-200 bg-white px-5 py-3 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                          }
+                        >
+                          {canCreateContent
+                            ? "Crear mi primera publicación"
+                            : "Convertirme en autor"}
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <div className="col-span-2 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500 sm:col-span-3">
                     Aun no tienes compras.

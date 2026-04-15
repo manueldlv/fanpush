@@ -178,6 +178,7 @@ export default function TopBar() {
   );
   const profile = viewer?.profile;
   const balance = viewer?.commerce.balance ?? 0;
+  const isAuthor = viewer?.access.isAuthor ?? false;
   const previewNotifications = (notificationsData?.activity ?? []).slice(0, 6);
   const unreadCount = (notificationsData?.activity ?? []).filter(
     (item) => !item.isRead,
@@ -371,11 +372,11 @@ export default function TopBar() {
                       <div className="text-[15px] font-semibold text-zinc-950">
                         Notifications
                       </div>
-                      <div className="text-[12px] text-zinc-500">
-                        {unreadCount > 0
-                          ? `${unreadCount} nuevas`
-                          : "No tenés notificaciones nuevas"}
-                      </div>
+                      {unreadCount > 0 ? (
+                        <div className="text-[12px] text-zinc-500">
+                          {unreadCount} nuevas
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -400,7 +401,7 @@ export default function TopBar() {
                   <Link
                     href="/notificaciones"
                     onClick={() => setNotificationsOpen(false)}
-                    className="flex h-11 items-center justify-center rounded-[12px] bg-zinc-950 text-[13px] font-semibold text-white transition hover:bg-zinc-800"
+                    className="flex h-9 items-center justify-center text-[13px] font-medium text-[#5A3EE7] transition hover:text-[#4931bc]"
                   >
                     Ver todas las notificaciones
                   </Link>
@@ -472,6 +473,15 @@ export default function TopBar() {
                 >
                   Configuración
                 </Link>
+                {!isAuthor ? (
+                  <Link
+                    href="/autor/solicitud"
+                    className="block rounded-[8px] px-3 py-2 text-[13px] font-semibold text-[#5A3EE7] hover:bg-[#f4f1ff]"
+                    onClick={() => setProfileOpen(false)}
+                  >
+                    Convertirme en autor
+                  </Link>
+                ) : null}
                 <button
                   type="button"
                   onClick={async () => {

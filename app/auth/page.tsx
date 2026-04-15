@@ -17,26 +17,6 @@ import {
 } from "@/lib/auth";
 
 const JUST_SIGNED_IN_KEY = "fanpush_just_signed_in";
-const DEMO_LOGIN_ACCOUNTS = [
-  {
-    key: "admin",
-    label: "Demo Admin",
-    email: "seed-admin@fanpush.test",
-    password: "FanpushDemo123!",
-  },
-  {
-    key: "author",
-    label: "Demo Author",
-    email: "seed-author@fanpush.test",
-    password: "FanpushDemo123!",
-  },
-  {
-    key: "buyer",
-    label: "Demo Buyer",
-    email: "seed-buyer@fanpush.test",
-    password: "FanpushDemo123!",
-  },
-] as const;
 
 const isRecoveryUrl = () => {
   if (typeof window === "undefined") return false;
@@ -544,17 +524,6 @@ export default function AuthPage() {
     }
   };
 
-  const handleFillDemoLogin = (account: (typeof DEMO_LOGIN_ACCOUNTS)[number]) => {
-    setMode("login");
-    setForgot(false);
-    setReset(false);
-    setEmail(account.email);
-    setPassword(account.password);
-    setError(null);
-    setSuccess(null);
-    setCanResendConfirmation(false);
-  };
-
   useEffect(() => {
     if (mode !== "register" || forgot || reset) {
       setUsernameStatus("idle");
@@ -793,33 +762,6 @@ export default function AuthPage() {
               ) : null}
 
               <div className="mt-6 space-y-4">
-                {mode === "login" && !forgot && !reset ? (
-                  <div className="rounded-[16px] border border-sky-100 bg-sky-50/80 p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-700">
-                      Accesos demo
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-sky-900">
-                      Carga credenciales de prueba para entrar rápido con los seeds.
-                    </p>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                      {DEMO_LOGIN_ACCOUNTS.map((account) => (
-                        <button
-                          key={account.key}
-                          type="button"
-                          onClick={() => handleFillDemoLogin(account)}
-                          className="rounded-[14px] border border-sky-200 bg-white px-3 py-3 text-left transition hover:border-sky-300 hover:bg-sky-50"
-                        >
-                          <div className="text-sm font-semibold text-zinc-900">
-                            {account.label}
-                          </div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">
-                            {account.email}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
                 {mode === "register" && !forgot && !reset ? (
                   <input
                     type="text"

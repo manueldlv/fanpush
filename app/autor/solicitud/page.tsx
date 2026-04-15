@@ -403,7 +403,7 @@ export default function AutorSolicitudPage() {
                     type="button"
                     onClick={handleSubmit}
                     disabled={submitting || status === "pending"}
-                    className="mt-6 rounded-[18px] bg-zinc-950 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                    className="fanpush-button-primary mt-6 rounded-[18px] px-5 py-3 text-sm disabled:opacity-60"
                   >
                     {submitting
                       ? "Enviando..."

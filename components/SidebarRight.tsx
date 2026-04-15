@@ -1,9 +1,15 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { buildUserProfileHref } from "@/lib/profileRoute";
+import {
+  getProfileViewCacheKey,
+  profileApi,
+} from "@/lib/redux/api/profileApi";
 import { socialApi, useGetSuggestionsQuery } from "@/lib/redux/api/socialApi";
+import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
 import UserAvatar from "@/components/UserAvatar";
@@ -11,7 +17,13 @@ import UserAvatar from "@/components/UserAvatar";
 export default function SidebarRight() {
   const router = useRouter();
   const dispatch = useAppDispatch();
+  const { data: viewer } = useGetViewerQuery();
   const { data: suggestions = [], isLoading: loading } = useGetSuggestionsQuery();
+  const [pendingFollowId, setPendingFollowId] = useState<string | null>(null);
+  const selfProfileQueryArg = {
+    userId: null,
+    username: viewer?.profile.username ?? null,
+  };
 
   const openProfile = (profile: { name: string }) => {
     router.push(buildUserProfileHref(profile.name));
@@ -20,27 +32,78 @@ export default function SidebarRight() {
   const toggleFollowSuggestion = async (profileId: string, isFollowing: boolean) => {
     const supabase = getSupabaseClient();
     if (!supabase) return;
+    if (pendingFollowId === profileId) return;
 
     const { data: authData } = await supabase.auth.getUser();
     const currentUserId = authData?.user?.id;
     if (!currentUserId || currentUserId === profileId) return;
+    setPendingFollowId(profileId);
 
-    if (isFollowing) {
+    const { data: existingFollow } = await supabase
+      .from("follows")
+      .select("follower_id")
+      .eq("follower_id", currentUserId)
+      .eq("following_id", profileId)
+      .limit(1);
+
+    const actualIsFollowing = Boolean(existingFollow?.length);
+
+    if (actualIsFollowing) {
       const { error } = await supabase
         .from("follows")
         .delete()
         .eq("follower_id", currentUserId)
         .eq("following_id", profileId);
-      if (error) return;
+      if (error) {
+        setPendingFollowId(null);
+        return;
+      }
+
+      dispatch(
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          selfProfileQueryArg,
+          (draft) => {
+            draft.stats.following = Math.max((draft.stats.following ?? 0) - 1, 0);
+          },
+        ),
+      );
     } else {
       const { error } = await supabase.from("follows").insert({
         follower_id: currentUserId,
         following_id: profileId,
       });
-      if (error) return;
+      const duplicateFollow = error && "code" in error && error.code === "23505";
+      if (error && !duplicateFollow) {
+        setPendingFollowId(null);
+        return;
+      }
+
+      dispatch(
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          selfProfileQueryArg,
+          (draft) => {
+            draft.stats.following = (draft.stats.following ?? 0) + 1;
+          },
+        ),
+      );
     }
 
     dispatch(socialApi.util.invalidateTags(["SocialSuggestions"]));
+    dispatch(
+      profileApi.util.invalidateTags([
+        { type: "ProfileView", id: "self" },
+        { type: "ProfileView", id: `id:${currentUserId}` },
+        {
+          type: "ProfileView",
+          id: getProfileViewCacheKey(selfProfileQueryArg),
+        },
+        { type: "ProfileView", id: `id:${profileId}` },
+      ]),
+    );
+    window.dispatchEvent(new Event("follow-updated"));
+    setPendingFollowId(null);
   };
 
   return (
@@ -110,9 +173,10 @@ export default function SidebarRight() {
                   onClick={() =>
                     toggleFollowSuggestion(profile.id, Boolean(profile.isFollowing))
                   }
+                  disabled={pendingFollowId === profile.id}
                   className={`min-w-[108px] text-right text-[16px] font-semibold leading-none tracking-[-0.02em] ${
                     profile.isFollowing ? "text-[#4b4b4b]" : "text-[#5A3EE7]"
-                  }`}
+                  } ${pendingFollowId === profile.id ? "opacity-50" : ""}`}
                 >
                   {profile.isFollowing ? "Siguiendo" : "Seguir"}
                 </button>

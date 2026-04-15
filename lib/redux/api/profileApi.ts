@@ -257,8 +257,8 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
     profileMetaRowResult,
     albumsResult,
     postsCountResult,
-    followersCountResult,
-    followingCountResult,
+    followersRowsResult,
+    followingRowsResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -286,11 +286,11 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
       .eq("user_id", viewedUserId),
     supabase
       .from("follows")
-      .select("id", { count: "exact", head: true })
+      .select("follower_id")
       .eq("following_id", viewedUserId),
     supabase
       .from("follows")
-      .select("id", { count: "exact", head: true })
+      .select("following_id")
       .eq("follower_id", viewedUserId),
   ]);
 
@@ -399,13 +399,13 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
 
   let isFollowing = false;
   if (currentUserId && viewedUserId && currentUserId !== viewedUserId) {
-    const { data: followRow } = await supabase
+    const { data: followRows } = await supabase
       .from("follows")
       .select("id")
       .eq("follower_id", currentUserId)
       .eq("following_id", viewedUserId)
-      .maybeSingle();
-    isFollowing = Boolean(followRow);
+      .limit(1);
+    isFollowing = Boolean(followRows?.length);
   }
 
   const earningsSummary = await loadCreatorEarnings(supabase, viewedUserId);
@@ -417,8 +417,8 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
     posts,
     stats: {
       posts: postsCountResult.count ?? 0,
-      followers: followersCountResult.count ?? 0,
-      following: followingCountResult.count ?? 0,
+      followers: followersRowsResult.data?.length ?? 0,
+      following: followingRowsResult.data?.length ?? 0,
     },
     isFollowing,
     earnings: earningsSummary.creatorNet,

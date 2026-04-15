@@ -33,6 +33,7 @@ export default function SidebarLeft() {
   const [salesBadge, setSalesBadge] = useState(false);
   const [messagesBadge, setMessagesBadge] = useState(false);
   const canCreate = viewer?.access.canCreate ?? false;
+  const createHref = canCreate ? "/crear" : "/autor/solicitud";
 
   useEffect(() => {
     let cancelled = false;
@@ -207,24 +208,17 @@ export default function SidebarLeft() {
                 "Notificaciones",
               )}
             </Link>
-            {canCreate ? (
-              <Link
-                href="/crear"
-                className={itemClass(pathname === "/crear")}
-              >
-                <SquarePlus className={iconClass(pathname === "/crear")} />
-                <span>Crear</span>
-              </Link>
-            ) : (
-              <button
-                type="button"
-                disabled
-                className="group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold tracking-[-0.01em] text-black/20"
-              >
-                <SquarePlus className="h-6 w-6 text-black/20" />
-                <span>Crear</span>
-              </button>
-            )}
+            <Link
+              href={createHref}
+              className={itemClass(pathname === "/crear" || pathname === "/autor/solicitud")}
+            >
+              <SquarePlus
+                className={iconClass(
+                  pathname === "/crear" || pathname === "/autor/solicitud",
+                )}
+              />
+              <span>Crear</span>
+            </Link>
             <Link
               href="/compras"
               className={itemClass(pathname === "/compras")}
@@ -349,24 +343,13 @@ export default function SidebarLeft() {
             aria-hidden="true"
           />
         </Link>
-        {canCreate ? (
-          <Link
-            href="/crear"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
-            aria-label="Crear"
-          >
-            <SquarePlus className="h-5 w-5" />
-          </Link>
-        ) : (
-          <button
-            type="button"
-            disabled
-            className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-300"
-            aria-label="Crear deshabilitado"
-          >
-            <SquarePlus className="h-5 w-5" />
-          </button>
-        )}
+        <Link
+          href={createHref}
+          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+          aria-label="Crear"
+        >
+          <SquarePlus className="h-5 w-5" />
+        </Link>
         <Link
           href="/notificaciones"
           className={mobileIconWrapClass}

@@ -31,17 +31,11 @@ type PurchaseItem = {
   status: string;
 };
 
-const DEMO_MEDIA = Array.from({ length: 10 }).map((_, index) => ({
-  url: `https://picsum.photos/seed/fanpush-purchase-demo-${index + 1}/600/600`,
-  kind: index % 4 === 0 ? ("video" as const) : ("image" as const),
-}));
-
 export default function ComprasPage() {
   const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [isLocalPreview, setIsLocalPreview] = useState(false);
   const {
     data,
     isLoading: loading,
@@ -51,12 +45,6 @@ export default function ComprasPage() {
   });
   const items = data?.items ?? [];
   const ITEMS_PER_PAGE = 10;
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const host = window.location.hostname;
-    setIsLocalPreview(host === "127.0.0.1" || host === "localhost");
-  }, []);
 
   useEffect(() => {
     const refreshPurchases = () => {
@@ -70,53 +58,7 @@ export default function ComprasPage() {
     };
   }, [refetch]);
 
-  const displayItems = useMemo(() => {
-    if (isLocalPreview) {
-      const sourceItems: PurchaseItem[] =
-        items.length > 0
-          ? items
-          : [
-              {
-                id: "demo-purchase",
-                title: "Álbum premium demo para probar compras y paginación",
-                creator: "seed_author",
-                date: new Date().toLocaleDateString("es-AR", {
-                  day: "2-digit",
-                  month: "short",
-                }),
-                price: 90000,
-                cover: DEMO_MEDIA[0].url,
-                covers: DEMO_MEDIA.map((item) => item.url),
-                media: DEMO_MEDIA,
-                status: "approved",
-              },
-            ];
-
-      if (sourceItems.length < 30) {
-        return Array.from({ length: 30 }).map((_, index) => {
-          const base = sourceItems[index % sourceItems.length];
-          const mediaCount = (index % 10) + 1;
-          const date = new Date(Date.now() - index * 8.64e7).toLocaleDateString(
-            "es-AR",
-            {
-              day: "2-digit",
-              month: "short",
-            },
-          );
-          return {
-            ...base,
-            id: `${base.id}-preview-${index + 1}`,
-            title: `${base.title} #${index + 1}`,
-            date,
-            price: base.price + index * 350,
-            covers: DEMO_MEDIA.slice(0, mediaCount).map((item) => item.url),
-            media: DEMO_MEDIA.slice(0, mediaCount),
-          };
-        });
-      }
-    }
-    return items;
-  }, [isLocalPreview, items]);
+  const displayItems = useMemo(() => items, [items]);
 
   const totalSpent = useMemo(
     () => displayItems.reduce((acc, item) => acc + item.price, 0),
@@ -361,7 +303,7 @@ export default function ComprasPage() {
                 <div className="mt-4 flex flex-wrap gap-3">
                   <a
                     href="/explorar"
-                    className="rounded-[12px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white"
+                    className="fanpush-button-primary rounded-[12px] px-4 py-3 text-sm"
                   >
                     Explorar contenido
                   </a>

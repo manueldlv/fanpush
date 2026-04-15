@@ -6,7 +6,6 @@ import {
 } from "@/lib/server/repositories/withdrawals";
 import { parsePayoutProfile } from "@/lib/payouts";
 import {
-  applyUserBalanceDelta,
   ensureLegacyCreatorBalanceBaseline,
 } from "@/lib/server/repositories/ledger";
 import {
@@ -16,11 +15,6 @@ import { FANPUSH_WITHDRAWAL_MIN_ARS } from "@/lib/utils";
 
 export async function POST(request: Request) {
   try {
-    const requestHost = request.headers.get("host") ?? "";
-    const isLocalPreviewRequest =
-      requestHost.includes("127.0.0.1") || requestHost.includes("localhost");
-    const LOCAL_WITHDRAWAL_PREVIEW_BALANCE = 180_000;
-
     const { admin, user, error } = await requireAuthorPermission(
       request,
       "withdrawals.request",
@@ -81,18 +75,6 @@ export async function POST(request: Request) {
     }
 
     let balanceSnapshot = await ensureLegacyCreatorBalanceBaseline(admin, user.id);
-
-    if (
-      isLocalPreviewRequest &&
-      (balanceSnapshot?.cashAvailable ?? 0) < LOCAL_WITHDRAWAL_PREVIEW_BALANCE
-    ) {
-      const delta = LOCAL_WITHDRAWAL_PREVIEW_BALANCE - (balanceSnapshot?.cashAvailable ?? 0);
-      if (delta > 0) {
-        balanceSnapshot = await applyUserBalanceDelta(admin, user.id, {
-          cashAvailable: delta,
-        });
-      }
-    }
 
     const availableToRequest = Math.max(balanceSnapshot?.cashAvailable ?? 0, 0);
 

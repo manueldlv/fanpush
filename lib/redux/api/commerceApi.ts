@@ -115,8 +115,6 @@ const buildError = (error: unknown, fallback: string) => ({
   error: error instanceof Error ? error.message : fallback,
 });
 
-const LOCAL_WITHDRAWAL_PREVIEW_BALANCE = 180_000;
-
 const getAccessToken = async () => {
   const supabase = getSupabaseClient();
   if (!supabase) {
@@ -311,7 +309,7 @@ export const commerceApi = createApi({
               day: "2-digit",
               month: "short",
             });
-            const fallbackCover = resolvePublicUrl(supabase, post?.media_url ?? null) ?? "https://picsum.photos/seed/placeholder/600/600";
+            const fallbackCover = resolvePublicUrl(supabase, post?.media_url ?? null) ?? "";
             mapped.set(albumId, {
               id: albumId,
               title: album?.description || post?.caption || "Publicación",
@@ -319,11 +317,13 @@ export const commerceApi = createApi({
               date,
               price: album?.price ? Number(album.price) : 0,
               cover: albumCovers[0] ?? fallbackCover,
-              covers: albumCovers.length > 0 ? albumCovers : [fallbackCover],
+              covers: albumCovers.length > 0 ? albumCovers : fallbackCover ? [fallbackCover] : [],
               media:
                 albumMedia.length > 0
                   ? albumMedia
-                  : [{ url: fallbackCover, kind: "image" as const }],
+                  : fallbackCover
+                    ? [{ url: fallbackCover, kind: "image" as const }]
+                    : [],
               status: row.status ?? "Desbloqueado",
             });
           });
@@ -564,14 +564,7 @@ export const commerceApi = createApi({
           }, 0);
           const currentAvailableToWithdraw = Number(balanceRow.data?.cash_available ?? 0);
           const reservedToWithdraw = activeReserved;
-          const isLocalPreview =
-            typeof window !== "undefined" &&
-            (window.location.hostname === "127.0.0.1" ||
-              window.location.hostname === "localhost");
-          const availableToWithdraw =
-            isLocalPreview && currentAvailableToWithdraw < LOCAL_WITHDRAWAL_PREVIEW_BALANCE
-              ? LOCAL_WITHDRAWAL_PREVIEW_BALANCE
-              : currentAvailableToWithdraw;
+          const availableToWithdraw = currentAvailableToWithdraw;
 
           return {
             data: {

@@ -239,24 +239,14 @@ export default function NotificacionesPage() {
       <SidebarLeft />
 
       <main className="mx-auto w-full max-w-[1540px] px-3 pb-24 pt-3 sm:px-4 md:pl-[280px] md:pr-8 md:pt-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-[25px] font-semibold leading-none text-zinc-950">
-              Notificaciones
-            </h1>
-            <p className="mt-2 text-[15px] text-[#464646]">
-              Seguimiento de ventas, mensajes y actividad reciente.
-            </p>
-          </div>
-        </div>
 
         {error ? (
-          <div className="mt-6 rounded-[5px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="rounded-[5px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {errorMessage}
           </div>
         ) : null}
 
-        <div className="mt-4 overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
+        <div className="overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
           <div className="flex items-center justify-between border-b border-[#E0E0E0] px-5 py-4">
             <div>
               <div className="text-[20px] font-semibold text-zinc-950">

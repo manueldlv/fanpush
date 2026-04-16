@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ChangeEvent } from "react";
+import { useRouter } from "next/navigation";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
 import {
@@ -111,6 +112,7 @@ function DocumentUploadCard({
 }
 
 export default function AutorSolicitudPage() {
+  const router = useRouter();
   const { data: applicationData, isLoading: loading } = useGetAuthorApplicationQuery();
   const [submitAuthorApplication] = useSubmitAuthorApplicationMutation();
   const [status, setStatus] = useState<"idle" | "pending" | "approved" | "rejected">("idle");
@@ -145,8 +147,22 @@ export default function AutorSolicitudPage() {
 
   useEffect(() => {
     const current = applicationData?.current;
-    if (!current) return;
-    setStatus(applicationData.status);
+    setStatus(applicationData?.status ?? "idle");
+    if (!current || applicationData?.status === "rejected") {
+      setFullName("");
+      setBirthDate("");
+      setDocumentType("DNI");
+      setDocumentNumber("");
+      setCountry("Argentina");
+      setProvince("");
+      setCity("");
+      setAddress("");
+      setFrontPreviewUrl(null);
+      setBackPreviewUrl(null);
+      setFrontFile(null);
+      setBackFile(null);
+      return;
+    }
     setFullName(current.fullName);
     setBirthDate(current.birthDate);
     setDocumentType(current.documentType);
@@ -158,6 +174,12 @@ export default function AutorSolicitudPage() {
     setFrontPreviewUrl(current.documentFrontUrl);
     setBackPreviewUrl(current.documentBackUrl);
   }, [applicationData]);
+
+  useEffect(() => {
+    if (applicationData?.status === "approved") {
+      router.replace("/crear");
+    }
+  }, [applicationData?.status, router]);
 
   useEffect(() => {
     return () => {
@@ -302,10 +324,7 @@ export default function AutorSolicitudPage() {
       <div className="flex h-full md:pl-60">
         <div className="mx-auto flex h-full w-full max-w-[980px] flex-col gap-6 overflow-y-auto px-4 py-6 md:px-6 md:py-8">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-400">
-              FanPush
-            </div>
-            <h1 className="mt-3 text-3xl font-semibold">Convertirme en autor</h1>
+            <h1 className="text-[32px] font-semibold leading-none">Convertirme en autor</h1>
             <p className="mt-2 max-w-[720px] text-sm text-zinc-500">
               Para vender contenido debes verificar tu identidad, ser mayor de 18 años
               y subir frente y dorso de tu documento.
@@ -332,6 +351,17 @@ export default function AutorSolicitudPage() {
               {status === "approved" ? (
                 <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
                   Tu cuenta ya está aprobada para crear y vender contenido.
+                </div>
+              ) : status === "pending" ? (
+                <div className="rounded-[20px] border border-violet-200 bg-violet-50 px-5 py-5 text-sm text-violet-800">
+                  <div className="text-base font-semibold text-zinc-900">
+                    Tu solicitud fue enviada
+                  </div>
+                  <p className="mt-2 max-w-[640px] leading-6 text-[#464646]">
+                    Ya recibimos tu documentación. Nuestro equipo va a revisarla y esta
+                    pantalla se va a actualizar automáticamente cuando tengas una
+                    respuesta.
+                  </p>
                 </div>
               ) : (
                 <>
@@ -376,14 +406,14 @@ export default function AutorSolicitudPage() {
                       title="Frente del documento"
                       previewUrl={frontPreviewUrl}
                       fileName={frontFile?.name ?? null}
-                      disabled={submitting || status === "pending"}
+                      disabled={submitting}
                       onChange={handleDocumentSelected("front")}
                     />
                     <DocumentUploadCard
                       title="Dorso del documento"
                       previewUrl={backPreviewUrl}
                       fileName={backFile?.name ?? null}
-                      disabled={submitting || status === "pending"}
+                      disabled={submitting}
                       onChange={handleDocumentSelected("back")}
                     />
                   </div>
@@ -402,14 +432,12 @@ export default function AutorSolicitudPage() {
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    disabled={submitting || status === "pending"}
+                    disabled={submitting}
                     className="fanpush-button-primary mt-6 rounded-[18px] px-5 py-3 text-sm disabled:opacity-60"
                   >
                     {submitting
                       ? "Enviando..."
-                      : status === "pending"
-                        ? "Solicitud en revisión"
-                        : status === "rejected"
+                      : status === "rejected"
                           ? "Reenviar solicitud"
                           : "Enviar solicitud"}
                   </button>

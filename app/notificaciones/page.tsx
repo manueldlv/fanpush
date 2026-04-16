@@ -158,7 +158,7 @@ function NotificationRow({
             {tone.label}
           </span>
           <span className="text-[12px] font-medium text-zinc-400">
-            {item.dateLabel}
+            {item.dateLabel} · {item.timeLabel}
           </span>
           {!item.isRead ? (
             <span className="ml-1 h-2 w-2 rounded-full bg-[#ff334b]" aria-hidden="true" />

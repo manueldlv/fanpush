@@ -180,8 +180,9 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
   }
 
   const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const authUser = session?.user ?? null;
   const currentUserId = authUser?.id ?? null;
   const fallbackUsername = resolveFallbackUsername(
     authUser?.email,
@@ -401,7 +402,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
   if (currentUserId && viewedUserId && currentUserId !== viewedUserId) {
     const { data: followRows } = await supabase
       .from("follows")
-      .select("id")
+      .select("follower_id")
       .eq("follower_id", currentUserId)
       .eq("following_id", viewedUserId)
       .limit(1);

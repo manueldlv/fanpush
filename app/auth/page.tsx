@@ -224,6 +224,7 @@ export default function AuthPage() {
   >("idle");
   const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
   const [canResendConfirmation, setCanResendConfirmation] = useState(false);
   const [requestPasswordRecovery] = useRequestPasswordRecoveryMutation();
   const [registerUser] = useRegisterMutation();
@@ -458,6 +459,7 @@ export default function AuthPage() {
           email: normalizedEmail,
           password,
           acceptedTerms: acceptedTerms,
+          referralCode: referralCode || undefined,
         }).unwrap();
 
         setSuccess(
@@ -523,6 +525,12 @@ export default function AuthPage() {
       setResendingConfirmation(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setReferralCode(params.get("ref")?.trim().toLowerCase() ?? "");
+  }, []);
 
   useEffect(() => {
     if (mode !== "register" || forgot || reset) {
@@ -607,6 +615,20 @@ export default function AuthPage() {
       setMode("login");
       if (typeof window !== "undefined") {
         window.history.replaceState({}, "", "/auth");
+      }
+      return;
+    }
+
+    if (search.includes("reset=expired")) {
+      setReset(false);
+      setForgot(true);
+      setMode("login");
+      setError(
+        "El enlace para cambiar la contraseña es inválido o ya expiró. Solicita uno nuevo para continuar.",
+      );
+      setSuccess(null);
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/auth?reset=expired");
       }
       return;
     }

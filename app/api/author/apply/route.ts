@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAuthorApplicationByUserId } from "@/lib/server/repositories/author-applications";
 import { type AuthorApplicationRecord } from "@/lib/authorApplications";
 import { ALLOWED_IMAGE_TYPES, MAX_DOCUMENT_IMAGE_BYTES } from "@/lib/imageFiles";
 import { saveAuthorApplication } from "@/lib/server/repositories/author-applications";
@@ -10,6 +11,33 @@ const getFileExtension = (fileName: string) => {
   if (parts.length < 2) return "jpg";
   return parts.pop() || "jpg";
 };
+
+export async function GET(request: Request) {
+  try {
+    const { admin, user, error } = await getAuthenticatedUser(request);
+    if (error || !admin || !user) {
+      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+    }
+
+    const application = await getAuthorApplicationByUserId(admin, user.id);
+
+    return NextResponse.json({
+      ok: true,
+      status: application?.record?.status ?? "idle",
+      current: application?.record ?? null,
+    });
+  } catch (requestError) {
+    return NextResponse.json(
+      {
+        error:
+          requestError instanceof Error
+            ? requestError.message
+            : "No se pudo cargar la solicitud.",
+      },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(request: Request) {
   try {

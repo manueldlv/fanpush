@@ -21,6 +21,64 @@ export default function AppStateBootstrap() {
   const dispatch = useAppDispatch();
 
   useEffect(() => {
+    let referralFinalizePromise: Promise<void> | null = null;
+
+    const finalizeReferralIfNeeded = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+      if (!session?.access_token || !userId) return;
+      const finalizeKey = `fanpush_referral_finalized:${userId}`;
+      if (window.sessionStorage.getItem(finalizeKey) === "1") return;
+      if (!referralFinalizePromise) {
+        referralFinalizePromise = fetch("/api/referrals/finalize", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        })
+          .then(() => {
+            window.sessionStorage.setItem(finalizeKey, "1");
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            referralFinalizePromise = null;
+          });
+      }
+      await referralFinalizePromise;
+    };
+
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash;
+      const search = window.location.search;
+      const pathname = window.location.pathname;
+      const hasRecoveryToken =
+        hash.includes("type=recovery") ||
+        search.includes("type=recovery") ||
+        search.includes("reset=1");
+      const hasRecoveryError =
+        hash.includes("error_code=otp_expired") ||
+        hash.includes("error=access_denied");
+
+      if ((hasRecoveryToken || hasRecoveryError) && pathname !== "/auth") {
+        const nextUrl = new URL("/auth", window.location.origin);
+        nextUrl.searchParams.set(
+          "reset",
+          hasRecoveryError ? "expired" : "1",
+        );
+        window.location.replace(
+          hasRecoveryError
+            ? `${nextUrl.pathname}${nextUrl.search}`
+            : `${nextUrl.pathname}${nextUrl.search}${hash || ""}`,
+        );
+        return;
+      }
+    }
+
     const updateDeviceRuntime = () => {
       const prefersReducedMotionQuery = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
@@ -58,6 +116,7 @@ export default function AppStateBootstrap() {
     refreshViewer();
     refreshNotifications();
     updateDeviceRuntime();
+    void finalizeReferralIfNeeded();
 
     APP_REFRESH_EVENTS.forEach((eventName) =>
       window.addEventListener(eventName, refreshViewer),
@@ -86,6 +145,7 @@ export default function AppStateBootstrap() {
     const authSubscription = supabase?.auth.onAuthStateChange(() => {
       refreshViewer();
       refreshNotifications();
+      void finalizeReferralIfNeeded();
     });
 
     return () => {

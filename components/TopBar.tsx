@@ -133,7 +133,9 @@ function NotificationPreviewItem({
           >
             {tone.label}
           </span>
-          <span className="text-[11px] text-zinc-400">{item.dateLabel}</span>
+          <span className="text-[11px] text-zinc-400">
+            {item.dateLabel} · {item.timeLabel}
+          </span>
           {!item.isRead ? <span className="h-2 w-2 rounded-full bg-zinc-950" /> : null}
         </div>
         <p className="mt-2 line-clamp-2 text-[13px] leading-[1.35] text-zinc-900">

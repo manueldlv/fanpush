@@ -134,6 +134,21 @@ type AdminDashboardData = {
       createdAt: string | null;
       role: "author" | "user";
       authorStatus: "idle" | "pending" | "approved" | "rejected";
+      authorApplication: {
+        fullName: string;
+        birthDate: string;
+        documentType: string;
+        documentNumber: string;
+        country: string;
+        province: string;
+        city: string;
+        address: string;
+        documentFrontUrl: string;
+        documentBackUrl: string;
+        status: "pending" | "approved" | "rejected";
+        submittedAt: string;
+        archived?: boolean;
+      } | null;
       followersCount: number;
       followingCount: number;
       followers: Array<{
@@ -146,6 +161,17 @@ type AdminDashboardData = {
         username: string;
         avatar: string | null;
       }>;
+      referralsCount: number;
+      referrals: Array<{
+        id: string;
+        username: string;
+        avatar: string | null;
+        fullName: string;
+        referredAt: string | null;
+      }>;
+      referralTierLabel: string;
+      referralCreatorSharePercent: number;
+      referralPlatformSharePercent: number;
       commissionPercent: number;
       salesGross: number;
       creatorNet: number;
@@ -295,13 +321,16 @@ export default function AdminPage() {
     AdminDashboardData["commerce"]["users"][number] | null
   >(null);
   const [selectedUserView, setSelectedUserView] = useState<
-    "overview" | "posts" | "followers" | "following"
+    "overview" | "details" | "posts" | "followers" | "following" | "referrals"
   >("overview");
   const [selectedUserPost, setSelectedUserPost] = useState<
     AdminDashboardData["commerce"]["users"][number]["posts"][number] | null
   >(null);
   const [selectedUserPostMediaIndex, setSelectedUserPostMediaIndex] = useState(0);
   const [updatingUserCommissionId, setUpdatingUserCommissionId] = useState<string | null>(
+    null,
+  );
+  const [updatingUserAuthorStatusId, setUpdatingUserAuthorStatusId] = useState<string | null>(
     null,
   );
   const [commissionDraft, setCommissionDraft] = useState(70);
@@ -1004,6 +1033,71 @@ export default function AdminPage() {
       );
     } finally {
       setUpdatingUserCommissionId(null);
+    }
+  };
+
+  const handleDemoteAuthor = async (userId: string) => {
+    try {
+      setUpdatingUserAuthorStatusId(userId);
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch(`/api/admin/users/${userId}/author-status`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      const result = (await response.json()) as {
+        error?: string;
+        role?: "user";
+        authorStatus?: "rejected";
+      };
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo quitar el acceso de autor.");
+      }
+
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              commerce: {
+                ...prev.commerce,
+                users: prev.commerce.users.map((item) =>
+                  item.id === userId
+                    ? {
+                        ...item,
+                        role: "user",
+                        authorStatus: "rejected",
+                      }
+                    : item,
+                ),
+              },
+            }
+          : prev,
+      );
+
+      setSelectedUser((prev) =>
+        prev && prev.id === userId
+          ? {
+              ...prev,
+              role: "user",
+              authorStatus: "rejected",
+            }
+          : prev,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo quitar el acceso de autor.",
+      );
+    } finally {
+      setUpdatingUserAuthorStatusId(null);
     }
   };
 
@@ -2958,16 +3052,27 @@ export default function AdminPage() {
             <div className="flex flex-wrap gap-2 border-b border-zinc-200 px-6 py-4">
               {[
                 { id: "overview", label: "Resumen" },
+                { id: "details", label: "Datos" },
                 { id: "posts", label: `Posts (${selectedUser.posts.length})` },
                 { id: "followers", label: `Seguidores (${selectedUser.followersCount})` },
                 { id: "following", label: `Seguidos (${selectedUser.followingCount})` },
+                {
+                  id: "referrals",
+                  label: `Referidos (${selectedUser.referralsCount})`,
+                },
               ].map((view) => (
                 <button
                   key={view.id}
                   type="button"
                   onClick={() =>
                     setSelectedUserView(
-                      view.id as "overview" | "posts" | "followers" | "following",
+                      view.id as
+                        | "overview"
+                        | "details"
+                        | "posts"
+                        | "followers"
+                        | "following"
+                        | "referrals",
                     )
                   }
                   className={cn(
@@ -3012,6 +3117,18 @@ export default function AdminPage() {
                         <div className="mt-1 text-base font-semibold text-zinc-950">
                           {selectedUser.role === "author" ? "Autor" : "Usuario normal"}
                         </div>
+                        {selectedUser.role === "author" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDemoteAuthor(selectedUser.id)}
+                            disabled={updatingUserAuthorStatusId === selectedUser.id}
+                            className="mt-3 w-full rounded-[14px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-60"
+                          >
+                            {updatingUserAuthorStatusId === selectedUser.id
+                              ? "Quitando acceso de autor..."
+                              : "Quitar status de autor"}
+                          </button>
+                        ) : null}
                         <div className="mt-3 text-sm font-medium text-zinc-600">
                           Comisión actual para el creador
                         </div>
@@ -3079,6 +3196,169 @@ export default function AdminPage() {
                         </button>
                       </div>
                     </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedUserView === "details" ? (
+                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="rounded-[24px] border border-zinc-200 p-5">
+                    <div className="text-lg font-semibold text-zinc-950">Datos del usuario</div>
+                    <div className="mt-1 text-sm text-zinc-500">
+                      Información básica del registro y estado actual de la cuenta.
+                    </div>
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                        <div className="text-xs font-medium text-zinc-500">Username</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-950">
+                          @{selectedUser.username}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                        <div className="text-xs font-medium text-zinc-500">Tipo de cuenta</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-950">
+                          {selectedUser.role === "author" ? "Autor" : "Usuario común"}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
+                        <div className="text-xs font-medium text-zinc-500">Nombre completo</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-950">
+                          {selectedUser.fullName || "Sin nombre cargado"}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
+                        <div className="text-xs font-medium text-zinc-500">Email</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-950">
+                          {selectedUser.email || "Sin email disponible"}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
+                        <div className="text-xs font-medium text-zinc-500">Fecha de registro</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-950">
+                          {selectedUser.createdAt
+                            ? new Date(selectedUser.createdAt).toLocaleString("es-AR")
+                            : "Sin fecha disponible"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-zinc-200 p-5">
+                    <div className="text-lg font-semibold text-zinc-950">Documentación y domicilio</div>
+                    <div className="mt-1 text-sm text-zinc-500">
+                      Si el usuario es o fue autor, acá ves la última solicitud enviada con todos sus datos.
+                    </div>
+
+                    {selectedUser.authorApplication ? (
+                      <div className="mt-5 space-y-5">
+                        <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-medium text-zinc-500">Estado</div>
+                              <div className="mt-1 text-sm font-semibold text-zinc-950">
+                                {selectedUser.authorApplication.status === "approved"
+                                  ? "Aprobada"
+                                  : selectedUser.authorApplication.status === "rejected"
+                                    ? "Rechazada"
+                                    : "Pendiente"}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-medium text-zinc-500">Enviada</div>
+                              <div className="mt-1 text-sm font-semibold text-zinc-950">
+                                {new Date(
+                                  selectedUser.authorApplication.submittedAt,
+                                ).toLocaleString("es-AR")}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                            <div className="text-xs font-medium text-zinc-500">Nombre completo</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {selectedUser.authorApplication.fullName}
+                            </div>
+                          </div>
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                            <div className="text-xs font-medium text-zinc-500">Nacimiento</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {new Date(
+                                selectedUser.authorApplication.birthDate,
+                              ).toLocaleDateString("es-AR")}
+                            </div>
+                          </div>
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                            <div className="text-xs font-medium text-zinc-500">Documento</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {selectedUser.authorApplication.documentType}{" "}
+                              {selectedUser.authorApplication.documentNumber}
+                            </div>
+                          </div>
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                            <div className="text-xs font-medium text-zinc-500">País</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {selectedUser.authorApplication.country}
+                            </div>
+                          </div>
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                            <div className="text-xs font-medium text-zinc-500">Provincia</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {selectedUser.authorApplication.province}
+                            </div>
+                          </div>
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
+                            <div className="text-xs font-medium text-zinc-500">Ciudad</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {selectedUser.authorApplication.city}
+                            </div>
+                          </div>
+                          <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
+                            <div className="text-xs font-medium text-zinc-500">Dirección</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-950">
+                              {selectedUser.authorApplication.address}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          {[
+                            {
+                              label: "Frente del DNI",
+                              url: selectedUser.authorApplication.documentFrontUrl,
+                            },
+                            {
+                              label: "Dorso del DNI",
+                              url: selectedUser.authorApplication.documentBackUrl,
+                            },
+                          ].map((item) => (
+                            <a
+                              key={item.label}
+                              href={item.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="overflow-hidden rounded-[18px] border border-zinc-200 bg-zinc-50 transition hover:border-zinc-300"
+                            >
+                              <div className="border-b border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-950">
+                                {item.label}
+                              </div>
+                              <div className="aspect-[4/3] bg-white p-3">
+                                <img
+                                  src={item.url}
+                                  alt={item.label}
+                                  className="h-full w-full rounded-[14px] object-cover"
+                                />
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-5 rounded-[18px] border border-dashed border-zinc-200 px-4 py-10 text-center text-sm text-zinc-500">
+                        Este usuario no tiene documentación o solicitud de autor cargada.
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -3206,6 +3486,73 @@ export default function AdminPage() {
                         </div>
                       ))
                     )}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedUserView === "referrals" ? (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <StatCard
+                      label="Referidos efectivos"
+                      value={selectedUser.referralsCount}
+                      tone="blue"
+                    />
+                    <StatCard
+                      label="Nivel actual"
+                      value={selectedUser.referralTierLabel}
+                    />
+                    <StatCard
+                      label="Split actual"
+                      value={`${selectedUser.referralCreatorSharePercent}% / ${selectedUser.referralPlatformSharePercent}%`}
+                    />
+                  </div>
+
+                  <div className="rounded-[24px] border border-zinc-200 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-lg font-semibold text-zinc-950">
+                          Usuarios referidos
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          Personas que llegaron a la plataforma usando el link de este usuario.
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
+                        {selectedUser.referralsCount}
+                      </div>
+                    </div>
+                    <div className="mt-4 max-h-[58vh] space-y-2 overflow-auto pr-1">
+                      {selectedUser.referrals.length === 0 ? (
+                        <div className="rounded-[18px] border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
+                          Este usuario todavía no trajo referidos efectivos.
+                        </div>
+                      ) : (
+                        selectedUser.referrals.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between gap-4 rounded-[18px] bg-zinc-50 px-4 py-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <UserAvatar src={item.avatar} alt={item.username} />
+                              <div>
+                                <div className="text-sm font-semibold text-zinc-950">
+                                  @{item.username}
+                                </div>
+                                <div className="text-sm text-zinc-500">
+                                  {item.fullName || "Sin nombre cargado"}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right text-sm text-zinc-500">
+                              {item.referredAt
+                                ? new Date(item.referredAt).toLocaleString("es-AR")
+                                : "Sin fecha"}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : null}

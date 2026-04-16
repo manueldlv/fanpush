@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
+  Bookmark,
   Compass,
   Wallet,
   Home,
@@ -229,6 +230,13 @@ export default function SidebarLeft() {
                 <ShoppingBag className={iconClass(pathname === "/compras")} />,
                 "Mis compras",
               )}
+            </Link>
+            <Link
+              href="/favoritos"
+              className={itemClass(pathname === "/favoritos")}
+            >
+              <Bookmark className={iconClass(pathname === "/favoritos")} />
+              <span>Favoritos</span>
             </Link>
             <Link
               href="/ventas"

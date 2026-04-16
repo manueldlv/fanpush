@@ -22,6 +22,7 @@ export type NotificationActivityItem = {
   text: string;
   createdAt: string;
   dateLabel: string;
+  timeLabel: string;
   avatar: string | null;
   isRead: boolean;
   action: { label: string; href: string } | null;
@@ -60,6 +61,12 @@ const buildDateLabel = (value: string) =>
   new Date(value).toLocaleDateString("es-AR", {
     day: "2-digit",
     month: "short",
+  });
+
+const buildTimeLabel = (value: string) =>
+  new Date(value).toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
 const buildActivityAction = ({
@@ -144,8 +151,20 @@ export const listUserNotificationActivity = async (
   }
 
   const actorMap = new Map((actors ?? []).map((row) => [row.id, row]));
+  const seenFollowActors = new Set<string>();
+  const dedupedRows = filtered.filter((row) => {
+    if (row.type !== "follow" || !row.actor_id) {
+      return true;
+    }
+    const key = `${row.type}:${row.actor_id}`;
+    if (seenFollowActors.has(key)) {
+      return false;
+    }
+    seenFollowActors.add(key);
+    return true;
+  });
 
-  return filtered.map((row) => {
+  return dedupedRows.map((row) => {
     const actor = row.actor_id ? actorMap.get(row.actor_id) : null;
     const text = SYSTEM_ACTIVITY_TYPES.has(row.type ?? "")
       ? `FanPush ${row.message ?? ""}`
@@ -157,6 +176,7 @@ export const listUserNotificationActivity = async (
       text,
       createdAt: row.created_at,
       dateLabel: buildDateLabel(row.created_at),
+      timeLabel: buildTimeLabel(row.created_at),
       avatar: SYSTEM_ACTIVITY_TYPES.has(row.type ?? "")
         ? null
         : resolvePublicImageUrl(admin, actor?.avatar_url ?? null),

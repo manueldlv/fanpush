@@ -31,6 +31,10 @@ import {
   getCreatorShareFromProfile,
   parseUserCommissionProfile,
 } from "@/lib/userCommission";
+import {
+  getPlatformShareForReferralCount,
+  getReferralTier,
+} from "@/lib/referrals";
 
 export async function GET(request: Request) {
   try {
@@ -67,6 +71,7 @@ export async function GET(request: Request) {
       followsRowsResult,
       allAlbumsResult,
       commissionRowsResult,
+      userReferralsRowsResult,
     ] = await Promise.all([
       admin.from("users").select("id", { count: "exact", head: true }),
       admin.from("albums").select("id", { count: "exact", head: true }),
@@ -158,6 +163,10 @@ export async function GET(request: Request) {
         .from("user_commission_profiles")
         .select("user_id,creator_share_rate,platform_share_rate,created_at")
         .order("created_at", { ascending: false }),
+      admin
+        .from("user_referrals")
+        .select("referrer_user_id,referred_user_id,created_at")
+        .order("created_at", { ascending: false }),
     ]);
 
     const purchasePostIds = Array.from(
@@ -183,6 +192,22 @@ export async function GET(request: Request) {
         .map((row) => [row.user_id, parsePayoutProfile(row.message)] as const)
         .filter((entry) => Boolean(entry[1])),
     );
+    const referralRows = userReferralsRowsResult.data ?? [];
+    const referralsByUser = new Map<
+      string,
+      Array<{
+        referredUserId: string;
+        createdAt: string | null;
+      }>
+    >();
+    referralRows.forEach((row) => {
+      const current = referralsByUser.get(row.referrer_user_id) ?? [];
+      current.push({
+        referredUserId: row.referred_user_id,
+        createdAt: row.created_at ?? null,
+      });
+      referralsByUser.set(row.referrer_user_id, current);
+    });
     const commissionMap = new Map(
       (commissionRowsResult.data ?? [])
         .map(
@@ -335,6 +360,34 @@ export async function GET(request: Request) {
         const creatorNet = totalGross * creatorShare;
         const platformFee = totalGross - creatorNet;
         const authorStatus = authorStatusMap.get(row.id) ?? "idle";
+        const latestAuthorApplication =
+          authorApplications.find((entry) => entry.userId === row.id)?.parsed ?? null;
+        const referralEntries = referralsByUser.get(row.id) ?? [];
+        const referralCount = referralEntries.length;
+        const referralTier = getReferralTier(referralCount);
+        const referralCreatorSharePercent = Math.round(
+          creatorShare * 100,
+        );
+        const referralPlatformSharePercent = commissionProfile
+          ? Math.round((commissionProfile.platformShare ?? 0.3) * 100)
+          : Math.round(getPlatformShareForReferralCount(referralCount) * 100);
+        const referrals = referralEntries
+          .map((entry) => {
+            const referredUser = userMap.get(entry.referredUserId);
+            const referredProfile = profileMap.get(entry.referredUserId);
+            return {
+              id: entry.referredUserId,
+              username: referredUser?.username ?? "usuario",
+              avatar: referredUser?.avatar_url
+                ? resolveAvatar(referredUser.avatar_url)
+                : null,
+              fullName: referredProfile?.full_name ?? "",
+              referredAt: entry.createdAt,
+            };
+          })
+          .sort((a, b) =>
+            (b.referredAt ?? "").localeCompare(a.referredAt ?? ""),
+          );
 
         return {
           id: row.id,
@@ -345,10 +398,16 @@ export async function GET(request: Request) {
           createdAt: profile?.created_at ?? null,
           role: authorStatus === "approved" ? "author" : "user",
           authorStatus,
+          authorApplication: latestAuthorApplication,
           followersCount: followers.length,
           followingCount: following.length,
           followers,
           following,
+          referralsCount: referralCount,
+          referrals,
+          referralTierLabel: referralTier.label,
+          referralCreatorSharePercent,
+          referralPlatformSharePercent,
           commissionPercent: Math.round(creatorShare * 100),
           salesGross: totalGross,
           creatorNet,

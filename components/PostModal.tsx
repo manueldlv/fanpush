@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import UserAvatar from "@/components/UserAvatar";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
+import { buildPostSharePath } from "@/lib/postShare";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import {
   applyResolvedMediaAccess,
   type ResolvedAccessMedia,
@@ -45,6 +48,9 @@ type PostModalProps = {
   onDelete?: (postId: string) => void | Promise<void>;
   onPurchase?: (postId: string) => void | boolean | Promise<void | boolean>;
   onTip?: (post: Post) => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: (post: Post) => void;
+  onShare?: (post: Post) => void;
 };
 
 export default function PostModal({
@@ -54,7 +60,11 @@ export default function PostModal({
   onDelete,
   onPurchase,
   onTip,
+  isFavorite = false,
+  onToggleFavorite,
+  onShare,
 }: PostModalProps) {
+  const router = useRouter();
   const [index, setIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -494,24 +504,45 @@ export default function PostModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    onToggleFavorite?.(post);
+                    setMenuOpen(false);
+                  }}
                   className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
                 >
-                  Añadir a favoritos
+                  {isFavorite ? "Quitar de favoritos" : "Añadir a favoritos"}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    router.push(buildPostSharePath(post));
+                    setMenuOpen(false);
+                    onClose();
+                  }}
                   className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
                 >
                   Ir a la publicación
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    router.push(buildUserProfileHref(post.author));
+                    setMenuOpen(false);
+                    onClose();
+                  }}
                   className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
                 >
                   Información sobre esta cuenta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onShare?.(post);
+                    setMenuOpen(false);
+                  }}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+                >
+                  Compartir
                 </button>
               </>
             ) : (

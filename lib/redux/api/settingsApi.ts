@@ -1,6 +1,11 @@
 import { createApi, fakeBaseQuery } from "@reduxjs/toolkit/query/react";
 import type { PayoutProfile } from "@/lib/payouts";
 import {
+  buildReferralLink,
+  getNextReferralTierTarget,
+  getReferralTier,
+} from "@/lib/referrals";
+import {
   buildDefaultNotificationPreferences,
   parseNotificationPreferences,
   serializeNotificationPreferences,
@@ -25,6 +30,30 @@ import {
   USER_META_KEYS,
 } from "@/lib/userMeta";
 import { getSupabaseClient } from "@/lib/supabase";
+import {
+  getCreatorShareFromProfile,
+  getPlatformShareFromProfile,
+  getLatestUserCommissionProfile,
+} from "@/lib/userCommission";
+
+type SettingsReferralUser = {
+  id: string;
+  username: string;
+  fullName: string;
+  avatarUrl: string | null;
+  createdAt: string | null;
+};
+
+type SettingsReferralData = {
+  code: string;
+  link: string;
+  count: number;
+  creatorShareRate: number;
+  platformShareRate: number;
+  tierLabel: string;
+  nextTierTarget: number | null;
+  referredUsers: SettingsReferralUser[];
+};
 
 type SettingsData = {
   userId: string | null;
@@ -37,6 +66,7 @@ type SettingsData = {
   instagram: string;
   payoutProfile: PayoutProfile | null;
   notificationPreferences: NotificationPreferences;
+  referrals: SettingsReferralData;
 };
 
 type UpdateProfileArg = {
@@ -93,6 +123,16 @@ const loadSettings = async (): Promise<SettingsData> => {
       instagram: "",
       payoutProfile: null,
       notificationPreferences: buildDefaultNotificationPreferences(),
+      referrals: {
+        code: "",
+        link: "",
+        count: 0,
+        creatorShareRate: 0.7,
+        platformShareRate: 0.3,
+        tierLabel: getReferralTier(0).label,
+        nextTierTarget: getNextReferralTierTarget(0),
+        referredUsers: [],
+      },
     };
   }
 
@@ -150,6 +190,46 @@ const loadSettings = async (): Promise<SettingsData> => {
     buildDefaultNotificationPreferences();
   const rawAvatar = userRow?.avatar_url ?? null;
   const resolvedAvatar = resolveAvatarUrl(supabase, rawAvatar);
+  const { data: referralRows } = await supabase
+    .from("user_referrals")
+    .select("referred_user_id, created_at")
+    .eq("referrer_user_id", userId)
+    .order("created_at", { ascending: false });
+  const referredUserIds = (referralRows ?? []).map((row) => row.referred_user_id);
+  const referredUsersMap = new Map<string, SettingsReferralUser>();
+  if (referredUserIds.length > 0) {
+    const [{ data: referredUsersRows }, { data: referredProfilesRows }] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id, username, avatar_url")
+        .in("id", referredUserIds),
+      supabase
+        .from("profiles")
+        .select("id, full_name, created_at")
+        .in("id", referredUserIds),
+    ]);
+
+    const referredProfileMap = new Map(
+      (referredProfilesRows ?? []).map((row) => [row.id, row]),
+    );
+
+    (referredUsersRows ?? []).forEach((row) => {
+      const profile = referredProfileMap.get(row.id);
+      referredUsersMap.set(row.id, {
+        id: row.id,
+        username: row.username ?? "usuario",
+        fullName: profile?.full_name ?? "",
+        avatarUrl: resolveAvatarUrl(supabase, row.avatar_url ?? null),
+        createdAt: profile?.created_at ?? null,
+      });
+    });
+  }
+
+  const referralCount = referralRows?.length ?? 0;
+  const tier = getReferralTier(referralCount);
+  const latestCommission = await getLatestUserCommissionProfile(supabase, userId);
+  const creatorShareRate = getCreatorShareFromProfile(latestCommission?.record);
+  const platformShareRate = getPlatformShareFromProfile(latestCommission?.record);
 
   return {
     userId,
@@ -162,6 +242,21 @@ const loadSettings = async (): Promise<SettingsData> => {
     instagram: profileDetails?.instagram ?? "",
     payoutProfile,
     notificationPreferences,
+    referrals: {
+      code: userRow?.username ?? "",
+      link:
+        typeof window !== "undefined" && userRow?.username
+          ? buildReferralLink(window.location.origin, userRow.username)
+          : "",
+      count: referralCount,
+      creatorShareRate,
+      platformShareRate,
+      tierLabel: tier.label,
+      nextTierTarget: getNextReferralTierTarget(referralCount),
+      referredUsers: (referralRows ?? [])
+        .map((row) => referredUsersMap.get(row.referred_user_id))
+        .filter(Boolean) as SettingsReferralUser[],
+    },
   };
 };
 

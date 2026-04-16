@@ -6,10 +6,16 @@ import MediaImage from "@/components/MediaImage";
 import { useEffect, useMemo, useState } from "react";
 import PostModal from "@/components/PostModal";
 import PurchaseSuccessToast from "@/components/PurchaseSuccessToast";
+import SharePostModal from "@/components/SharePostModal";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import { getSessionAccessTokenWithRetry, PURCHASE_REFRESH_FLAG } from "@/lib/auth";
+import {
+  FAVORITES_UPDATED_EVENT,
+  isFavoritePost,
+  toggleFavoritePost,
+} from "@/lib/favorites";
 import {
   getPremiumPathFromPreview,
   PREMIUM_MEDIA_BUCKET,
@@ -23,6 +29,7 @@ import {
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { useGetFeedQuery } from "@/lib/redux/api/feedApi";
 import { setFeedPosts } from "@/lib/redux/slices/postsSlice";
+import { buildPostSharePath } from "@/lib/postShare";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
@@ -145,6 +152,7 @@ export default function FeedLayout() {
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [sharePost, setSharePost] = useState<Post | null>(null);
   const [reportModal, setReportModal] = useState<{
     albumId: string;
     ownerId: string;
@@ -161,6 +169,7 @@ export default function FeedLayout() {
     new Set(),
   );
   const [loading, setLoading] = useState(false);
+  const [favoritePostIds, setFavoritePostIds] = useState<Set<string>>(new Set());
   const [tipTarget, setTipTarget] = useState<{
     userId: string;
     label: string;
@@ -334,6 +343,29 @@ export default function FeedLayout() {
     return () => window.removeEventListener("keydown", handler);
   }, [menuPostId]);
 
+  useEffect(() => {
+    if (!currentUserId) {
+      setFavoritePostIds(new Set());
+      return;
+    }
+
+    const syncFavorites = () => {
+      setFavoritePostIds(
+        new Set(
+          posts
+            .filter((post) => isFavoritePost(currentUserId, post.id))
+            .map((post) => post.id),
+        ),
+      );
+    };
+
+    syncFavorites();
+    window.addEventListener(FAVORITES_UPDATED_EVENT, syncFavorites);
+    return () => {
+      window.removeEventListener(FAVORITES_UPDATED_EVENT, syncFavorites);
+    };
+  }, [currentUserId, posts]);
+
   const toggleFollow = async (userId: string) => {
     if (!currentUserId || userId === currentUserId) return;
     const supabase = getSupabaseClient();
@@ -454,6 +486,21 @@ export default function FeedLayout() {
     setTipTarget({
       userId: post.userId,
       label: post.author,
+    });
+  };
+
+  const handleSharePost = (post: Post) => {
+    setSharePost(post);
+  };
+
+  const handleToggleFavorite = (post: Post) => {
+    if (!currentUserId) return;
+    const nextFavoriteState = toggleFavoritePost(currentUserId, post);
+    setFavoritePostIds((prev) => {
+      const next = new Set(prev);
+      if (nextFavoriteState.favorite) next.add(post.id);
+      else next.delete(post.id);
+      return next;
     });
   };
 
@@ -651,8 +698,17 @@ export default function FeedLayout() {
           onDelete={handleDelete}
           onPurchase={handlePurchase}
           onTip={handleOpenTip}
+          isFavorite={favoritePostIds.has(openPost.id)}
+          onToggleFavorite={handleToggleFavorite}
+          onShare={handleSharePost}
         />
       ) : null}
+      <SharePostModal
+        open={Boolean(sharePost)}
+        post={sharePost}
+        sharePath={sharePost ? buildPostSharePath(sharePost) : null}
+        onClose={() => setSharePost(null)}
+      />
       <TipModal
         open={Boolean(tipTarget)}
         availableBalance={viewerBalance}
@@ -709,21 +765,35 @@ export default function FeedLayout() {
             ) : null}
             <button
               type="button"
-              onClick={() => setMenuPostId(null)}
+              onClick={() => {
+                if (!menuPost) return;
+                handleToggleFavorite(menuPost);
+                setMenuPostId(null);
+              }}
               className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
             >
-              Añadir a favoritos
+              {favoritePostIds.has(menuPost.id)
+                ? "Quitar de favoritos"
+                : "Añadir a favoritos"}
             </button>
             <button
               type="button"
-              onClick={() => setMenuPostId(null)}
+              onClick={() => {
+                if (!menuPost) return;
+                router.push(buildPostSharePath(menuPost));
+                setMenuPostId(null);
+              }}
               className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
             >
               Ir a la publicación
             </button>
             <button
               type="button"
-              onClick={() => setMenuPostId(null)}
+              onClick={() => {
+                if (!menuPost) return;
+                router.push(buildUserProfileHref(menuPost.author));
+                setMenuPostId(null);
+              }}
               className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
             >
               Información sobre esta cuenta
@@ -1096,11 +1166,25 @@ export default function FeedLayout() {
                 </button>
               </div>
               <div className="flex items-center gap-4 text-zinc-900">
-                <button aria-label="Compartir">
+                <button
+                  type="button"
+                  aria-label="Compartir"
+                  onClick={() => handleSharePost(post)}
+                >
                   <Send className="h-6 w-6" />
                 </button>
-                <button aria-label="Guardar">
-                  <Bookmark className="h-6 w-6 text-zinc-900" />
+                <button
+                  type="button"
+                  aria-label="Guardar"
+                  onClick={() => handleToggleFavorite(post)}
+                >
+                  <Bookmark
+                    className={`h-6 w-6 ${
+                      favoritePostIds.has(post.id)
+                        ? "fill-[#5A3EE7] text-[#5A3EE7]"
+                        : "text-zinc-900"
+                    }`}
+                  />
                 </button>
               </div>
             </div>

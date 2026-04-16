@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Ban, Bell, Landmark, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Ban, Bell, Copy, Landmark, User, Users } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
@@ -73,7 +73,7 @@ export default function SettingsPage() {
     ]));
   };
   const [activeTab, setActiveTab] = useState<
-    "profile" | "notifications" | "payments" | "blocked"
+    "profile" | "notifications" | "payments" | "referrals" | "blocked"
   >(
     "profile",
   );
@@ -105,6 +105,7 @@ export default function SettingsPage() {
   const [savingNotifications, setSavingNotifications] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<BlockedChatUser[]>([]);
   const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
+  const [copiedReferralLink, setCopiedReferralLink] = useState(false);
 
   useEffect(() => {
     if (!settingsData) return;
@@ -441,6 +442,14 @@ export default function SettingsPage() {
     JSON.stringify(notificationPreferences) !==
     JSON.stringify(savedNotificationPreferences);
 
+  const referralSummary = settingsData?.referrals;
+  const referralShareLabel = useMemo(() => {
+    if (!referralSummary) return "70% creador / 30% FanPush";
+    return `${Math.round(referralSummary.creatorShareRate * 100)}% creador / ${Math.round(
+      referralSummary.platformShareRate * 100,
+    )}% FanPush`;
+  }, [referralSummary]);
+
   const toggleNotificationPreference = (
     channel: "push" | "email",
     category: NotificationPreferenceCategory,
@@ -564,6 +573,18 @@ export default function SettingsPage() {
                 >
                   <Landmark className="h-4 w-4" />
                   Cobros y retiros
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("referrals")}
+                  className={`flex w-full cursor-pointer items-center gap-3 rounded-[5px] px-3 py-2 text-left text-sm font-semibold transition ${
+                    activeTab === "referrals"
+                      ? "bg-zinc-100 text-zinc-900"
+                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                  }`}
+                >
+                  <Users className="h-4 w-4" />
+                  Referidos
                 </button>
                 <button
                   type="button"
@@ -969,6 +990,131 @@ export default function SettingsPage() {
                   >
                     {savingPayout ? "Guardando..." : "Guardar datos de cobro"}
                   </button>
+                </div>
+              </div>
+            ) : activeTab === "referrals" ? (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-semibold">Referidos</h1>
+                  <p className="text-sm text-zinc-500">
+                    Comparte tu link y gana mejores condiciones a medida que traes
+                    más usuarios a FanPush.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="space-y-6">
+                    <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                      <div className="text-sm font-semibold text-zinc-900">
+                        Tu link de referido
+                      </div>
+                      <p className="mt-2 text-sm text-zinc-500">
+                        Cada persona que se registre con este link queda asociada a
+                        tu panel de referidos.
+                      </p>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <div className="flex-1 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
+                          {referralSummary?.link || "Todavía no hay link disponible."}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!referralSummary?.link}
+                          onClick={async () => {
+                            if (!referralSummary?.link) return;
+                            await navigator.clipboard.writeText(referralSummary.link);
+                            setCopiedReferralLink(true);
+                            window.setTimeout(() => setCopiedReferralLink(false), 1800);
+                          }}
+                          className="rounded-[5px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700 disabled:opacity-50"
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <Copy className="h-4 w-4" />
+                            {copiedReferralLink ? "Copiado" : "Copiar link"}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+                        <div className="text-sm text-zinc-500">Personas referidas</div>
+                        <div className="mt-2 text-3xl font-semibold text-zinc-950">
+                          {referralSummary?.count ?? 0}
+                        </div>
+                      </div>
+                      <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+                        <div className="text-sm text-zinc-500">Nivel actual</div>
+                        <div className="mt-2 text-2xl font-semibold text-zinc-950">
+                          {referralSummary?.tierLabel ?? "Base"}
+                        </div>
+                      </div>
+                      <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+                        <div className="text-sm text-zinc-500">Comisión actual</div>
+                        <div className="mt-2 text-lg font-semibold text-zinc-950">
+                          {referralShareLabel}
+                        </div>
+                      </div>
+                      <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
+                        <div className="text-sm text-zinc-500">Próximo nivel</div>
+                        <div className="mt-2 text-lg font-semibold text-zinc-950">
+                          {referralSummary?.nextTierTarget
+                            ? `${referralSummary.nextTierTarget} referidos`
+                            : "Ya estás en el nivel más alto"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-lg font-semibold">Usuarios referidos</div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          Personas que se registraron usando tu link.
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
+                        {referralSummary?.count ?? 0}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 space-y-3">
+                      {referralSummary?.referredUsers?.length ? (
+                        referralSummary.referredUsers.map((user) => (
+                          <div
+                            key={user.id}
+                            className="flex items-center justify-between gap-4 rounded-[5px] border border-zinc-200 bg-zinc-50 px-4 py-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <UserAvatar
+                                src={user.avatarUrl}
+                                alt={user.username}
+                                sizeClassName="h-11 w-11"
+                                iconClassName="h-4 w-4"
+                              />
+                              <div>
+                                <div className="text-sm font-semibold text-zinc-950">
+                                  @{user.username}
+                                </div>
+                                <div className="text-sm text-zinc-500">
+                                  {user.fullName || "Sin nombre cargado"}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-sm text-zinc-500">
+                              {user.createdAt
+                                ? new Date(user.createdAt).toLocaleDateString("es-AR")
+                                : "Sin fecha"}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-[5px] border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
+                          Todavía no tienes personas registradas con tu link.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : activeTab === "blocked" ? (

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bookmark, Grid, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -146,7 +146,6 @@ export default function PerfilPage({
   forcedUsername?: string;
 } = {}) {
   const [openPost, setOpenPost] = useState<Post | null>(null);
-  const [activeTab, setActiveTab] = useState<"posts" | "purchased">("posts");
   const [tipOpen, setTipOpen] = useState(false);
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null);
   const [avatarCropFileName, setAvatarCropFileName] = useState("avatar.jpg");
@@ -991,100 +990,77 @@ export default function PerfilPage({
             <ProfilePostsSkeleton />
           ) : (
             <div className="rounded-[5px] border border-zinc-200 bg-white p-4 md:p-5">
-              {isOwnProfile ? (
-                <div className="mb-4 flex items-center justify-center gap-5 border-b border-zinc-200 px-4 pt-1 text-sm font-semibold text-zinc-500 md:gap-8 md:px-6">
-                  <button
-                    onClick={() => setActiveTab("posts")}
-                    className={`pb-3 ${
-                      activeTab === "posts"
-                        ? "border-b-2 border-zinc-900 text-zinc-900"
-                        : ""
-                    }`}
-                  >
-                    <Grid className="mr-2 inline h-4 w-4" />
-                    Posteos
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("purchased")}
-                    className={`pb-3 ${
-                      activeTab === "purchased"
-                        ? "border-b-2 border-zinc-900 text-zinc-900"
-                        : ""
-                    }`}
-                  >
-                    <Bookmark className="mr-2 inline h-4 w-4" />
-                    Comprados
-                  </button>
-                </div>
-              ) : null}
-
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-                {activeTab === "posts" ? (
-                  profilePosts.length > 0 ? (
-                    profilePosts.map((post) => {
-                      const firstMedia = post.media[0];
-                      if (!firstMedia) return null;
-                      const isPaidPost =
-                        Number(post.price ?? 0) > 0 ||
-                        post.media.some((item) => item.locked);
-                      return (
-                        <div
-                          key={post.id}
-                          className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
-                          onClick={() => openPostFromProfile(post)}
-                        >
-                          <MediaImage
-                            src={firstMedia.url}
-                            alt={profileName || "Post"}
-                            className="h-full w-full object-cover"
-                            fallbackClassName="h-full w-full border-0"
-                            iconClassName="h-7 w-7"
-                          />
-                          {isPaidPost ? (
-                            <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
-                              <span className="inline-flex items-center gap-1.5">
-                                <Lock className="h-3 w-3" />
-                                {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="col-span-2 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 sm:col-span-3 xl:col-span-5">
-                      <div className="text-[24px] font-semibold text-zinc-900">
-                        Todavía no hay posts
+                {profilePosts.length > 0 ? (
+                  profilePosts.map((post) => {
+                    const firstMedia = post.media[0];
+                    if (!firstMedia) return null;
+                    const isPaidPost =
+                      Number(post.price ?? 0) > 0 ||
+                      post.media.some((item) => item.locked);
+                    return (
+                      <div
+                        key={post.id}
+                        className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
+                        onClick={() => openPostFromProfile(post)}
+                      >
+                        <MediaImage
+                          src={firstMedia.url}
+                          alt={profileName || "Post"}
+                          className="h-full w-full object-cover"
+                          fallbackClassName="h-full w-full border-0"
+                          iconClassName="h-7 w-7"
+                        />
+                        {isPaidPost ? (
+                          <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Lock className="h-3 w-3" />
+                              {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
-                      <p className="mt-3 max-w-[720px] text-[15px] leading-7 text-[#464646]">
-                        Cuando empieces a publicar contenido, tus posteos van a aparecer
-                        acá. Puedes empezar preparando tu perfil de autor y cargar tu
-                        primera publicación.
-                      </p>
-                      <div className="mt-5">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            router.push(
-                              canCreateContent ? "/crear" : "/autor/solicitud",
-                            )
-                          }
-                          className={
-                            canCreateContent
-                              ? "fanpush-button-primary px-5 py-3 text-[14px] font-semibold"
-                              : "rounded-[5px] border border-zinc-200 bg-white px-5 py-3 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
-                          }
-                        >
-                          {canCreateContent
-                            ? "Crear mi primera publicación"
-                            : "Convertirme en autor"}
-                        </button>
-                      </div>
-                    </div>
-                  )
+                    );
+                  })
                 ) : (
-                  <div className="col-span-2 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500 sm:col-span-3">
-                    Aun no tienes compras.
+                  <div className="col-span-2 rounded-[5px] border border-zinc-200 bg-zinc-50 p-6 sm:col-span-3 xl:col-span-5">
+                    <div className="text-[24px] font-semibold text-zinc-900">
+                      {isOwnProfile
+                        ? "Todavía no hay posts"
+                        : `${profileName || "Esta persona"} todavía no tiene posts`}
+                    </div>
+                    <p className="mt-3 max-w-[720px] text-[15px] leading-7 text-[#464646]">
+                      {isOwnProfile
+                        ? canCreateContent
+                          ? "Todavía no subiste contenido. Cuando publiques tus primeros posteos, van a aparecer acá."
+                          : "Todavía no tienes publicaciones. Conviértete en autor para empezar a subir contenido."
+                        : "Si quieres seguir descubriendo creadores, puedes explorar otros perfiles."}
+                    </p>
+                    <div className="mt-5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isOwnProfile) {
+                            router.push("/explorar");
+                            return;
+                          }
+                          router.push(
+                            canCreateContent ? "/crear" : "/autor/solicitud",
+                          );
+                        }}
+                        className={
+                          isOwnProfile && canCreateContent
+                            ? "fanpush-button-primary px-5 py-3 text-[14px] font-semibold"
+                            : "rounded-[5px] border border-zinc-200 bg-white px-5 py-3 text-[14px] font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                        }
+                      >
+                        {isOwnProfile
+                          ? canCreateContent
+                            ? "Comenzar a subir contenido"
+                            : "Convertirme en autor"
+                          : "Explorar perfiles"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -1,5 +1,4 @@
 import { createApi, fakeBaseQuery } from "@reduxjs/toolkit/query/react";
-import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export type AuthorApplicationState = {
@@ -34,16 +33,31 @@ export const authorApi = createApi({
         try {
           const supabase = getSupabaseClient();
           if (!supabase) throw new Error("Falta configurar Supabase.");
-          const { data } = await supabase.auth.getUser();
-          const userId = data.user?.id;
-          if (!userId) return { data: { status: "idle", current: null } };
-          const application = await getAuthorApplicationForUser(supabase, userId);
-          return {
-            data: {
-              status: application?.record?.status ?? "idle",
-              current: application?.record ?? null,
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            return { data: { status: "idle", current: null } };
+          }
+
+          const response = await fetch("/api/author/apply", {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
             },
-          };
+          });
+          const result = (await response.json()) as
+            | AuthorApplicationState
+            | { error?: string };
+
+          if (!response.ok || !("status" in result)) {
+            throw new Error(
+              "error" in result && result.error
+                ? result.error
+                : "No se pudo cargar la solicitud.",
+            );
+          }
+
+          return { data: result };
         } catch (error) {
           return { error: buildError(error, "No se pudo cargar la solicitud.") };
         }

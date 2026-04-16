@@ -8,6 +8,7 @@ type RegisterBody = {
   email?: string;
   password?: string;
   acceptedTerms?: boolean;
+  referralCode?: string;
 };
 
 const normalizeEmail = (value: string) =>
@@ -43,6 +44,8 @@ export async function POST(request: Request) {
     const username = normalizeUsername(body.username ?? "");
     const email = normalizeEmail(body.email ?? "");
     const password = body.password ?? "";
+    const referralCode =
+      body.referralCode?.trim().toLowerCase().replace(/^@+/, "") ?? "";
 
     if (fullName.length < 2) {
       return NextResponse.json(
@@ -121,6 +124,7 @@ export async function POST(request: Request) {
           username,
           accepted_terms: true,
           accepted_terms_at: new Date().toISOString(),
+          ...(referralCode ? { referral_code: referralCode } : {}),
         },
       },
     });

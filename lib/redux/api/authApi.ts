@@ -37,7 +37,14 @@ export const authApi = createApi({
     }),
     register: builder.mutation<
       { message?: string },
-      { fullName: string; username: string; email: string; password: string; acceptedTerms: boolean }
+      {
+        fullName: string;
+        username: string;
+        email: string;
+        password: string;
+        acceptedTerms: boolean;
+        referralCode?: string;
+      }
     >({
       async queryFn(body) {
         try {

@@ -17,6 +17,11 @@ import {
   toggleFavoritePost,
 } from "@/lib/favorites";
 import {
+  dispatchFollowUpdated,
+  FOLLOW_UPDATED_EVENT,
+  type FollowUpdatedDetail,
+} from "@/lib/followSync";
+import {
   getPremiumPathFromPreview,
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
@@ -28,6 +33,7 @@ import {
 } from "@/lib/postMediaState";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { useGetFeedQuery } from "@/lib/redux/api/feedApi";
+import { socialApi } from "@/lib/redux/api/socialApi";
 import { setFeedPosts } from "@/lib/redux/slices/postsSlice";
 import { buildPostSharePath } from "@/lib/postShare";
 import { buildUserProfileHref } from "@/lib/profileRoute";
@@ -366,6 +372,28 @@ export default function FeedLayout() {
     };
   }, [currentUserId, posts]);
 
+  useEffect(() => {
+    const syncFollowState = (event: Event) => {
+      const detail = (event as CustomEvent<FollowUpdatedDetail>).detail;
+      if (!detail?.userId) return;
+
+      setFollowingIds((prev) => {
+        const next = new Set(prev);
+        if (detail.following) {
+          next.add(detail.userId);
+        } else {
+          next.delete(detail.userId);
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener(FOLLOW_UPDATED_EVENT, syncFollowState);
+    return () => {
+      window.removeEventListener(FOLLOW_UPDATED_EVENT, syncFollowState);
+    };
+  }, []);
+
   const toggleFollow = async (userId: string) => {
     if (!currentUserId || userId === currentUserId) return;
     const supabase = getSupabaseClient();
@@ -384,6 +412,8 @@ export default function FeedLayout() {
           next.delete(userId);
           return next;
         });
+        dispatchFollowUpdated({ userId, following: false });
+        dispatch(socialApi.util.invalidateTags(["SocialSuggestions"]));
       }
     } else {
       const { error } = await supabase.from("follows").insert({
@@ -392,6 +422,8 @@ export default function FeedLayout() {
       });
       if (!error) {
         setFollowingIds((prev) => new Set(prev).add(userId));
+        dispatchFollowUpdated({ userId, following: true });
+        dispatch(socialApi.util.invalidateTags(["SocialSuggestions"]));
         await supabase.from("notifications").insert({
           user_id: userId,
           actor_id: currentUserId,
@@ -701,6 +733,22 @@ export default function FeedLayout() {
           isFavorite={favoritePostIds.has(openPost.id)}
           onToggleFavorite={handleToggleFavorite}
           onShare={handleSharePost}
+          isLiked={Boolean(openPost.mediaPostIds?.[0] && likedPostIds.has(openPost.mediaPostIds[0]))}
+          onLike={toggleLike}
+          onReport={(post) => {
+            if (!post.userId) return;
+            setReportModal({
+              albumId: post.id,
+              ownerId: post.userId,
+              author: post.author,
+            });
+            setReportReason("");
+            setReportError(null);
+            setReportSent(false);
+          }}
+          onUnfollow={toggleFollow}
+          isFollowing={Boolean(openPost.userId && followingIds.has(openPost.userId))}
+          onToggleFollow={toggleFollow}
         />
       ) : null}
       <SharePostModal
@@ -749,10 +797,19 @@ export default function FeedLayout() {
             </button>
             <button
               type="button"
-              onClick={() => setMenuPostId(null)}
+              onClick={async () => {
+                if (!menuPost?.userId) {
+                  setMenuPostId(null);
+                  return;
+                }
+                await toggleFollow(menuPost.userId);
+                setMenuPostId(null);
+              }}
               className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
             >
-              Dejar de seguir
+              {menuPost?.userId && followingIds.has(menuPost.userId)
+                ? "Dejar de seguir"
+                : "Seguir"}
             </button>
             {menuPost?.userId === currentUserId ? (
               <button
@@ -786,17 +843,6 @@ export default function FeedLayout() {
               className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
             >
               Ir a la publicación
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!menuPost) return;
-                router.push(buildUserProfileHref(menuPost.author));
-                setMenuPostId(null);
-              }}
-              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
-            >
-              Información sobre esta cuenta
             </button>
             <button
               type="button"
@@ -836,38 +882,13 @@ export default function FeedLayout() {
                   equipo de FanPush va a revisarlo.
                 </p>
 
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {[
-                    "Contenido fuera de contexto",
-                    "Spam o engañoso",
-                    "Desnudez o sexual explícito",
-                    "Violencia o abuso",
-                  ].map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setReportReason(option)}
-                      className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
-                        reportReason === option
-                          ? "border-zinc-950 bg-zinc-950 text-white"
-                          : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-
                 <div className="mt-4">
-                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
-                    Motivo
-                  </label>
                   <textarea
                     value={reportReason}
                     onChange={(event) => setReportReason(event.target.value)}
                     rows={4}
                     className="w-full rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 focus:bg-white"
-                    placeholder="Describí brevemente por qué querés denunciar esta publicación."
+                    placeholder="Contenido fuera de contexto"
                   />
                 </div>
 
@@ -973,6 +994,7 @@ export default function FeedLayout() {
           {(() => {
             const lockedCount = post.media.filter((m) => m.locked).length;
             const hasPaidContent = lockedCount > 0;
+            const showPostActions = !hasPaidContent || lockedCount === 0;
             const current = activeIndex[post.id] ?? 0;
             const primaryPostId = post.mediaPostIds?.[0];
             const isLiked = primaryPostId ? likedPostIds.has(primaryPostId) : false;
@@ -1076,6 +1098,9 @@ export default function FeedLayout() {
                         item.locked ? "scale-[1.02] blur-[10px]" : ""
                       }`}
                       muted
+                      autoPlay
+                      loop
+                      preload="metadata"
                       playsInline
                     />
                   )}
@@ -1149,47 +1174,51 @@ export default function FeedLayout() {
           </button>
 
           <div className="px-6 py-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4 text-zinc-700">
-                <button
-                  className="flex items-center gap-2"
-                  onClick={() => toggleLike(post.id)}
-                >
-                  <Heart
-                    className={`h-6 w-6 ${
-                      isLiked ? "fill-[#ff334b] text-[#ff334b]" : "fill-none text-zinc-900"
-                    }`}
-                  />
-                  <span className="text-[15px] font-semibold text-zinc-900">
-                    {formatFeedLikes(post.likes)}
-                  </span>
-                </button>
+            {showPostActions ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 text-zinc-700">
+                  <button
+                    className="flex items-center gap-2"
+                    onClick={() => toggleLike(post.id)}
+                  >
+                    <Heart
+                      className={`h-6 w-6 ${
+                        isLiked
+                          ? "fill-[#ff334b] text-[#ff334b]"
+                          : "fill-none text-zinc-900"
+                      }`}
+                    />
+                    <span className="text-[15px] font-semibold text-zinc-900">
+                      {formatFeedLikes(post.likes)}
+                    </span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-4 text-zinc-900">
+                  <button
+                    type="button"
+                    aria-label="Compartir"
+                    onClick={() => handleSharePost(post)}
+                  >
+                    <Send className="h-6 w-6" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Guardar"
+                    onClick={() => handleToggleFavorite(post)}
+                  >
+                    <Bookmark
+                      className={`h-6 w-6 ${
+                        favoritePostIds.has(post.id)
+                          ? "fill-[#5A3EE7] text-[#5A3EE7]"
+                          : "text-zinc-900"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-4 text-zinc-900">
-                <button
-                  type="button"
-                  aria-label="Compartir"
-                  onClick={() => handleSharePost(post)}
-                >
-                  <Send className="h-6 w-6" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Guardar"
-                  onClick={() => handleToggleFavorite(post)}
-                >
-                  <Bookmark
-                    className={`h-6 w-6 ${
-                      favoritePostIds.has(post.id)
-                        ? "fill-[#5A3EE7] text-[#5A3EE7]"
-                        : "text-zinc-900"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
+            ) : null}
 
-            <div className="mt-5 text-[15px] leading-[1.45] text-zinc-700">
+            <div className={`${showPostActions ? "mt-5" : "mt-0"} text-[15px] leading-[1.45] text-zinc-700`}>
               <span className="font-semibold text-zinc-900">
                 {post.author}
               </span>{" "}

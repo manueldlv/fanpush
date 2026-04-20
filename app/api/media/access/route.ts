@@ -72,7 +72,7 @@ export async function POST(request: Request) {
                 post.id,
                 {
                   url: signedData.signedUrl,
-                  kind: post.media_type === "video" ? "video" : "image",
+                  kind: inferDisplayKind(post.media_url, post.media_type, false),
                   locked: false,
                 },
               ] as const;

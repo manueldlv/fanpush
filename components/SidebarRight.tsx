@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import {
@@ -13,17 +13,47 @@ import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
 import UserAvatar from "@/components/UserAvatar";
+import {
+  dispatchFollowUpdated,
+  FOLLOW_UPDATED_EVENT,
+  type FollowUpdatedDetail,
+} from "@/lib/followSync";
 
 export default function SidebarRight() {
   const router = useRouter();
   const dispatch = useAppDispatch();
   const { data: viewer } = useGetViewerQuery();
   const { data: suggestions = [], isLoading: loading } = useGetSuggestionsQuery();
+  const [localSuggestions, setLocalSuggestions] = useState(suggestions);
   const [pendingFollowId, setPendingFollowId] = useState<string | null>(null);
   const selfProfileQueryArg = {
     userId: null,
     username: viewer?.profile.username ?? null,
   };
+
+  useEffect(() => {
+    setLocalSuggestions(suggestions);
+  }, [suggestions]);
+
+  useEffect(() => {
+    const syncSuggestionFollow = (event: Event) => {
+      const detail = (event as CustomEvent<FollowUpdatedDetail>).detail;
+      if (!detail?.userId) return;
+
+      setLocalSuggestions((prev) =>
+        prev.map((profile) =>
+          profile.id === detail.userId
+            ? { ...profile, isFollowing: detail.following }
+            : profile,
+        ),
+      );
+    };
+
+    window.addEventListener(FOLLOW_UPDATED_EVENT, syncSuggestionFollow);
+    return () => {
+      window.removeEventListener(FOLLOW_UPDATED_EVENT, syncSuggestionFollow);
+    };
+  }, []);
 
   const openProfile = (profile: { name: string }) => {
     router.push(buildUserProfileHref(profile.name));
@@ -68,6 +98,12 @@ export default function SidebarRight() {
           },
         ),
       );
+      setLocalSuggestions((prev) =>
+        prev.map((profile) =>
+          profile.id === profileId ? { ...profile, isFollowing: false } : profile,
+        ),
+      );
+      dispatchFollowUpdated({ userId: profileId, following: false });
     } else {
       const { error } = await supabase.from("follows").insert({
         follower_id: currentUserId,
@@ -88,6 +124,12 @@ export default function SidebarRight() {
           },
         ),
       );
+      setLocalSuggestions((prev) =>
+        prev.map((profile) =>
+          profile.id === profileId ? { ...profile, isFollowing: true } : profile,
+        ),
+      );
+      dispatchFollowUpdated({ userId: profileId, following: true });
     }
 
     dispatch(socialApi.util.invalidateTags(["SocialSuggestions"]));
@@ -102,7 +144,6 @@ export default function SidebarRight() {
         { type: "ProfileView", id: `id:${profileId}` },
       ]),
     );
-    window.dispatchEvent(new Event("follow-updated"));
     setPendingFollowId(null);
   };
 
@@ -142,7 +183,7 @@ export default function SidebarRight() {
                   </div>
                 ))
               : null}
-            {suggestions.map((profile) => (
+            {localSuggestions.map((profile) => (
               <div
                 key={profile.id}
                 className="flex h-[62px] items-center justify-between"

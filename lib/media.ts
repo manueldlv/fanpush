@@ -80,7 +80,15 @@ export const inferDisplayKind = (
 ): "image" | "video" => {
   const parsed = parseLockedPreviewPath(mediaUrl);
   if (parsed && isLocked) return "image";
-  return mediaType === "video" ? "video" : "image";
+
+  if (mediaType === "video") return "video";
+  if (mediaType === "image") return "image";
+
+  const normalizedUrl = mediaUrl?.split("?")[0]?.split("#")[0]?.toLowerCase() ?? "";
+  const extension = normalizedUrl.split(".").pop() ?? "";
+  const videoExtensions = new Set(["mp4", "mov", "webm", "m4v", "ogv", "ogg"]);
+
+  return videoExtensions.has(extension) ? "video" : "image";
 };
 
 export const getExtensionFromFile = (file: File) => {

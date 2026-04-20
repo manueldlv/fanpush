@@ -29,6 +29,18 @@ const normalizeSingleRelation = <T,>(
   return Array.isArray(value) ? value[0] ?? null : value;
 };
 
+const buildLikesCountMap = (
+  rows: Array<{ post_id: string | null }> | null | undefined,
+) => {
+  const likesByPostId = new Map<string, number>();
+  for (const row of rows ?? []) {
+    const postId = row.post_id ?? "";
+    if (!postId) continue;
+    likesByPostId.set(postId, (likesByPostId.get(postId) ?? 0) + 1);
+  }
+  return likesByPostId;
+};
+
 const resolvePublicUrl = (supabase: NonNullable<ReturnType<typeof getSupabaseClient>>, value: string | null) => {
   if (!value) return "";
   if (value.startsWith("http")) return value;
@@ -97,6 +109,23 @@ export const feedApi = createApi({
             .order("created_at", { ascending: false });
           if (error) throw error;
 
+          const allMediaPostIds = (data ?? [])
+            .flatMap((album) =>
+              ((album.album_posts ?? []) as unknown as Array<{
+                post: { id: string | null } | null;
+              }>).map((item) => item.post?.id ?? ""),
+            )
+            .filter(Boolean);
+
+          const { data: allLikesRows } = allMediaPostIds.length
+            ? await supabase
+                .from("likes")
+                .select("post_id")
+                .in("post_id", allMediaPostIds)
+            : { data: [] };
+
+          const likesByPostId = buildLikesCountMap(allLikesRows);
+
           const mapped: Post[] =
             (await Promise.all(
               (data ?? []).map(async (post) => {
@@ -148,8 +177,8 @@ export const feedApi = createApi({
                   time: "Ahora",
                   suggestion: "Sugerencia para ti",
                   caption: post.description ?? "",
-                  likes: albumPosts.reduce(
-                    (sum, item) => sum + (item.post?.likes_count ?? 0),
+                  likes: mediaPostIds.reduce(
+                    (sum, postId) => sum + (likesByPostId.get(postId) ?? 0),
                     0,
                   ),
                   avatar: avatarUrl || null,

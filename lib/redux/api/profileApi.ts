@@ -84,6 +84,34 @@ const normalizeAlbumUser = (
   return Array.isArray(user) ? user[0] ?? null : user;
 };
 
+const buildLikesCountMap = (
+  rows: Array<{ post_id: string | null }> | null | undefined,
+) => {
+  const likesByPostId = new Map<string, number>();
+  for (const row of rows ?? []) {
+    const postId = row.post_id ?? "";
+    if (!postId) continue;
+    likesByPostId.set(postId, (likesByPostId.get(postId) ?? 0) + 1);
+  }
+  return likesByPostId;
+};
+
+const buildProfileCaption = (
+  description: string | null | undefined,
+  moderationSource: string | null | undefined,
+) => {
+  const meta = parseUploadModerationMeta(moderationSource);
+  if (!meta) return description ?? "";
+
+  const tagSuffix = meta.tags
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
+    .join(" ");
+
+  return [meta.displayCaption.trim(), tagSuffix].filter(Boolean).join(" ").trim();
+};
+
 const resolveFallbackUsername = (email?: string | null, metadata?: unknown) => {
   if (
     metadata &&
@@ -308,6 +336,30 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
 
   let posts: Post[] = [];
   const albums = albumsResult.data ?? [];
+  const legacyPosts =
+    albums.length === 0
+      ? (
+          await supabase
+            .from("posts")
+            .select("id,media_url,media_type,is_locked,likes_count,created_at")
+            .eq("user_id", viewedUserId)
+            .order("created_at", { ascending: false })
+        ).data ?? []
+      : [];
+
+  const allMediaPostIds = [
+    ...albums.flatMap((album) =>
+      normalizeAlbumMedia(
+        album.album_posts as AlbumPostRow[] | null | undefined,
+      ).map((item) => item.id ?? ""),
+    ),
+    ...legacyPosts.map((post) => post.id ?? ""),
+  ].filter(Boolean);
+
+  const { data: allLikesRows } = allMediaPostIds.length
+    ? await supabase.from("likes").select("post_id").in("post_id", allMediaPostIds)
+    : { data: [] };
+  const likesByPostId = buildLikesCountMap(allLikesRows);
 
   if (albums.length > 0) {
     posts = await Promise.all(
@@ -336,6 +388,10 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
         const avatarUrl = await resolvePublicUrl(
           albumUser?.avatar_url ?? userRow?.avatar_url ?? "",
         );
+        const normalizedCaption = buildProfileCaption(
+          album.description ?? "",
+          media[0]?.caption ?? null,
+        );
         return {
           id: album.id,
           userId: album.user_id ?? viewedUserId,
@@ -345,8 +401,11 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
           verified: false,
           time: "Ahora",
           suggestion: "Perfil",
-          caption: album.description ?? "",
-          likes: media.reduce((sum, item) => sum + (item.likes_count ?? 0), 0),
+          caption: normalizedCaption,
+          likes: media.reduce(
+            (sum, item) => sum + (likesByPostId.get(item.id ?? "") ?? 0),
+            0,
+          ),
           avatar: avatarUrl || null,
           price: album.price ?? 0,
           tipEnabled: postMeta?.tipsEnabled ?? false,
@@ -355,11 +414,6 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
       }),
     );
   } else {
-    const { data: legacyPosts } = await supabase
-      .from("posts")
-      .select("id,media_url,media_type,is_locked,likes_count,created_at")
-      .eq("user_id", viewedUserId)
-      .order("created_at", { ascending: false });
     const avatarUrl = await resolvePublicUrl(userRow?.avatar_url ?? "");
     posts = await Promise.all(
       (legacyPosts ?? []).map(async (post) => ({
@@ -371,7 +425,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
         time: "Ahora",
         suggestion: "Perfil",
         caption: "",
-        likes: post.likes_count ?? 0,
+        likes: likesByPostId.get(post.id ?? "") ?? 0,
         avatar: avatarUrl || null,
         price: 0,
         tipEnabled: false,

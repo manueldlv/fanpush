@@ -266,7 +266,7 @@ export default function SettingsPage() {
         URL.revokeObjectURL(avatarCropSource);
       }
       setAvatarCropSource(null);
-      setAvatarPath(uploadedAvatarUrl);
+      setAvatarPath(path);
       setAvatarUrl(uploadedAvatarUrl);
       await updateProfile({
         userId,
@@ -291,6 +291,72 @@ export default function SettingsPage() {
             instagram: instagram.trim(),
           },
         }),
+      );
+    } finally {
+      setUpdatingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setMessage(null);
+    setUpdatingAvatar(true);
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setUpdatingAvatar(false);
+      setMessage("Falta configurar Supabase.");
+      return;
+    }
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) {
+        throw new Error("Necesitas iniciar sesión.");
+      }
+
+      const safeUsername =
+        username.trim() || authData?.user?.email?.split("@")[0] || "usuario";
+
+      if (avatarPath && !avatarPath.startsWith("http")) {
+        await supabase.storage.from(PUBLIC_MEDIA_BUCKET).remove([avatarPath]);
+      }
+
+      if (avatarCropSource?.startsWith("blob:")) {
+        URL.revokeObjectURL(avatarCropSource);
+      }
+
+      setAvatarCropSource(null);
+      setAvatarPath(null);
+      setAvatarUrl(null);
+
+      await updateProfile({
+        userId,
+        username: safeUsername,
+        avatarUrl: null,
+        avatarPath: null,
+        fullName: fullName.trim(),
+        bio: bio.trim(),
+        website: normalizeWebsite(website),
+        instagram: instagram.trim(),
+      }).unwrap();
+
+      invalidateProfileCaches(userId, safeUsername);
+      setMessage("Foto de perfil eliminada.");
+      window.dispatchEvent(
+        new CustomEvent("profile-updated", {
+          detail: {
+            username: safeUsername,
+            fullName: fullName.trim(),
+            avatarUrl: null,
+            bio: bio.trim(),
+            website: normalizeWebsite(website),
+            instagram: instagram.trim(),
+          },
+        }),
+      );
+    } catch (err) {
+      setMessage(
+        err instanceof Error ? err.message : "No se pudo quitar la foto.",
       );
     } finally {
       setUpdatingAvatar(false);
@@ -630,21 +696,33 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     </div>
-                    <label
-                      className={`rounded-[5px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 ${
-                        updatingAvatar
-                          ? "pointer-events-none opacity-70"
-                          : "cursor-pointer"
-                      }`}
-                    >
-                      {updatingAvatar ? "Subiendo foto..." : "Cambiar foto"}
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        onChange={handleAvatarChange}
-                      />
-                    </label>
+                    <div className="flex items-center gap-3">
+                      {avatarUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleRemoveAvatar}
+                          disabled={updatingAvatar}
+                          className="rounded-[5px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-70"
+                        >
+                          Quitar foto
+                        </button>
+                      ) : null}
+                      <label
+                        className={`rounded-[5px] border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 ${
+                          updatingAvatar
+                            ? "pointer-events-none opacity-70"
+                            : "cursor-pointer"
+                        }`}
+                      >
+                        {updatingAvatar ? "Subiendo foto..." : "Cambiar foto"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={handleAvatarChange}
+                        />
+                      </label>
+                    </div>
                   </div>
                 </div>
 

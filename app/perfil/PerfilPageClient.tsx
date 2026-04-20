@@ -3,17 +3,23 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock } from "lucide-react";
+import { Lock, Send } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
 import PurchaseSuccessToast from "@/components/PurchaseSuccessToast";
+import SharePostModal from "@/components/SharePostModal";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import { parseUploadModerationMeta } from "@/lib/contentClassification";
+import {
+  FAVORITES_UPDATED_EVENT,
+  isFavoritePost,
+  toggleFavoritePost,
+} from "@/lib/favorites";
 import { MAX_AVATAR_IMAGE_BYTES, validateImageFile } from "@/lib/imageFiles";
 import {
   getPremiumPathFromPreview,
@@ -33,6 +39,7 @@ import {
 } from "@/lib/redux/api/profileApi";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { buildPostSharePath } from "@/lib/postShare";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
@@ -85,6 +92,34 @@ const normalizeSingleRelation = <T,>(
 ): T | null => {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
+};
+
+const buildLikesCountMap = (
+  rows: Array<{ post_id: string | null }> | null | undefined,
+) => {
+  const likesByPostId = new Map<string, number>();
+  for (const row of rows ?? []) {
+    const postId = row.post_id ?? "";
+    if (!postId) continue;
+    likesByPostId.set(postId, (likesByPostId.get(postId) ?? 0) + 1);
+  }
+  return likesByPostId;
+};
+
+const buildProfileCaption = (
+  description: string | null | undefined,
+  moderationSource: string | null | undefined,
+) => {
+  const meta = parseUploadModerationMeta(moderationSource);
+  if (!meta) return description ?? "";
+
+  const tagSuffix = meta.tags
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
+    .join(" ");
+
+  return [meta.displayCaption.trim(), tagSuffix].filter(Boolean).join(" ").trim();
 };
 
 function ProfileHeaderSkeleton() {
@@ -153,6 +188,18 @@ export default function PerfilPage({
   const [updatingAvatar, setUpdatingAvatar] = useState(false);
   const [followPending, setFollowPending] = useState(false);
   const [followStateOverride, setFollowStateOverride] = useState<boolean | null>(null);
+  const [sharePost, setSharePost] = useState<Post | null>(null);
+  const [reportModal, setReportModal] = useState<{
+    albumId: string;
+    ownerId: string;
+    author: string;
+  } | null>(null);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportSent, setReportSent] = useState(false);
+  const [favoritePostIds, setFavoritePostIds] = useState<Set<string>>(new Set());
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [uiMessage, setUiMessage] = useState<{
     tone: "success" | "error";
     text: string;
@@ -318,6 +365,73 @@ export default function PerfilPage({
   }, [uiMessage]);
 
   useEffect(() => {
+    if (!currentUserId) {
+      setFavoritePostIds(new Set());
+      return;
+    }
+
+    const syncFavorites = () => {
+      const next = new Set<string>();
+      for (const post of profilePosts) {
+        if (isFavoritePost(currentUserId, post.id)) {
+          next.add(post.id);
+        }
+      }
+      if (openPost && isFavoritePost(currentUserId, openPost.id)) {
+        next.add(openPost.id);
+      }
+      setFavoritePostIds(next);
+    };
+
+    syncFavorites();
+    window.addEventListener(FAVORITES_UPDATED_EVENT, syncFavorites);
+    return () => {
+      window.removeEventListener(FAVORITES_UPDATED_EVENT, syncFavorites);
+    };
+  }, [currentUserId, openPost, profilePosts]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setLikedPostIds(new Set());
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const allPostIds = [
+      ...profilePosts.flatMap((post) => post.mediaPostIds ?? []),
+      ...(openPost?.mediaPostIds ?? []),
+    ].filter(Boolean);
+
+    if (allPostIds.length === 0) {
+      setLikedPostIds(new Set());
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadLikedPostIds = async () => {
+      const { data, error } = await supabase
+        .from("likes")
+        .select("post_id")
+        .eq("user_id", currentUserId)
+        .in("post_id", Array.from(new Set(allPostIds)));
+
+      if (cancelled || error) return;
+      setLikedPostIds(
+        new Set((data ?? []).map((row) => row.post_id).filter(Boolean)),
+      );
+    };
+
+    void loadLikedPostIds();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, openPost?.id, openPost?.mediaPostIds, profilePosts]);
+
+  useEffect(() => {
     return () => {
       if (avatarCropSource?.startsWith("blob:")) {
         URL.revokeObjectURL(avatarCropSource);
@@ -363,6 +477,14 @@ export default function PerfilPage({
         const media = normalizeAlbumMedia(
           album.album_posts as AlbumPostRow[] | null | undefined,
         );
+        const mediaPostIds = media.map((item) => item.id ?? "").filter(Boolean);
+        const { data: likeRows } = mediaPostIds.length
+          ? await supabase
+              .from("likes")
+              .select("post_id")
+              .in("post_id", mediaPostIds)
+          : { data: [] };
+        const likesByPostId = buildLikesCountMap(likeRows);
         const albumUser = normalizeAlbumUser(
           album.users as AlbumUser | AlbumUser[] | null | undefined,
         );
@@ -379,10 +501,13 @@ export default function PerfilPage({
             }),
           ),
         );
-        const mediaPostIds = media.map((item) => item.id ?? "");
         const postMeta = parseUploadModerationMeta(media[0]?.caption ?? null);
         const avatarUrl = await resolveAvatarUrl(
           albumUser?.avatar_url ?? post.avatar ?? "",
+        );
+        const normalizedCaption = buildProfileCaption(
+          album.description ?? "",
+          media[0]?.caption ?? null,
         );
         const basePost: Post = {
           id: album.id,
@@ -392,8 +517,11 @@ export default function PerfilPage({
           verified: false,
           time: "Ahora",
           suggestion: "Perfil",
-          caption: album.description ?? "",
-          likes: media.reduce((sum, item) => sum + (item.likes_count ?? 0), 0),
+          caption: normalizedCaption,
+          likes: media.reduce(
+            (sum, item) => sum + (likesByPostId.get(item.id ?? "") ?? 0),
+            0,
+          ),
           avatar: avatarUrl || null,
           price: album.price ?? post.price ?? 0,
           tipEnabled: postMeta?.tipsEnabled ?? false,
@@ -646,6 +774,50 @@ export default function PerfilPage({
     }
   };
 
+  const handleReport = async () => {
+    if (!currentUserId || !reportModal?.ownerId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    if (!reportReason.trim()) {
+      setReportError("Escribí un motivo para enviar la denuncia.");
+      return;
+    }
+    setReportError(null);
+    setReportSubmitting(true);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setReportSubmitting(false);
+      setReportError("Necesitas iniciar sesión para reportar contenido.");
+      return;
+    }
+
+    const response = await fetch("/api/reports/content", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        albumId: reportModal.albumId,
+        ownerId: reportModal.ownerId,
+        reason: reportReason.trim(),
+      }),
+    });
+
+    const result = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setReportSubmitting(false);
+      setReportError(result.error ?? "No se pudo enviar el reporte.");
+      return;
+    }
+    setReportSent(true);
+    setReportSubmitting(false);
+  };
+
   const canCreateContent = Boolean(viewer?.access.canCreate);
 
   const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -741,6 +913,91 @@ export default function PerfilPage({
     }
   };
 
+  const handleToggleFavorite = (post: Post) => {
+    if (!currentUserId) return;
+    const result = toggleFavoritePost(currentUserId, post);
+    setFavoritePostIds((prev) => {
+      const next = new Set(prev);
+      if (result.favorite) next.add(post.id);
+      else next.delete(post.id);
+      return next;
+    });
+  };
+
+  const toggleLike = async (albumId: string) => {
+    if (!currentUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const targetPost =
+      (openPost && openPost.id === albumId ? openPost : null) ??
+      profilePosts.find((item) => item.id === albumId);
+    const postId = targetPost?.mediaPostIds?.[0];
+    if (!postId) return;
+
+    const isLiked = likedPostIds.has(postId);
+
+    if (isLiked) {
+      const { error } = await supabase
+        .from("likes")
+        .delete()
+        .eq("user_id", currentUserId)
+        .eq("post_id", postId);
+
+      if (error) return;
+
+      setLikedPostIds((prev) => {
+        const next = new Set(prev);
+        next.delete(postId);
+        return next;
+      });
+
+      setOpenPost((prev) =>
+        prev && prev.id === albumId
+          ? { ...prev, likes: Math.max((prev.likes ?? 0) - 1, 0) }
+          : prev,
+      );
+
+      dispatch(
+        profileApi.util.updateQueryData(
+          "getProfileView",
+          profileQueryArg,
+          (draft) => {
+            const target = draft.posts.find((item) => item.id === albumId);
+            if (target) {
+              target.likes = Math.max((target.likes ?? 0) - 1, 0);
+            }
+          },
+        ),
+      );
+      return;
+    }
+
+    const { error } = await supabase.from("likes").insert({
+      user_id: currentUserId,
+      post_id: postId,
+    });
+
+    if (error) return;
+
+    setLikedPostIds((prev) => new Set(prev).add(postId));
+    setOpenPost((prev) =>
+      prev && prev.id === albumId ? { ...prev, likes: (prev.likes ?? 0) + 1 } : prev,
+    );
+    dispatch(
+      profileApi.util.updateQueryData(
+        "getProfileView",
+        profileQueryArg,
+        (draft) => {
+          const target = draft.posts.find((item) => item.id === albumId);
+          if (target) {
+            target.likes = (target.likes ?? 0) + 1;
+          }
+        },
+      ),
+    );
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <SidebarLeft />
@@ -754,8 +1011,41 @@ export default function PerfilPage({
           onTip={() => {
             if (!isOwnProfile) setTipOpen(true);
           }}
+          isFavorite={favoritePostIds.has(openPost.id)}
+          onToggleFavorite={handleToggleFavorite}
+          onShare={setSharePost}
+          isLiked={Boolean(
+            openPost.mediaPostIds?.[0] && likedPostIds.has(openPost.mediaPostIds[0]),
+          )}
+          onLike={toggleLike}
+          onReport={(post) => {
+            if (!post.userId) return;
+            setReportModal({
+              albumId: post.id,
+              ownerId: post.userId,
+              author: post.author,
+            });
+            setReportReason("");
+            setReportError(null);
+            setReportSent(false);
+          }}
+          onUnfollow={async (userId) => {
+            if (userId !== viewedUserId || !isFollowing) return;
+            await toggleFollow();
+          }}
+          isFollowing={isFollowing}
+          onToggleFollow={async (userId) => {
+            if (userId !== viewedUserId) return;
+            await toggleFollow();
+          }}
         />
       ) : null}
+      <SharePostModal
+        open={Boolean(sharePost)}
+        post={sharePost}
+        sharePath={sharePost ? buildPostSharePath(sharePost) : null}
+        onClose={() => setSharePost(null)}
+      />
       <TipModal
         open={tipOpen}
         availableBalance={availableBalance}
@@ -780,6 +1070,102 @@ export default function PerfilPage({
         }}
         onConfirm={handleAvatarUploaded}
       />
+      {reportModal ? (
+        <div className="fixed inset-0 z-[111] flex items-center justify-center bg-black/50 px-6 py-10">
+          <button
+            type="button"
+            onClick={() => {
+              if (reportSubmitting) return;
+              setReportModal(null);
+              setReportError(null);
+              setReportSent(false);
+            }}
+            className="absolute inset-0 h-full w-full cursor-default"
+            aria-label="Cerrar denuncia"
+          />
+          <div className="relative w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-2xl md:p-7">
+            {!reportSent ? (
+              <>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-zinc-400">
+                  Moderación
+                </div>
+                <h3 className="mt-3 text-2xl font-semibold text-zinc-950">
+                  Denunciar contenido
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-500">
+                  Contanos qué viste en la publicación de @{reportModal.author}. El
+                  equipo de FanPush va a revisarlo.
+                </p>
+
+                <div className="mt-4">
+                  <textarea
+                    value={reportReason}
+                    onChange={(event) => setReportReason(event.target.value)}
+                    rows={4}
+                    className="w-full rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 focus:bg-white"
+                    placeholder="Contenido fuera de contexto"
+                  />
+                </div>
+
+                {reportError ? (
+                  <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {reportError}
+                  </div>
+                ) : null}
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (reportSubmitting) return;
+                      setReportModal(null);
+                      setReportError(null);
+                    }}
+                    className="flex-1 rounded-[18px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReport}
+                    disabled={reportSubmitting}
+                    className="fanpush-button-primary flex-1 rounded-[18px] px-4 py-3 text-sm disabled:opacity-60"
+                  >
+                    {reportSubmitting ? "Enviando..." : "Enviar denuncia"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <Send className="h-6 w-6" />
+                </div>
+                <h3 className="mt-4 text-center text-2xl font-semibold text-zinc-950">
+                  Denuncia enviada
+                </h3>
+                <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
+                  Recibimos tu reporte sobre la publicación de @{reportModal.author}.
+                  El equipo de moderación lo va a revisar.
+                </p>
+                <div className="mt-6 rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-700">
+                  Motivo enviado: <span className="font-semibold">{reportReason}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportModal(null);
+                    setReportError(null);
+                    setReportSent(false);
+                  }}
+                  className="fanpush-button-primary mt-6 w-full rounded-[18px] px-4 py-3 text-sm"
+                >
+                  Cerrar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex min-h-screen md:pl-60">
         <div className="mx-auto flex w-full max-w-none flex-col gap-4 px-4 py-4 pb-24 md:max-w-[1495px] md:gap-5 md:px-6 md:py-5">
@@ -1004,20 +1390,38 @@ export default function PerfilPage({
                         className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
                         onClick={() => openPostFromProfile(post)}
                       >
-                        <MediaImage
-                          src={firstMedia.url}
-                          alt={profileName || "Post"}
-                          className="h-full w-full object-cover"
-                          fallbackClassName="h-full w-full border-0"
-                          iconClassName="h-7 w-7"
-                        />
+                        {firstMedia.kind === "video" ? (
+                          <video
+                            src={firstMedia.url}
+                            className="h-full w-full object-cover"
+                            muted
+                            autoPlay
+                            loop
+                            preload="metadata"
+                            playsInline
+                          />
+                        ) : (
+                          <MediaImage
+                            src={firstMedia.url}
+                            alt={profileName || "Post"}
+                            className="h-full w-full object-cover"
+                            fallbackClassName="h-full w-full border-0"
+                            iconClassName="h-7 w-7"
+                          />
+                        )}
                         {isPaidPost ? (
-                          <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Lock className="h-3 w-3" />
-                              {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
-                            </span>
-                          </div>
+                          isOwnProfile ? (
+                            <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Lock className="h-3 w-3" />
+                                {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 p-2 text-zinc-900 shadow-sm">
+                              <Lock className="h-3.5 w-3.5" />
+                            </div>
+                          )
                         ) : null}
                       </div>
                     );

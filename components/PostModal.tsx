@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Lock, MoreHorizontal, Unlock, X } from "lucide-react";
+import { Bookmark, Heart, Lock, MoreHorizontal, Send, Unlock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import UserAvatar from "@/components/UserAvatar";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
@@ -15,7 +15,7 @@ import {
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
 import { formatARS } from "@/lib/utils";
-import { buildHashtagHref, extractHashtags } from "@/lib/hashtags";
+import { buildHashtagHref } from "@/lib/hashtags";
 
 const formatUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -51,6 +51,12 @@ type PostModalProps = {
   isFavorite?: boolean;
   onToggleFavorite?: (post: Post) => void;
   onShare?: (post: Post) => void;
+  isLiked?: boolean;
+  onLike?: (postId: string) => void | Promise<void>;
+  onReport?: (post: Post) => void;
+  onUnfollow?: (userId: string) => void | Promise<void>;
+  isFollowing?: boolean;
+  onToggleFollow?: (userId: string) => void | Promise<void>;
 };
 
 export default function PostModal({
@@ -63,12 +69,19 @@ export default function PostModal({
   isFavorite = false,
   onToggleFavorite,
   onShare,
+  isLiked = false,
+  onLike,
+  onReport,
+  onUnfollow,
+  isFollowing = false,
+  onToggleFollow,
 }: PostModalProps) {
   const router = useRouter();
   const [index, setIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState(post.media);
   const [ownerSalesCount, setOwnerSalesCount] = useState(0);
@@ -83,7 +96,6 @@ export default function PostModal({
   );
   const isPaidPost = Number(post.price ?? 0) > 0 || hasPaidContent;
   const showUnlockedStatus = !isOwner && hasPaidContent && lockedCount === 0;
-  const previewTags = extractHashtags(post.caption);
   const videoCount = resolvedMedia.filter((item) => item.kind === "video").length;
   const imageCount = resolvedMedia.filter((item) => item.kind === "image").length;
   const mediaSummary = [
@@ -94,6 +106,7 @@ export default function PostModal({
     .join(", ");
   const mediaLockedForViewer = Boolean(current?.locked) && !isOwner;
   const ownerSalesGross = ownerSalesCount * Number(post.price ?? 0);
+  const showPostActions = !isOwner && (!isPaidPost || lockedCount === 0);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -202,16 +215,17 @@ export default function PostModal({
         onClick={onClose}
         aria-hidden="true"
       />
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute right-4 top-4 rounded-[8px] bg-white/90 p-2 cursor-pointer md:right-6 md:top-6"
-        aria-label="Cerrar"
-      >
-        <X className="h-5 w-5" />
-      </button>
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-[1160px] flex-col overflow-hidden rounded-[16px] bg-white md:max-h-none md:flex-row md:rounded-[5px]">
-        <div className="relative h-[42vh] bg-black md:h-[680px] md:flex-1">
+      <div className="relative z-10 w-full max-w-[1160px]">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-[-18px] top-[-26px] z-[130] inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/80 text-white shadow-[0_10px_24px_rgba(0,0,0,0.28)] backdrop-blur-sm transition hover:bg-black/90 md:right-[-22px] md:top-[-32px]"
+          aria-label="Cerrar"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <div className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-[16px] bg-white md:max-h-none md:flex-row md:rounded-[5px]">
+          <div className="relative h-[42vh] bg-black md:h-[680px] md:flex-1">
           {current?.kind === "image" ? (
             <img
               src={current.url}
@@ -227,7 +241,11 @@ export default function PostModal({
               className={`h-full w-full object-contain ${
                 mediaLockedForViewer ? "blur-[10px]" : ""
               }`}
-              muted
+              muted={mediaLockedForViewer}
+              controls={!mediaLockedForViewer}
+              autoPlay={!mediaLockedForViewer}
+              loop={!mediaLockedForViewer}
+              preload="metadata"
               playsInline
               style={{ filter: mediaLockedForViewer ? "blur(10px)" : "none" }}
             />
@@ -289,51 +307,40 @@ export default function PostModal({
           ) : null}
           {mediaLockedForViewer ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
-              <div className="relative w-full max-w-[840px] overflow-hidden rounded-[5px] border border-[#E0E0E0] bg-white">
-                <img
-                  src="/post-unlock-bg.png"
-                  alt={`Desbloqueá por $${formatUnits(post.price ?? 0)}`}
-                  className="block w-full object-cover"
-                />
-                <div className="absolute inset-0 flex items-center justify-center px-10">
-                  <div className="flex w-full max-w-[360px] -translate-y-1 flex-col items-center gap-3 text-center">
-                    <div className="flex h-[52px] w-[52px] items-center justify-center rounded-[10px] bg-[#f4f4f4] shadow-[0_10px_18px_rgba(0,0,0,0.08)]">
-                      <Lock className="h-6 w-6 text-[#5A3EE7]" />
-                    </div>
-                    <div className="pt-1 text-[20px] font-bold tracking-[-0.03em] text-[#161823]">
-                      Desbloqueá por ${formatUnits(post.price ?? 0)}
-                    </div>
-                    <div className="text-[15px] font-semibold leading-none text-[#161823]">
-                      {mediaSummary}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!onPurchase || purchaseLoading) return;
-                        setPurchaseLoading(true);
-                        const result = await onPurchase(post.id);
-                        if (result !== false) {
-                          const nextMedia = await fetchResolvedMedia(true);
-                          if (nextMedia) {
-                            setResolvedMedia(nextMedia);
-                          }
-                          setShowUnlockedChip(true);
-                        }
-                        setPurchaseLoading(false);
-                      }}
-                      className="min-w-[280px] rounded-[5px] bg-[#5A3EE7] px-6 py-2.5 text-[14px] font-bold text-white"
-                    >
-                      {purchaseLoading ? "Procesando..." : "Comprar"}
-                    </button>
-                  </div>
+              <div className="w-full max-w-[460px] rounded-[14px] bg-white/96 px-8 py-7 text-center shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur-[2px]">
+                <div className="mx-auto flex h-[82px] w-[82px] items-center justify-center rounded-[10px] bg-[#f4f1ff]">
+                  <Lock className="h-9 w-9 text-[#5A3EE7]" />
                 </div>
-                {purchaseLoading ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/12">
-                    <div className="rounded-full bg-white/95 px-4 py-2 text-[13px] font-semibold text-[#161823]">
-                      Procesando...
-                    </div>
-                  </div>
-                ) : null}
+                <div className="mt-4 text-[18px] font-bold leading-[1.08] tracking-[-0.03em] text-[#161823]">
+                  Desbloqueá
+                  <br />
+                  el contenido completo
+                </div>
+                <div className="mt-2.5 text-[14px] font-medium leading-none text-[#7a7a7a]">
+                  {mediaSummary}
+                </div>
+                <div className="mt-3 text-[30px] font-bold leading-none tracking-[-0.04em] text-[#5A3EE7]">
+                  ${formatUnits(post.price ?? 0)}
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!onPurchase || purchaseLoading) return;
+                    setPurchaseLoading(true);
+                    const result = await onPurchase(post.id);
+                    if (result !== false) {
+                      const nextMedia = await fetchResolvedMedia(true);
+                      if (nextMedia) {
+                        setResolvedMedia(nextMedia);
+                      }
+                      setShowUnlockedChip(true);
+                    }
+                    setPurchaseLoading(false);
+                  }}
+                  className="mt-5 min-w-[260px] rounded-[5px] bg-[#5A3EE7] px-6 py-3 text-[14px] font-bold text-white"
+                >
+                  {purchaseLoading ? "Procesando..." : "Comprar"}
+                </button>
               </div>
             </div>
           ) : null}
@@ -354,10 +361,10 @@ export default function PostModal({
               </div>
             </div>
           ) : null}
-        </div>
+          </div>
 
-        <div className="relative w-full overflow-y-auto border-t border-zinc-200 bg-white p-4 md:w-[390px] md:border-l md:border-t-0 md:p-0">
-          <div className="border-b border-[#E0E0E0] px-6 py-4">
+          <div className="relative w-full overflow-y-auto border-t border-zinc-200 bg-white p-4 md:w-[390px] md:border-l md:border-t-0 md:p-0">
+            <div className="border-b border-[#E0E0E0] px-6 py-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <UserAvatar src={post.avatar} alt={post.author} />
@@ -369,9 +376,19 @@ export default function PostModal({
                 {!isOwner ? (
                   <button
                     type="button"
-                    className="text-[14px] font-semibold text-[#5A3EE7]"
+                    onClick={async () => {
+                      if (!post.userId || followLoading) return;
+                      setFollowLoading(true);
+                      try {
+                        await onToggleFollow?.(post.userId);
+                      } finally {
+                        setFollowLoading(false);
+                      }
+                    }}
+                    disabled={followLoading}
+                    className="text-[14px] font-semibold text-[#5A3EE7] disabled:opacity-60"
                   >
-                    Seguir
+                    {isFollowing ? "Siguiendo" : "Seguir"}
                   </button>
                 ) : null}
                 <button
@@ -399,19 +416,50 @@ export default function PostModal({
                 <div className="mt-1 text-[14px] leading-5 text-[#464646]">
                   {renderCaptionWithHashtags(post.caption)}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1">
-                  {previewTags.map((tag) => (
-                    <Link
-                      key={tag}
-                      href={buildHashtagHref(tag)}
-                      className="text-[12px] font-medium text-[#42a5ff] hover:underline"
-                    >
-                      {tag}
-                    </Link>
-                  ))}
-                </div>
               </div>
             </div>
+
+            {showPostActions ? (
+              <div className="mt-5 flex items-center justify-between">
+                <div className="flex items-center gap-4 text-zinc-900">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() => onLike?.(post.id)}
+                    aria-label="Me gusta"
+                  >
+                    <Heart
+                      className={`h-6 w-6 ${
+                        isLiked ? "fill-[#ff334b] text-[#ff334b]" : "fill-none text-zinc-900"
+                      }`}
+                    />
+                    <span className="text-[15px] font-semibold text-zinc-900">
+                      {post.likes}
+                    </span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-4 text-zinc-900">
+                  <button
+                    type="button"
+                    aria-label="Compartir"
+                    onClick={() => onShare?.(post)}
+                  >
+                    <Send className="h-6 w-6" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Guardar"
+                    onClick={() => onToggleFavorite?.(post)}
+                  >
+                    <Bookmark
+                      className={`h-6 w-6 ${
+                        isFavorite ? "fill-[#5A3EE7] text-[#5A3EE7]" : "text-zinc-900"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {!isOwner && onTip && post.tipEnabled ? (
               <button
@@ -472,8 +520,9 @@ export default function PostModal({
                 </div>
               </div>
             ) : null}
-          </div>
+            </div>
 
+          </div>
         </div>
       </div>
 
@@ -490,17 +539,37 @@ export default function PostModal({
               <>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    onReport?.(post);
+                    setMenuOpen(false);
+                  }}
                   className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
                 >
                   Denunciar
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={async () => {
+                    if (!post.userId) {
+                      setMenuOpen(false);
+                      return;
+                    }
+                    if (followLoading) return;
+                    setFollowLoading(true);
+                    try {
+                      if (isFollowing) {
+                        await onUnfollow?.(post.userId);
+                      } else {
+                        await onToggleFollow?.(post.userId);
+                      }
+                    } finally {
+                      setFollowLoading(false);
+                    }
+                    setMenuOpen(false);
+                  }}
                   className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
                 >
-                  Dejar de seguir
+                  {isFollowing ? "Dejar de seguir" : "Seguir"}
                 </button>
                 <button
                   type="button"
@@ -522,17 +591,6 @@ export default function PostModal({
                   className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
                 >
                   Ir a la publicación
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    router.push(buildUserProfileHref(post.author));
-                    setMenuOpen(false);
-                    onClose();
-                  }}
-                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
-                >
-                  Información sobre esta cuenta
                 </button>
                 <button
                   type="button"

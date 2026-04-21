@@ -75,6 +75,26 @@ export const creditApprovedAlbumPurchase = async ({
     throw new Error("No se encontró contenido para acreditar.");
   }
 
+  const { data: existingOwnershipRows, error: existingOwnershipError } = await admin
+    .from("purchases")
+    .select("id")
+    .eq("user_id", buyerUserId)
+    .in("post_id", postIds)
+    .limit(1);
+
+  throwRepositoryError(
+    existingOwnershipError,
+    "No se pudo validar si el álbum ya estaba comprado",
+  );
+
+  if ((existingOwnershipRows ?? []).length > 0) {
+    return {
+      postIds,
+      insertedRows: 0,
+      alreadyCredited: true,
+    };
+  }
+
   const purchaseRows = postIds.map((postId, index) => ({
     user_id: buyerUserId,
     post_id: postId,
@@ -113,7 +133,22 @@ export const creditApprovedAlbumPurchase = async ({
     externalReference,
   });
 
-  if (existingPaymentIds.size === 0) {
+  const { data: existingNotification, error: existingNotificationError } = await admin
+    .from("notifications")
+    .select("id")
+    .eq("user_id", sellerUserId)
+    .eq("actor_id", buyerUserId)
+    .eq("type", "purchase")
+    .eq("entity_id", albumId)
+    .limit(1)
+    .maybeSingle();
+
+  throwRepositoryError(
+    existingNotificationError,
+    "No se pudo validar la notificación de compra",
+  );
+
+  if (existingPaymentIds.size === 0 && !existingNotification) {
     const { error: notificationError } = await admin.from("notifications").insert({
       user_id: sellerUserId,
       actor_id: buyerUserId,
@@ -153,6 +188,26 @@ export const recordInternalAlbumPurchase = async ({
     throw new Error("No se encontró contenido para acreditar.");
   }
 
+  const { data: existingOwnershipRows, error: existingOwnershipError } = await admin
+    .from("purchases")
+    .select("id")
+    .eq("user_id", buyerUserId)
+    .in("post_id", postIds)
+    .limit(1);
+
+  throwRepositoryError(
+    existingOwnershipError,
+    "No se pudo validar si el álbum ya estaba comprado",
+  );
+
+  if ((existingOwnershipRows ?? []).length > 0) {
+    return {
+      postIds,
+      insertedRows: 0,
+      alreadyCredited: true,
+    };
+  }
+
   const purchaseRows = postIds.map((postId, index) => ({
     user_id: buyerUserId,
     post_id: postId,
@@ -179,7 +234,22 @@ export const recordInternalAlbumPurchase = async ({
     throwRepositoryError(insertError, "No se pudo acreditar la compra interna");
   }
 
-  if (existingPaymentIds.size === 0) {
+  const { data: existingNotification, error: existingNotificationError } = await admin
+    .from("notifications")
+    .select("id")
+    .eq("user_id", sellerUserId)
+    .eq("actor_id", buyerUserId)
+    .eq("type", "purchase")
+    .eq("entity_id", albumId)
+    .limit(1)
+    .maybeSingle();
+
+  throwRepositoryError(
+    existingNotificationError,
+    "No se pudo validar la notificación de compra interna",
+  );
+
+  if (existingPaymentIds.size === 0 && !existingNotification) {
     const { error: notificationError } = await admin.from("notifications").insert({
       user_id: sellerUserId,
       actor_id: buyerUserId,

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, Send } from "lucide-react";
+import { Lock, Pencil, Send } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -1232,6 +1232,11 @@ export default function PerfilPage({
                     sizeClassName="h-[120px] w-[120px] md:h-[160px] md:w-[160px]"
                     iconClassName="h-10 w-10 md:h-12 md:w-12"
                   />
+                  {isOwnProfile ? (
+                    <span className="absolute bottom-2 right-2 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white bg-[#5A3EE7] text-white shadow-sm md:bottom-3 md:right-3 md:h-10 md:w-10">
+                      <Pencil className="h-4 w-4 md:h-[18px] md:w-[18px]" />
+                    </span>
+                  ) : null}
                 </button>
 
                 <div className="flex min-h-[178px] flex-col justify-end gap-5 pt-[42px] md:flex-row md:items-end md:justify-between md:pt-[58px]">
@@ -1418,8 +1423,10 @@ export default function PerfilPage({
                               </span>
                             </div>
                           ) : (
-                            <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 p-2 text-zinc-900 shadow-sm">
-                              <Lock className="h-3.5 w-3.5" />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="rounded-[10px] bg-white/20 p-4 text-white shadow-sm backdrop-blur-[2px]">
+                                <Lock className="h-8 w-8" strokeWidth={2.2} />
+                              </div>
                             </div>
                           )
                         ) : null}

@@ -11,6 +11,8 @@ type UserCommissionProfileRow = {
   creator_share_rate: number | string;
   platform_share_rate: number | string;
   created_at: string;
+  reason?: string | null;
+  updated_by?: string | null;
 };
 
 const PREFIX = "user_commission_profile:";
@@ -62,8 +64,8 @@ export const coerceUserCommissionProfile = (
 ): UserCommissionProfile | null => {
   if (!row) return null;
 
-  const creatorShare = Number(row.creator_share_rate);
-  const platformShare = Number(row.platform_share_rate);
+  let creatorShare = Number(row.creator_share_rate);
+  let platformShare = Number(row.platform_share_rate);
   if (
     Number.isNaN(creatorShare) ||
     Number.isNaN(platformShare) ||
@@ -71,6 +73,14 @@ export const coerceUserCommissionProfile = (
     !row.created_at
   ) {
     return null;
+  }
+
+  // Legacy rows were briefly saved inverted as 30/70.
+  // Today the default and expected split everywhere in product is 70/30,
+  // so normalize any surviving inverted rows before they reach the UI.
+  if (creatorShare === 0.3 && platformShare === 0.7) {
+    creatorShare = DEFAULT_CREATOR_SHARE;
+    platformShare = 1 - DEFAULT_CREATOR_SHARE;
   }
 
   return {
@@ -86,7 +96,7 @@ export const getLatestUserCommissionProfile = async (
 ) => {
   const { data: tableRow } = await supabase
     .from("user_commission_profiles")
-    .select("id,creator_share_rate,platform_share_rate,created_at")
+    .select("id,creator_share_rate,platform_share_rate,created_at,reason,updated_by")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)

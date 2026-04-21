@@ -481,13 +481,13 @@ export const commerceApi = createApi({
             const album = albumMap.get(albumId);
             const groupKey = `${albumId}-${row.user_id}`;
             const current = grouped.get(groupKey);
-            const count = albumCountMap.get(albumId) ?? (post?.media_type ? 1 : 0);
-            const type = count > 1 ? "Album" : post?.media_type === "video" ? "Video" : "Foto";
+            const mediaCount = albumCountMap.get(albumId) ?? (post?.media_type ? 1 : 0);
+            const type = mediaCount > 1 ? "Album" : post?.media_type === "video" ? "Video" : "Foto";
             const base: SaleItem = current ?? {
               id: groupKey,
               type,
               title: album?.description || post?.caption || "Publicación",
-              count,
+              count: 0,
               total: 0,
               createdAt: row.created_at,
               buyer: {
@@ -497,7 +497,12 @@ export const commerceApi = createApi({
                 avatar: resolveAvatar(buyer?.avatar_url ?? null),
               },
             };
-            grouped.set(groupKey, { ...base, total: base.total + Number(row.amount || 0) });
+            const purchaseAmount = Number(row.amount || 0);
+            grouped.set(groupKey, {
+              ...base,
+              count: base.count + (purchaseAmount > 0 ? 1 : 0),
+              total: base.total + purchaseAmount,
+            });
           });
           const { data: tipRows } = await supabase
             .from("notifications")

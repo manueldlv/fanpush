@@ -1266,9 +1266,9 @@ export default function SettingsPage() {
                         El canal push afecta las notificaciones visibles dentro de la app. El canal email queda guardado para los envíos por correo.
                       </p>
                     </div>
-                    <div className="flex flex-col gap-3 sm:items-end">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    <div className="flex flex-wrap gap-3 sm:justify-end">
+                      <div className="flex items-center justify-between gap-3 rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 py-3 min-w-[150px]">
+                        <span className="text-sm font-medium text-zinc-700">
                           Push
                         </span>
                         <ToggleSwitch
@@ -1279,8 +1279,8 @@ export default function SettingsPage() {
                           label="Activar o desactivar todas las notificaciones push"
                         />
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      <div className="flex items-center justify-between gap-3 rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 py-3 min-w-[150px]">
+                        <span className="text-sm font-medium text-zinc-700">
                           Email
                         </span>
                         <ToggleSwitch

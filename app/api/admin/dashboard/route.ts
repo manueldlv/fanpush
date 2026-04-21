@@ -161,7 +161,9 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false }),
       admin
         .from("user_commission_profiles")
-        .select("user_id,creator_share_rate,platform_share_rate,created_at")
+        .select(
+          "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by",
+        )
         .order("created_at", { ascending: false }),
       admin
         .from("user_referrals")
@@ -208,22 +210,24 @@ export async function GET(request: Request) {
       });
       referralsByUser.set(row.referrer_user_id, current);
     });
-    const commissionMap = new Map(
-      (commissionRowsResult.data ?? [])
-        .map(
-          (row) =>
-            [
-              row.user_id,
-              coerceUserCommissionProfile({
-                id: "",
-                creator_share_rate: row.creator_share_rate,
-                platform_share_rate: row.platform_share_rate,
-                created_at: row.created_at,
-              }),
-            ] as const,
-        )
-        .filter((entry) => Boolean(entry[1])),
-    );
+    const commissionMap = new Map<
+      string,
+      NonNullable<ReturnType<typeof coerceUserCommissionProfile>>
+    >();
+    for (const row of commissionRowsResult.data ?? []) {
+      if (commissionMap.has(row.user_id)) continue;
+      const profile = coerceUserCommissionProfile({
+        id: "",
+        creator_share_rate: row.creator_share_rate,
+        platform_share_rate: row.platform_share_rate,
+        created_at: row.created_at,
+        reason: row.reason,
+        updated_by: row.updated_by,
+      });
+      if (profile) {
+        commissionMap.set(row.user_id, profile);
+      }
+    }
 
     const follows = followsRowsResult.data ?? [];
     const allAlbums = allAlbumsResult.data ?? [];

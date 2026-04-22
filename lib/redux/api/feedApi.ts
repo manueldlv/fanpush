@@ -104,8 +104,9 @@ export const feedApi = createApi({
           const { data, error } = await supabase
             .from("albums")
             .select(
-              "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
+              "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
             )
+            .eq("visibility", "published")
             .order("created_at", { ascending: false });
           if (error) throw error;
 

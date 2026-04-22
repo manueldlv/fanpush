@@ -2,7 +2,7 @@ export default function TerminosPage() {
   return (
     <div className="min-h-screen bg-white px-4 py-10 text-zinc-900 md:px-8">
       <div className="mx-auto max-w-[920px] rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm md:p-10">
-        <div className="text-sm uppercase tracking-[0.24em] text-zinc-500">
+        <div className="text-sm font-medium text-zinc-500">
           FanPush
         </div>
         <h1 className="mt-3 text-4xl font-semibold">Términos y condiciones</h1>

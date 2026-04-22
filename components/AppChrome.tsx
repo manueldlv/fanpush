@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import AuthGate from "@/components/AuthGate";
+import FloatingMessagesButton from "@/components/FloatingMessagesButton";
 import SearchPanel from "@/components/SearchPanel";
 import TopBar from "@/components/TopBar";
 
@@ -23,6 +24,7 @@ export default function AppChrome({
     <AuthGate>
       {!isStandalone ? <TopBar /> : null}
       {!isStandalone ? <SearchPanel /> : null}
+      {!isStandalone ? <FloatingMessagesButton /> : null}
       <div className={isStandalone ? "" : "pb-16 pt-16 md:pb-0"}>{children}</div>
     </AuthGate>
   );

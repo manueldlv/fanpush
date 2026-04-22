@@ -24,6 +24,8 @@ export type NotificationActivityItem = {
   dateLabel: string;
   timeLabel: string;
   avatar: string | null;
+  actorId: string | null;
+  actorUsername: string | null;
   isRead: boolean;
   action: { label: string; href: string } | null;
 };
@@ -180,6 +182,8 @@ export const listUserNotificationActivity = async (
       avatar: SYSTEM_ACTIVITY_TYPES.has(row.type ?? "")
         ? null
         : resolvePublicImageUrl(admin, actor?.avatar_url ?? null),
+      actorId: actor?.id ?? null,
+      actorUsername: actor?.username ?? null,
       isRead: row.is_read ?? false,
       action: buildActivityAction({
         type: row.type ?? "",

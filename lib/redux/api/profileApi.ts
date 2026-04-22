@@ -305,14 +305,16 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
     supabase
       .from("albums")
       .select(
-        "id,user_id,description,price,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
+        "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
       )
       .eq("user_id", viewedUserId)
+      .eq("visibility", "published")
       .order("created_at", { ascending: false }),
     supabase
       .from("albums")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", viewedUserId),
+      .eq("user_id", viewedUserId)
+      .eq("visibility", "published"),
     supabase
       .from("follows")
       .select("follower_id")

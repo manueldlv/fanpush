@@ -12,7 +12,7 @@ export default function GlobalError({
       <body className="bg-zinc-50 text-zinc-950">
         <main className="flex min-h-screen items-center justify-center px-6 py-10">
           <div className="w-full max-w-[720px] rounded-[20px] border border-rose-200 bg-white p-6 shadow-sm">
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-600">
+            <div className="text-sm font-medium text-rose-600">
               Error de aplicación
             </div>
             <h1 className="mt-3 text-2xl font-semibold text-zinc-950">

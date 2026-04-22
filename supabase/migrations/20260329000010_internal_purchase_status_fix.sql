@@ -93,6 +93,11 @@ begin
 
   v_creator_share_rate := coalesce(v_creator_share_rate, 0.7000);
   v_platform_share_rate := coalesce(v_platform_share_rate, 0.3000);
+  if round(v_creator_share_rate::numeric, 4) = 0.3000
+    and round(v_platform_share_rate::numeric, 4) = 0.7000 then
+    v_creator_share_rate := 0.7000;
+    v_platform_share_rate := 0.3000;
+  end if;
 
   creator_amount := round(transaction_amount * v_creator_share_rate, 2);
   platform_fee_amount := round(transaction_amount - creator_amount, 2);

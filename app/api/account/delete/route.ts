@@ -9,6 +9,11 @@ export async function POST(request: Request) {
     }
 
     const userId = user.id;
+    const closedAt = new Date().toISOString();
+    const deletedSuffix = userId.slice(0, 8);
+    const archivedUsername = `deleted_${deletedSuffix}`;
+    const archivedEmail = `deleted+${deletedSuffix}@fanpush.invalid`;
+    const replacementPassword = `${crypto.randomUUID()}${crypto.randomUUID()}`;
 
     const { data: ownedPostsRows } = await admin
       .from("posts")
@@ -48,54 +53,105 @@ export async function POST(request: Request) {
     throwIfError(
       (await admin.from("purchases").delete().eq("user_id", userId)).error,
     );
+    throwIfError((await admin.from("notification_threads").delete().eq("user_id", userId)).error);
+    throwIfError((await admin.from("user_meta").delete().eq("user_id", userId)).error);
+
+    throwIfError(
+      (
+        await admin
+          .from("notifications")
+          .update({ actor_id: null })
+          .eq("actor_id", userId)
+      ).error,
+    );
 
     if (ownedPostIds.length > 0) {
       throwIfError(
         (await admin.from("likes").delete().in("post_id", ownedPostIds)).error,
       );
-      throwIfError(
-        (
-          await admin.from("purchases").delete().in("post_id", ownedPostIds)
-        ).error,
-      );
-      throwIfError(
-        (
-          await admin.from("album_posts").delete().in("post_id", ownedPostIds)
-        ).error,
-      );
     }
 
     if (ownedAlbumIds.length > 0) {
       throwIfError(
         (
-          await admin.from("album_posts").delete().in("album_id", ownedAlbumIds)
+          await admin
+            .from("albums")
+            .update({ visibility: "removed", updated_at: closedAt })
+            .in("id", ownedAlbumIds)
         ).error,
       );
     }
 
-    if (ownedAlbumIds.length > 0) {
-      throwIfError(
-        (await admin.from("albums").delete().in("id", ownedAlbumIds)).error,
-      );
-    }
-
-    if (ownedPostIds.length > 0) {
-      throwIfError(
-        (await admin.from("posts").delete().in("id", ownedPostIds)).error,
-      );
-    }
-
-    throwIfError((await admin.from("users").delete().eq("id", userId)).error);
     throwIfError(
-      (await admin.from("profiles").delete().eq("id", userId)).error,
+      (
+        await admin
+          .from("user_roles")
+          .update({ revoked_at: closedAt })
+          .eq("user_id", userId)
+          .is("revoked_at", null)
+      ).error,
     );
 
-    const { error: deleteAuthError } = await admin.auth.admin.deleteUser(userId);
-    if (deleteAuthError) {
-      throw new Error(deleteAuthError.message);
+    throwIfError(
+      (
+        await admin.from("users").update({
+          username: archivedUsername,
+          avatar_url: null,
+          bio: null,
+          website: null,
+          instagram: null,
+          updated_at: closedAt,
+        }).eq("id", userId)
+      ).error,
+    );
+
+    throwIfError(
+      (
+        await admin.from("profiles").update({
+          full_name: "Cuenta eliminada",
+          email: archivedEmail,
+          country: null,
+          locale: null,
+          updated_at: closedAt,
+        }).eq("id", userId)
+      ).error,
+    );
+
+    throwIfError(
+      (
+        await admin.from("user_meta").upsert(
+          {
+            user_id: userId,
+            meta_key: "account.state",
+            meta_value: {
+              isBlocked: true,
+              blockedReason: "account_deleted",
+              badges: [],
+              isVerified: false,
+              isFeatured: false,
+              updatedAt: closedAt,
+            },
+            updated_at: closedAt,
+          },
+          { onConflict: "user_id,meta_key" },
+        )
+      ).error,
+    );
+
+    const { error: updateAuthError } = await admin.auth.admin.updateUserById(userId, {
+      email: archivedEmail,
+      password: replacementPassword,
+      user_metadata: {
+        username: archivedUsername,
+        full_name: "Cuenta eliminada",
+        deleted_at: closedAt,
+      },
+    });
+    if (updateAuthError) {
+      throw new Error(updateAuthError.message);
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, mode: "archived" });
   } catch (error) {
     return NextResponse.json(
       {

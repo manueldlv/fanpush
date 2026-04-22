@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
+import Link from "next/link";
 import SidebarLeft from "@/components/SidebarLeft";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import {
@@ -10,33 +11,36 @@ import {
   useGetSalesQuery,
   useRequestWithdrawalMutation,
 } from "@/lib/redux/api/commerceApi";
+import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { getCurrentMonthKey, getWithdrawalReservedAmount } from "@/lib/withdrawals";
 import { FANPUSH_WITHDRAWAL_MIN_ARS, formatARS } from "@/lib/utils";
 
 const SALES_PAGE_SIZE = 10;
 
 export default function VentasPage() {
-  const searchParams = useSearchParams();
+  const router = useRouter();
+  const payoutPromptRef = useRef<HTMLDivElement | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
-  const [tab, setTab] = useState<"overview" | "sales" | "withdrawals">("overview");
+  const [tab, setTab] = useState<"sales" | "withdrawals">("sales");
   const [salesPage, setSalesPage] = useState(1);
+  const [highlightPayoutSetup, setHighlightPayoutSetup] = useState(false);
 
+  const { data: viewer, isLoading: viewerLoading } = useGetViewerQuery();
   const { data, isLoading: loading, refetch } = useGetSalesQuery();
   const [requestWithdrawal, { isLoading: requesting }] = useRequestWithdrawalMutation();
   const [cancelWithdrawal, { isLoading: cancelling }] = useCancelWithdrawalMutation();
 
   useEffect(() => {
-    const requestedTab = searchParams.get("tab");
-    if (
-      requestedTab === "overview" ||
-      requestedTab === "sales" ||
-      requestedTab === "withdrawals"
-    ) {
-      setTab(requestedTab);
+    if (!viewerLoading && viewer && !viewer.access.isAuthor) {
+      router.replace("/saldo");
     }
-  }, [searchParams]);
+  }, [router, viewer, viewerLoading]);
+
+  if (!viewerLoading && viewer && !viewer.access.isAuthor) {
+    return null;
+  }
 
   const sales = data?.sales ?? [];
   const withdrawals = data?.withdrawals ?? [];
@@ -115,6 +119,7 @@ export default function VentasPage() {
     Boolean(payoutProfile) &&
     !totals.hasRequestThisMonth &&
     !withdrawalAmountError;
+  const payoutSettingsHref = "/settings?tab=payments#cobros-retiros";
 
   const salesPageCount = Math.max(1, Math.ceil(sales.length / SALES_PAGE_SIZE));
   const currentSalesPage = Math.min(salesPage, salesPageCount);
@@ -149,7 +154,22 @@ export default function VentasPage() {
     setSalesPage(1);
   }, [sales.length]);
 
+  useEffect(() => {
+    if (payoutProfile) {
+      setHighlightPayoutSetup(false);
+    }
+  }, [payoutProfile]);
+
   const handleRequestWithdrawal = async () => {
+    if (!payoutProfile) {
+      setHighlightPayoutSetup(true);
+      payoutPromptRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      return;
+    }
+
     try {
       setRequestError(null);
       setRequestSuccess(null);
@@ -206,7 +226,7 @@ export default function VentasPage() {
                   Crear mi primera publicación
                 </a>
                 <a
-                  href="/settings"
+                  href={payoutSettingsHref}
                   className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700"
                 >
                   Completar datos de cobro
@@ -239,7 +259,6 @@ export default function VentasPage() {
           <div className="rounded-[16px] border border-zinc-200 bg-white p-2">
             <div className="flex flex-wrap gap-2">
               {[
-                { id: "overview" as const, label: "Resumen" },
                 { id: "sales" as const, label: "Detalle de ventas" },
                 { id: "withdrawals" as const, label: "Retiros" },
               ].map((item) => {
@@ -261,160 +280,6 @@ export default function VentasPage() {
               })}
             </div>
           </div>
-
-          {tab === "overview" ? (
-            <div className="grid items-start grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-[20px] border border-zinc-200 bg-white p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">
-                      Retirar fondos con Mercado Pago
-                    </div>
-                    <p className="mt-2 max-w-[520px] text-sm leading-6 text-zinc-600">
-                      Elige cuánto quieres retirar de tus ganancias disponibles. El mínimo es{" "}
-                      {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)} y procesamos una solicitud por mes.
-                    </p>
-                  </div>
-                  {totals.reserved > 0 ? (
-                    <div className="max-w-[260px] rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-left">
-                      <div className="text-[14px] font-semibold text-zinc-900">
-                        Retiro en proceso
-                      </div>
-                      <div className="mt-2 text-xl font-semibold text-zinc-950">
-                        {formatARS(totals.reserved)}
-                      </div>
-                      <div className="mt-1 text-[14px] leading-6 text-zinc-500">
-                        Este monto ya fue solicitado y no se puede volver a retirar hasta que se pague o se cancele.
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-[14px] font-semibold text-zinc-900">
-                      Regla del retiro
-                    </div>
-                    <div className="mt-2 text-[15px] leading-6 text-zinc-700">
-                      Puedes solicitar un retiro por mes. Si ya hay uno pedido, ese monto queda pendiente hasta que se pague o se cancele.
-                    </div>
-                  </div>
-                  <div className="rounded-[16px] border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-[14px] font-semibold text-zinc-900">
-                      Ventana estimada
-                    </div>
-                    <div className="mt-2 text-[15px] leading-6 text-zinc-700">
-                      Entre el 1 y el 3 del próximo ciclo mensual, con hasta 72 hs hábiles de proceso.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-[16px] border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                  {payoutProfile ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <div className="text-[14px] font-semibold text-zinc-900">
-                          Alias / CVU / CBU
-                        </div>
-                        <div className="mt-1 font-semibold text-zinc-900">{payoutProfile.alias}</div>
-                      </div>
-                      <div>
-                        <div className="text-[14px] font-semibold text-zinc-900">
-                          Titular
-                        </div>
-                        <div className="mt-1 font-semibold text-zinc-900">
-                          {payoutProfile.holderName}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      Completa tus datos de cobro en Configuración &gt; Cobros y retiros para poder solicitar un retiro.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="self-start rounded-[20px] border border-zinc-200 bg-white p-6">
-                <div className="text-[14px] font-semibold text-zinc-900">
-                  Monto a retirar
-                </div>
-                <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-zinc-200 bg-white px-4 py-4">
-                  <span className="text-xl font-semibold text-zinc-500">$</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={FANPUSH_WITHDRAWAL_MIN_ARS}
-                    max={Math.floor(totals.withdrawable)}
-                    step={1}
-                    value={withdrawalAmount}
-                    onChange={(event) => setWithdrawalAmount(event.target.value)}
-                    className="w-full bg-transparent text-2xl font-semibold text-zinc-950 outline-none placeholder:text-zinc-300"
-                    placeholder={`${FANPUSH_WITHDRAWAL_MIN_ARS.toLocaleString("es-AR")}`}
-                  />
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {quickAmounts.map((amount) => (
-                    <button
-                      key={amount}
-                      type="button"
-                      onClick={() => setWithdrawalAmount(String(amount))}
-                      className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-100"
-                    >
-                      {formatARS(amount)}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-4 space-y-2 text-sm">
-                  <div className="flex items-center justify-between text-zinc-500">
-                    <span>Disponible</span>
-                    <span className="font-semibold text-zinc-900">{formatARS(totals.withdrawable)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-zinc-500">
-                    <span>Mínimo</span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}
-                    </span>
-                  </div>
-                </div>
-
-                {withdrawalAmountError ? (
-                  <div className="mt-3 rounded-[12px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                    {withdrawalAmountError}
-                  </div>
-                ) : null}
-                {totals.hasRequestThisMonth ? (
-                  <div className="mt-3 rounded-[12px] border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">
-                    Ya solicitaste un retiro este mes.
-                  </div>
-                ) : null}
-                {!totals.canRequest ? (
-                  <div className="mt-3 rounded-[12px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                    Te faltan {formatARS(totals.amountMissing)} para llegar al mínimo.
-                  </div>
-                ) : null}
-                {totals.canRequest && !payoutProfile ? (
-                  <a
-                    href="/settings"
-                    className="mt-3 inline-flex rounded-[12px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-300 hover:bg-zinc-50"
-                  >
-                    Completar datos de cobro
-                  </a>
-                ) : null}
-
-                <button
-                  type="button"
-                  onClick={handleRequestWithdrawal}
-                  disabled={requesting || !canSubmitWithdrawal}
-                  className="fanpush-button-primary mt-5 w-full rounded-[16px] px-4 py-3.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {requesting ? "Solicitando..." : "Solicitar retiro"}
-                </button>
-              </div>
-            </div>
-          ) : null}
 
           {tab === "sales" ? (
             <div className="overflow-hidden rounded-[16px] border border-zinc-200 bg-white">
@@ -471,7 +336,14 @@ export default function VentasPage() {
                           className="border-t border-zinc-100 text-sm text-zinc-700"
                         >
                           <td className="px-4 py-3">{sale.type}</td>
-                          <td className="px-4 py-3">{sale.title}</td>
+                          <td className="px-4 py-3">
+                            <Link
+                              href={`${buildUserProfileHref(viewer?.profile.username ?? "")}?post=${encodeURIComponent(sale.albumId)}`}
+                              className="font-medium text-blue-600 hover:underline"
+                            >
+                              {sale.title}
+                            </Link>
+                          </td>
                           <td className="px-4 py-3">
                             <a
                               href={buildUserProfileHref(sale.buyer.name)}
@@ -520,89 +392,198 @@ export default function VentasPage() {
           ) : null}
 
           {tab === "withdrawals" ? (
-            <div className="overflow-hidden rounded-[16px] border border-zinc-200 bg-white">
-              <div className="border-b border-zinc-200 px-4 py-3">
-                <div className="text-sm font-semibold text-zinc-900">Historial de retiros</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Seguimiento de cada solicitud de retiro y su estado.
+            <div className="space-y-5">
+              <div className="space-y-5 rounded-[20px] border border-zinc-200 bg-white p-6">
+                <div>
+                  <div className="text-lg font-semibold text-zinc-900">
+                    Retiros con Mercado Pago
+                  </div>
+                  <p className="mt-2 max-w-[760px] text-sm leading-6 text-zinc-600">
+                    Desde acá puedes ingresar el monto que quieres retirar y enviar la solicitud cuando tu saldo esté listo.
+                  </p>
                 </div>
+                <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 p-5">
+                  <div className="text-[15px] font-semibold text-zinc-900">
+                    Monto a retirar
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-zinc-200 bg-white px-4 py-4">
+                    <span className="text-xl font-semibold text-zinc-500">$</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={FANPUSH_WITHDRAWAL_MIN_ARS}
+                      max={Math.floor(totals.withdrawable)}
+                      step={1}
+                      value={withdrawalAmount}
+                      onChange={(event) => setWithdrawalAmount(event.target.value)}
+                      className="w-full bg-transparent text-2xl font-semibold text-zinc-950 outline-none placeholder:text-zinc-300"
+                      placeholder={`${FANPUSH_WITHDRAWAL_MIN_ARS.toLocaleString("es-AR")}`}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {quickAmounts.map((amount) => (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => setWithdrawalAmount(String(amount))}
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-100"
+                      >
+                        {formatARS(amount)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[14px] border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-medium text-zinc-500">Disponible</div>
+                      <div className="mt-2 text-lg font-semibold text-zinc-900">
+                        {formatARS(totals.withdrawable)}
+                      </div>
+                    </div>
+                    <div className="rounded-[14px] border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-medium text-zinc-500">Mínimo</div>
+                      <div className="mt-2 text-lg font-semibold text-zinc-900">
+                        {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {withdrawalAmountError && !totals.hasRequestThisMonth ? (
+                  <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                    {withdrawalAmountError}
+                  </div>
+                ) : null}
+                {totals.hasRequestThisMonth ? (
+                  <div className="rounded-[12px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
+                    Ya solicitaste un retiro este mes.
+                  </div>
+                ) : null}
+                {!totals.canRequest && !totals.hasRequestThisMonth ? (
+                  <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                    Te faltan {formatARS(totals.amountMissing)} para llegar al mínimo.
+                  </div>
+                ) : null}
+                {totals.canRequest && !payoutProfile ? (
+                  <div ref={payoutPromptRef}>
+                    <a
+                      href={payoutSettingsHref}
+                      className={`inline-flex w-fit rounded-[12px] border bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 transition ${
+                        highlightPayoutSetup
+                          ? "border-[#5A3EE7] ring-4 ring-[#5A3EE7]/15"
+                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50"
+                      }`}
+                    >
+                      Completar datos de cobro
+                    </a>
+                  </div>
+                ) : null}
+                {totals.canRequest && !payoutProfile && highlightPayoutSetup ? (
+                  <div className="rounded-[12px] border border-[#5A3EE7]/20 bg-[#5A3EE7]/5 px-4 py-3 text-sm font-semibold text-[#4931bc]">
+                    Para retirar primero completa tus datos en cobros y retiros.
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={handleRequestWithdrawal}
+                  disabled={
+                    requesting ||
+                    totals.hasRequestThisMonth ||
+                    !totals.canRequest ||
+                    Boolean(withdrawalAmountError)
+                  }
+                  className="fanpush-button-primary w-full rounded-[16px] px-4 py-3.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {requesting ? "Solicitando..." : "Solicitar retiro"}
+                </button>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full table-fixed">
-                  <thead className="bg-zinc-50">
-                    <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
-                      <th className="px-4 py-3 text-left">Fecha</th>
-                      <th className="px-4 py-3 text-left">Período</th>
-                      <th className="px-4 py-3 text-right">Monto</th>
-                      <th className="px-4 py-3 text-right">Estado</th>
-                      <th className="px-4 py-3 text-right">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr className="border-t border-zinc-100">
-                        <td colSpan={5} className="px-4 py-5">
-                          <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
-                            Cargando retiros...
-                          </div>
-                        </td>
+
+              <div className="overflow-hidden rounded-[16px] border border-zinc-200 bg-white">
+                <div className="border-b border-zinc-200 px-4 py-3">
+                  <div className="text-sm font-semibold text-zinc-900">Historial de retiros</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Seguimiento de cada solicitud de retiro y su estado.
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full table-fixed">
+                    <thead className="bg-zinc-50">
+                      <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
+                        <th className="px-4 py-3 text-left">Fecha</th>
+                        <th className="px-4 py-3 text-left">Período</th>
+                        <th className="px-4 py-3 text-right">Monto</th>
+                        <th className="px-4 py-3 text-right">Estado</th>
+                        <th className="px-4 py-3 text-right">Acción</th>
                       </tr>
-                    ) : null}
-                    {!loading && withdrawals.length === 0 ? (
-                      <tr className="border-t border-zinc-100">
-                        <td colSpan={5} className="px-4 py-5">
-                          <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
-                            <span className="font-medium text-zinc-700">
-                              No hay datos para mostrar.
-                            </span>
-                            <span className="ml-2">Aún no solicitaste retiros.</span>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      withdrawals.map((item) => (
-                        <tr
-                          key={item.id}
-                          className="border-t border-zinc-100 text-sm text-zinc-700"
-                        >
-                          <td className="px-4 py-4">
-                            {new Date(item.requestedAt).toLocaleString("es-AR")}
-                          </td>
-                          <td className="px-4 py-4">{item.monthKey}</td>
-                          <td className="px-4 py-4 text-right font-semibold">
-                            {formatARS(item.amount)}
-                          </td>
-                          <td className="px-4 py-4 text-right">
-                            <div className="flex flex-col items-end gap-1">
-                              <span>{item.statusLabel}</span>
-                              {item.status === "rejected" ? (
-                                <span className="text-[11px] text-emerald-600">
-                                  Saldo devuelto
-                                </span>
-                              ) : null}
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr className="border-t border-zinc-100">
+                          <td colSpan={5} className="px-4 py-5">
+                            <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
+                              Cargando retiros...
                             </div>
                           </td>
-                          <td className="px-4 py-4 text-right">
-                            {item.status === "requested" ? (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelWithdrawal(item.id)}
-                                disabled={cancelling}
-                                className="inline-flex items-center justify-center rounded-full p-2 text-red-600 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Cancelar retiro"
-                                title="Cancelar retiro"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            ) : (
-                              <span className="text-xs text-zinc-400">-</span>
-                            )}
+                        </tr>
+                      ) : null}
+                      {!loading && withdrawals.length === 0 ? (
+                        <tr className="border-t border-zinc-100">
+                          <td colSpan={5} className="px-4 py-5">
+                            <div className="flex min-h-[88px] items-center rounded-[12px] border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-500">
+                              <span className="font-medium text-zinc-700">
+                                No hay datos para mostrar.
+                              </span>
+                              <span className="ml-2">Aún no solicitaste retiros.</span>
+                            </div>
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        withdrawals.map((item) => (
+                          <tr
+                            key={item.id}
+                            className="border-t border-zinc-100 text-sm text-zinc-700"
+                          >
+                            <td className="px-4 py-4">
+                              {new Date(item.requestedAt).toLocaleString("es-AR")}
+                            </td>
+                            <td className="px-4 py-4">{item.monthKey}</td>
+                            <td className="px-4 py-4 text-right font-semibold">
+                              {formatARS(item.amount)}
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              <div className="flex flex-col items-end gap-1">
+                                <span>{item.statusLabel}</span>
+                                {item.status === "rejected" ? (
+                                  <span className="text-[11px] text-emerald-600">
+                                    Saldo devuelto
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              {item.status === "requested" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelWithdrawal(item.id)}
+                                  disabled={cancelling}
+                                  className="inline-flex items-center justify-center rounded-full p-2 text-red-600 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                  aria-label="Cancelar retiro"
+                                  title="Cancelar retiro"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              ) : (
+                                <span className="text-xs text-zinc-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           ) : null}

@@ -5,14 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BadgeDollarSign,
   Bell,
-  CreditCard,
   Search,
-  ShieldAlert,
-  Sparkles,
-  UserPlus,
-  Wallet,
   X,
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
@@ -23,70 +17,9 @@ import {
   useGetViewerQuery,
   useSignOutMutation,
 } from "@/lib/redux/api/sessionApi";
+import { getSupabaseClient } from "@/lib/supabase";
 import type { NotificationActivityItem } from "@/lib/server/repositories/notification-center";
 import { cn } from "@/lib/utils";
-
-type NotificationTone = {
-  pillClassName: string;
-  iconWrapClassName: string;
-  iconClassName: string;
-  label: string;
-  icon: typeof Bell;
-};
-
-const NOTIFICATION_TONES: Record<string, NotificationTone> = {
-  follow: {
-    label: "Nuevo seguidor",
-    pillClassName: "bg-sky-50 text-sky-700",
-    iconWrapClassName: "bg-sky-100",
-    iconClassName: "text-sky-700",
-    icon: UserPlus,
-  },
-  tip: {
-    label: "Nueva propina",
-    pillClassName: "bg-emerald-50 text-emerald-700",
-    iconWrapClassName: "bg-emerald-100",
-    iconClassName: "text-emerald-700",
-    icon: BadgeDollarSign,
-  },
-  purchase: {
-    label: "Nueva venta",
-    pillClassName: "bg-violet-50 text-violet-700",
-    iconWrapClassName: "bg-violet-100",
-    iconClassName: "text-violet-700",
-    icon: CreditCard,
-  },
-  withdrawal_update: {
-    label: "Retiro",
-    pillClassName: "bg-amber-50 text-amber-700",
-    iconWrapClassName: "bg-amber-100",
-    iconClassName: "text-amber-700",
-    icon: Wallet,
-  },
-  author_application_update: {
-    label: "Solicitud de autor",
-    pillClassName: "bg-indigo-50 text-indigo-700",
-    iconWrapClassName: "bg-indigo-100",
-    iconClassName: "text-indigo-700",
-    icon: Sparkles,
-  },
-  content_removed_update: {
-    label: "Moderación",
-    pillClassName: "bg-rose-50 text-rose-700",
-    iconWrapClassName: "bg-rose-100",
-    iconClassName: "text-rose-700",
-    icon: ShieldAlert,
-  },
-};
-
-const getNotificationTone = (type: string): NotificationTone =>
-  NOTIFICATION_TONES[type] ?? {
-    label: "Notificación",
-    pillClassName: "bg-zinc-100 text-zinc-700",
-    iconWrapClassName: "bg-zinc-100",
-    iconClassName: "text-zinc-600",
-    icon: Bell,
-  };
 
 const formatBalanceUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -95,55 +28,65 @@ const formatBalanceUnits = (value: number) =>
 
 function NotificationPreviewItem({
   item,
+  isFollowing,
+  followLoading,
+  onFollow,
   onSelect,
 }: {
   item: NotificationActivityItem;
+  isFollowing: boolean;
+  followLoading: boolean;
+  onFollow: (item: NotificationActivityItem) => Promise<void>;
   onSelect: () => void;
 }) {
-  const tone = getNotificationTone(item.type);
-  const Icon = tone.icon;
-
   const content = (
-    <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-3 px-4 py-3 transition hover:bg-zinc-50">
-      {item.avatar ? (
-        <UserAvatar
-          src={item.avatar}
-          alt={item.text}
-          sizeClassName="h-11 w-11"
-          iconClassName="h-4 w-4"
-        />
-      ) : (
-        <div
-          className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-full",
-            tone.iconWrapClassName,
-          )}
-        >
-          <Icon className={cn("h-4.5 w-4.5", tone.iconClassName)} />
-        </div>
-      )}
+    <div className="flex items-center gap-3 px-4 py-3 transition hover:bg-zinc-50">
+      <UserAvatar
+        src={item.avatar}
+        alt={item.text}
+        sizeClassName="h-11 w-11"
+        iconClassName="h-4 w-4"
+      />
 
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold",
-              tone.pillClassName,
-            )}
-          >
-            {tone.label}
-          </span>
-          <span className="text-[11px] text-zinc-400">
-            {item.dateLabel} · {item.timeLabel}
-          </span>
-          {!item.isRead ? <span className="h-2 w-2 rounded-full bg-zinc-950" /> : null}
-        </div>
-        <p className="mt-2 line-clamp-2 text-[13px] leading-[1.35] text-zinc-900">
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-[12px] font-medium leading-[1.35] text-zinc-900">
           {item.text}
+          <span className="ml-1 text-zinc-400">{item.dateLabel}</span>
         </p>
       </div>
+
+      {item.type === "follow" && item.actorId ? (
+        <button
+          type="button"
+          onClick={async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await onFollow(item);
+          }}
+          disabled={followLoading}
+          className={cn(
+            "inline-flex min-w-[90px] items-center justify-center rounded-[10px] px-3 py-2 text-[12px] font-semibold transition",
+            isFollowing
+              ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+              : "bg-[#5A3EE7] text-white hover:bg-[#4931bc]",
+            followLoading ? "cursor-wait opacity-60" : "",
+          )}
+        >
+          {isFollowing ? "Siguiendo" : "Seguir"}
+        </button>
+      ) : null}
+
+      {!item.isRead ? <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950" /> : null}
     </div>
   );
+
+  if (item.actorUsername) {
+    return (
+      <Link href={buildUserProfileHref(item.actorUsername)} onClick={onSelect} className="block">
+        {content}
+      </Link>
+    );
+  }
 
   if (item.action) {
     return (
@@ -168,6 +111,8 @@ export default function TopBar() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [followingActorIds, setFollowingActorIds] = useState<Set<string>>(new Set());
+  const [followPendingIds, setFollowPendingIds] = useState<Set<string>>(new Set());
   const profileRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
@@ -182,9 +127,101 @@ export default function TopBar() {
   const balance = viewer?.commerce.balance ?? 0;
   const isAuthor = viewer?.access.isAuthor ?? false;
   const previewNotifications = (notificationsData?.activity ?? []).slice(0, 6);
+  const followActorIdsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          previewNotifications
+            .filter((item) => item.type === "follow" && item.actorId)
+            .map((item) => item.actorId as string),
+        ),
+      )
+        .sort()
+        .join(","),
+    [previewNotifications],
+  );
   const unreadCount = (notificationsData?.activity ?? []).filter(
     (item) => !item.isRead,
   ).length;
+
+  useEffect(() => {
+    const loadFollowState = async () => {
+      const actorIds = followActorIdsKey
+        ? followActorIdsKey.split(",").filter(Boolean)
+        : [];
+      if (actorIds.length === 0) {
+        setFollowingActorIds((prev) => (prev.size === 0 ? prev : new Set()));
+        return;
+      }
+
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUserId = authData?.user?.id;
+      if (!currentUserId) return;
+
+      const { data } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", currentUserId)
+        .in("following_id", actorIds);
+
+      setFollowingActorIds(
+        (prev) => {
+          const next = new Set(
+            (data ?? []).map((row) => row.following_id).filter(Boolean),
+          );
+          const prevKey = Array.from(prev).sort().join(",");
+          const nextKey = Array.from(next).sort().join(",");
+          return prevKey === nextKey ? prev : next;
+        },
+      );
+    };
+
+    void loadFollowState();
+  }, [followActorIdsKey]);
+
+  const handleFollowFromNotifications = async (item: NotificationActivityItem) => {
+    if (!item.actorId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUserId = authData?.user?.id;
+    if (!currentUserId || currentUserId === item.actorId) return;
+
+    setFollowPendingIds((prev) => new Set(prev).add(item.actorId as string));
+    try {
+      if (followingActorIds.has(item.actorId)) {
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", currentUserId)
+          .eq("following_id", item.actorId);
+        if (error) throw error;
+
+        setFollowingActorIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.actorId as string);
+          return next;
+        });
+        return;
+      }
+
+      const { error } = await supabase.from("follows").insert({
+        follower_id: currentUserId,
+        following_id: item.actorId,
+      });
+      if (error) throw error;
+
+      setFollowingActorIds((prev) => new Set(prev).add(item.actorId as string));
+    } finally {
+      setFollowPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.actorId as string);
+        return next;
+      });
+    }
+  };
 
   const showTopBar = useMemo(
     () =>
@@ -393,6 +430,9 @@ export default function TopBar() {
                       <NotificationPreviewItem
                         key={item.id}
                         item={item}
+                        isFollowing={Boolean(item.actorId && followingActorIds.has(item.actorId))}
+                        followLoading={Boolean(item.actorId && followPendingIds.has(item.actorId))}
+                        onFollow={handleFollowFromNotifications}
                         onSelect={() => setNotificationsOpen(false)}
                       />
                     ))}
@@ -415,9 +455,15 @@ export default function TopBar() {
           {viewerLoading ? (
             <div className="fanpush-skeleton h-9 w-20 rounded-full" />
           ) : (
-            <Link
-              href="/saldo"
-              className="inline-flex h-[50px] items-center gap-2.5 rounded-full border border-[#5A3EE7] bg-white px-5 text-[#5A3EE7] shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
+            <button
+              type="button"
+              onClick={() => router.push(isAuthor && balance > 0 ? "/ventas" : "/saldo")}
+              className="inline-flex h-[50px] items-center gap-2.5 rounded-full border border-[#5A3EE7] bg-white px-5 text-[#5A3EE7] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#faf8ff]"
+              aria-label={
+                isAuthor && balance > 0
+                  ? "Ir a mis ventas"
+                  : "Ir a mi saldo para recargar"
+              }
             >
               <Image
                 src="/brand-lightning.png"
@@ -430,7 +476,7 @@ export default function TopBar() {
               <span className="text-[16px] font-bold tracking-[-0.01em]">
                 {Number.isFinite(balance) ? formatBalanceUnits(balance) : "0"}
               </span>
-            </Link>
+            </button>
           )}
 
           <div className="relative" ref={profileRef}>

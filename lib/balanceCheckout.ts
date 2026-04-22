@@ -10,6 +10,7 @@ type TipCheckoutInput = {
   kind: "tip";
   targetUserId: string;
   amount: number;
+  message?: string;
 };
 
 export type BalanceCheckoutResult = {

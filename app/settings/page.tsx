@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Ban, Bell, Copy, Landmark, User, Users } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -59,6 +60,7 @@ function ToggleSwitch({
 }
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
   const dispatch = useAppDispatch();
   const { data: settingsData } = useGetSettingsQuery();
   const [updateProfile] = useUpdateProfileMutation();
@@ -124,6 +126,19 @@ export default function SettingsPage() {
     setAvatarPath(settingsData.avatarPath ?? null);
     setAvatarUrl(settingsData.avatarUrl ?? null);
   }, [settingsData]);
+
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (
+      requestedTab === "profile" ||
+      requestedTab === "notifications" ||
+      requestedTab === "payments" ||
+      requestedTab === "referrals" ||
+      requestedTab === "blocked"
+    ) {
+      setActiveTab(requestedTab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     return () => {
@@ -887,7 +902,7 @@ export default function SettingsPage() {
                 ) : null}
               </div>
             ) : activeTab === "payments" ? (
-              <div className="space-y-6">
+              <div id="cobros-retiros" className="space-y-6 scroll-mt-24">
                 <div>
                   <h1 className="text-2xl font-semibold">Cobros y retiros</h1>
                   <p className="text-sm text-zinc-500">
@@ -926,7 +941,7 @@ export default function SettingsPage() {
                     <div className="mt-5 rounded-[5px] border border-zinc-200 bg-zinc-50 p-4">
                       <div className="grid gap-4 md:grid-cols-2">
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <div className="text-xs font-medium text-zinc-500">
                             Alias / CVU / CBU activo
                           </div>
                           <div className="mt-1 text-sm font-semibold text-zinc-900">
@@ -934,7 +949,7 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <div className="text-xs font-medium text-zinc-500">
                             Titular
                           </div>
                           <div className="mt-1 text-sm font-semibold text-zinc-900">
@@ -942,7 +957,7 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <div className="text-xs font-medium text-zinc-500">
                             Documento
                           </div>
                           <div className="mt-1 text-sm font-semibold text-zinc-900">
@@ -950,7 +965,7 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <div className="text-xs font-medium text-zinc-500">
                             Última actualización
                           </div>
                           <div className="mt-1 text-sm font-semibold text-zinc-900">
@@ -960,7 +975,7 @@ export default function SettingsPage() {
                       </div>
                       {savedPayoutProfile?.notes ? (
                         <div className="mt-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <div className="text-xs font-medium text-zinc-500">
                             Notas guardadas
                           </div>
                           <div className="mt-1 text-sm text-zinc-700">

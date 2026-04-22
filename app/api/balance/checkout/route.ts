@@ -6,6 +6,7 @@ import {
 } from "@/lib/server/repositories/ledger";
 import {
   getPurchaseAlbumTarget,
+  hasUserPurchasedAlbum,
   recordInternalAlbumPurchase,
 } from "@/lib/server/repositories/payments";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
@@ -19,6 +20,7 @@ type CheckoutBody =
       kind: "tip";
       targetUserId: string;
       amount: number;
+      message?: string;
     };
 
 const mapCheckoutError = (message: string) => {
@@ -67,6 +69,13 @@ export async function POST(request: Request) {
         );
       }
 
+      if (await hasUserPurchasedAlbum(admin, user.id, body.albumId)) {
+        return NextResponse.json(
+          { error: "Ya habías comprado este contenido." },
+          { status: 400 },
+        );
+      }
+
       const result = await processInternalAlbumPurchase({
         admin,
         buyerUserId: user.id,
@@ -111,6 +120,18 @@ export async function POST(request: Request) {
       recipientUserId: body.targetUserId,
       amount,
     });
+
+    const tipMessage = body.message?.trim()
+      ? `te envió una propina de ${amount.toFixed(2)} ARS. Mensaje: ${body.message.trim()}`
+      : `te envió una propina de ${amount.toFixed(2)} ARS.`;
+    await admin.from("notifications").insert({
+      user_id: body.targetUserId,
+      actor_id: user.id,
+      type: "tip",
+      message: tipMessage,
+      is_read: false,
+    });
+
     const balance = await getUserBalanceSnapshot(admin, user.id);
 
     return NextResponse.json({

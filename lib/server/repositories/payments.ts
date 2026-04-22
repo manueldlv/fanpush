@@ -53,6 +53,26 @@ export const getAlbumPostIds = async (
   return (data ?? []).map((row) => row.post_id).filter(Boolean);
 };
 
+export const hasUserPurchasedAlbum = async (
+  admin: SupabaseClient,
+  buyerUserId: string,
+  albumId: string,
+) => {
+  const postIds = await getAlbumPostIds(admin, albumId);
+  if (postIds.length === 0) return false;
+
+  const { data, error } = await admin
+    .from("purchases")
+    .select("id")
+    .eq("user_id", buyerUserId)
+    .in("post_id", postIds)
+    .limit(1);
+
+  throwRepositoryError(error, "No se pudo validar si el álbum ya estaba comprado");
+
+  return (data ?? []).length > 0;
+};
+
 export const creditApprovedAlbumPurchase = async ({
   admin,
   buyerUserId,
@@ -75,19 +95,7 @@ export const creditApprovedAlbumPurchase = async ({
     throw new Error("No se encontró contenido para acreditar.");
   }
 
-  const { data: existingOwnershipRows, error: existingOwnershipError } = await admin
-    .from("purchases")
-    .select("id")
-    .eq("user_id", buyerUserId)
-    .in("post_id", postIds)
-    .limit(1);
-
-  throwRepositoryError(
-    existingOwnershipError,
-    "No se pudo validar si el álbum ya estaba comprado",
-  );
-
-  if ((existingOwnershipRows ?? []).length > 0) {
+  if (await hasUserPurchasedAlbum(admin, buyerUserId, albumId)) {
     return {
       postIds,
       insertedRows: 0,
@@ -188,19 +196,7 @@ export const recordInternalAlbumPurchase = async ({
     throw new Error("No se encontró contenido para acreditar.");
   }
 
-  const { data: existingOwnershipRows, error: existingOwnershipError } = await admin
-    .from("purchases")
-    .select("id")
-    .eq("user_id", buyerUserId)
-    .in("post_id", postIds)
-    .limit(1);
-
-  throwRepositoryError(
-    existingOwnershipError,
-    "No se pudo validar si el álbum ya estaba comprado",
-  );
-
-  if ((existingOwnershipRows ?? []).length > 0) {
+  if (await hasUserPurchasedAlbum(admin, buyerUserId, albumId)) {
     return {
       postIds,
       insertedRows: 0,
@@ -276,6 +272,7 @@ export const creditApprovedTip = async ({
   paymentId,
   amount,
   externalReference,
+  message,
 }: {
   admin: SupabaseClient;
   targetUserId: string;
@@ -283,6 +280,7 @@ export const creditApprovedTip = async ({
   paymentId: string | number;
   amount: number;
   externalReference?: string | null;
+  message?: string | null;
 }) => {
   const normalizedPaymentId = String(paymentId);
   const { data: existingTip, error: existingError } = await admin
@@ -313,7 +311,9 @@ export const creditApprovedTip = async ({
       actor_id: buyerUserId,
       type: "tip",
       entity_id: normalizedPaymentId,
-      message: `te envió una propina de ${amount.toFixed(2)} ARS.`,
+      message: message?.trim()
+        ? `te envió una propina de ${amount.toFixed(2)} ARS. Mensaje: ${message.trim()}`
+        : `te envió una propina de ${amount.toFixed(2)} ARS.`,
       is_read: false,
     });
 

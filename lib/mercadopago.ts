@@ -155,6 +155,9 @@ export const finalizeMercadoPagoPayment = async ({
   if (reference.kind === "tip") {
     const targetUserId = reference.targetId;
     const amount = Number(reference.amount || 0);
+    const paymentWithMetadata = payment as {
+      metadata?: { tipMessage?: string | null };
+    };
 
     await creditApprovedTip({
       admin,
@@ -163,6 +166,7 @@ export const finalizeMercadoPagoPayment = async ({
       paymentId: payment.id,
       amount,
       externalReference: payment.external_reference ?? null,
+      message: paymentWithMetadata.metadata?.tipMessage ?? null,
     });
 
     return { ok: true, kind: "tip", amount };

@@ -22,9 +22,7 @@ import {
 } from "@/lib/favorites";
 import { MAX_AVATAR_IMAGE_BYTES, validateImageFile } from "@/lib/imageFiles";
 import {
-  getPremiumPathFromPreview,
   inferDisplayKind,
-  PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
 import {
@@ -63,15 +61,6 @@ type AlbumUser = {
   avatar_url: string | null;
 };
 
-type AlbumLinkPost = {
-  media_url: string | null;
-};
-
-type AlbumLinkRow = {
-  post_id: string;
-  post: AlbumLinkPost | AlbumLinkPost[] | null;
-};
-
 const normalizeAlbumMedia = (
   albumPosts: AlbumPostRow[] | null | undefined,
 ): AlbumMediaPost[] =>
@@ -85,13 +74,6 @@ const normalizeAlbumUser = (
 ): AlbumUser | null => {
   if (!user) return null;
   return Array.isArray(user) ? (user[0] ?? null) : user;
-};
-
-const normalizeSingleRelation = <T,>(
-  value: T | T[] | null | undefined,
-): T | null => {
-  if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
 const buildLikesCountMap = (
@@ -181,6 +163,7 @@ export default function PerfilPage({
   forcedUsername?: string;
 } = {}) {
   const [openPost, setOpenPost] = useState<Post | null>(null);
+  const [lastOpenedQueryPostId, setLastOpenedQueryPostId] = useState<string | null>(null);
   const [tipOpen, setTipOpen] = useState(false);
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null);
   const [avatarCropFileName, setAvatarCropFileName] = useState("avatar.jpg");
@@ -200,6 +183,7 @@ export default function PerfilPage({
   const [reportSent, setReportSent] = useState(false);
   const [favoritePostIds, setFavoritePostIds] = useState<Set<string>>(new Set());
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
+  const [purchasedPostIds, setPurchasedPostIds] = useState<Set<string>>(new Set());
   const [uiMessage, setUiMessage] = useState<{
     tone: "success" | "error";
     text: string;
@@ -239,6 +223,7 @@ export default function PerfilPage({
   const profilePosts = profileData?.posts ?? [];
   const currentUserId = profileData?.currentUserId ?? null;
   const viewedUserId = profileData?.viewedUserId ?? null;
+  const requestedPostId = searchParams.get("post");
   const isOwnProfile = Boolean(
     currentUserId && viewedUserId && currentUserId === viewedUserId,
   );
@@ -432,6 +417,49 @@ export default function PerfilPage({
   }, [currentUserId, openPost?.id, openPost?.mediaPostIds, profilePosts]);
 
   useEffect(() => {
+    if (!currentUserId) {
+      setPurchasedPostIds(new Set());
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const allPostIds = [
+      ...profilePosts.flatMap((post) => post.mediaPostIds ?? []),
+      ...(openPost?.mediaPostIds ?? []),
+    ].filter(Boolean);
+
+    if (allPostIds.length === 0) {
+      setPurchasedPostIds(new Set());
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPurchasedPostIds = async () => {
+      const { data, error } = await supabase
+        .from("purchases")
+        .select("post_id")
+        .eq("user_id", currentUserId)
+        .in("post_id", Array.from(new Set(allPostIds)));
+
+      if (cancelled || error) return;
+      setPurchasedPostIds(
+        new Set((data ?? []).map((row) => row.post_id).filter(Boolean)),
+      );
+    };
+
+    void loadPurchasedPostIds();
+    window.addEventListener("purchases-updated", loadPurchasedPostIds);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("purchases-updated", loadPurchasedPostIds);
+    };
+  }, [currentUserId, openPost?.id, openPost?.mediaPostIds, profilePosts]);
+
+  useEffect(() => {
     return () => {
       if (avatarCropSource?.startsWith("blob:")) {
         URL.revokeObjectURL(avatarCropSource);
@@ -544,6 +572,17 @@ export default function PerfilPage({
       setOpenPost(post);
     }
   };
+
+  useEffect(() => {
+    if (!requestedPostId || profilePosts.length === 0) return;
+    if (lastOpenedQueryPostId === requestedPostId) return;
+
+    const targetPost = profilePosts.find((post) => post.id === requestedPostId);
+    if (!targetPost) return;
+
+    setLastOpenedQueryPostId(requestedPostId);
+    void openPostFromProfile(targetPost);
+  }, [lastOpenedQueryPostId, profilePosts, requestedPostId]);
 
   const toggleFollow = async () => {
     const supabase = getSupabaseClient();
@@ -670,56 +709,9 @@ export default function PerfilPage({
     if (!supabase || !currentUserId) return;
 
     try {
-      const { data: links, error: linksError } = await supabase
-        .from("album_posts")
-        .select("post_id, post:posts(media_url)")
-        .eq("album_id", albumId);
-      if (linksError) throw linksError;
-      const normalizedLinks = (links ?? []) as AlbumLinkRow[];
-      const postIds = normalizedLinks.map((row) => row.post_id);
-      const mediaPaths = normalizedLinks
-        .map((row) => normalizeSingleRelation(row.post)?.media_url)
-        .filter(Boolean) as string[];
-      const premiumPaths = normalizedLinks
-        .map((row) =>
-          getPremiumPathFromPreview(
-            currentUserId,
-            normalizeSingleRelation(row.post)?.media_url,
-          ),
-        )
-        .filter(Boolean) as string[];
-
-      const { error: albumPostsError } = await supabase
-        .from("album_posts")
-        .delete()
-        .eq("album_id", albumId);
-      if (albumPostsError) throw albumPostsError;
-
-      if (postIds.length > 0) {
-        const { error: postsError } = await supabase
-          .from("posts")
-          .delete()
-          .in("id", postIds)
-          .eq("user_id", currentUserId);
-        if (postsError) throw postsError;
-      }
-
-      if (mediaPaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from(PUBLIC_MEDIA_BUCKET)
-          .remove(mediaPaths);
-        if (storageError) throw storageError;
-      }
-      if (premiumPaths.length > 0) {
-        const { error: premiumError } = await supabase.storage
-          .from(PREMIUM_MEDIA_BUCKET)
-          .remove(premiumPaths);
-        if (premiumError) throw premiumError;
-      }
-
       const { error: albumsError } = await supabase
         .from("albums")
-        .delete()
+        .update({ visibility: "removed" })
         .eq("id", albumId)
         .eq("user_id", currentUserId);
       if (albumsError) throw albumsError;
@@ -737,7 +729,7 @@ export default function PerfilPage({
       setOpenPost(null);
       setUiMessage({
         tone: "success",
-        text: "La publicación se eliminó correctamente.",
+        text: "La publicación se ocultó correctamente.",
       });
     } catch (err) {
       console.error(err);
@@ -1086,7 +1078,7 @@ export default function PerfilPage({
           <div className="relative w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-2xl md:p-7">
             {!reportSent ? (
               <>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Moderación
                 </div>
                 <h3 className="mt-3 text-2xl font-semibold text-zinc-950">
@@ -1386,9 +1378,17 @@ export default function PerfilPage({
                   profilePosts.map((post) => {
                     const firstMedia = post.media[0];
                     if (!firstMedia) return null;
+                    const viewerOwnsPost = post.mediaPostIds.some((postId) =>
+                      purchasedPostIds.has(postId),
+                    );
                     const isPaidPost =
                       Number(post.price ?? 0) > 0 ||
                       post.media.some((item) => item.locked);
+                    const showLockedOverlay =
+                      !isOwnProfile &&
+                      isPaidPost &&
+                      !viewerOwnsPost &&
+                      post.media.some((item) => item.locked || !item.hasAccess);
                     return (
                       <div
                         key={post.id}
@@ -1422,13 +1422,13 @@ export default function PerfilPage({
                                 {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}
                               </span>
                             </div>
-                          ) : (
+                          ) : showLockedOverlay ? (
                             <div className="absolute inset-0 flex items-center justify-center">
                               <div className="rounded-[10px] bg-white/20 p-4 text-white shadow-sm backdrop-blur-[2px]">
                                 <Lock className="h-8 w-8" strokeWidth={2.2} />
                               </div>
                             </div>
-                          )
+                          ) : null
                         ) : null}
                       </div>
                     );

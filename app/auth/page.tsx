@@ -142,7 +142,7 @@ function PasswordChecklist({
 }) {
   return (
     <div className="rounded-[14px] border border-zinc-200 bg-zinc-50 px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+      <div className="text-xs font-medium text-zinc-500">
         {title}
       </div>
       <div className="mt-3 space-y-2">

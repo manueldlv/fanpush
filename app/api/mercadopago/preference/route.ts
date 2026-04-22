@@ -5,7 +5,10 @@ import {
   resolveAppBaseUrl,
 } from "@/lib/mercadopago";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
-import { getPurchaseAlbumTarget } from "@/lib/server/repositories/payments";
+import {
+  getPurchaseAlbumTarget,
+  hasUserPurchasedAlbum,
+} from "@/lib/server/repositories/payments";
 
 type PreferenceBody =
   | {
@@ -18,6 +21,7 @@ type PreferenceBody =
       targetUserId: string;
       amount: number;
       returnPath?: string;
+      message?: string;
     }
   | {
       kind: "deposit";
@@ -49,6 +53,13 @@ export async function POST(request: Request) {
       if (album.userId === user.id) {
         return NextResponse.json(
           { error: "No puedes comprar tu propio contenido." },
+          { status: 400 },
+        );
+      }
+
+      if (await hasUserPurchasedAlbum(admin, user.id, body.albumId)) {
+        return NextResponse.json(
+          { error: "Ya habías comprado este contenido." },
           { status: 400 },
         );
       }
@@ -218,6 +229,9 @@ export async function POST(request: Request) {
         auto_return: "approved",
         payer: {
           email: user.email,
+        },
+        metadata: {
+          tipMessage: body.message?.trim() || null,
         },
         ...(hasPublicBase
           ? {

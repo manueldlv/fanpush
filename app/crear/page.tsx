@@ -37,6 +37,28 @@ type Monetization = "free" | "paid";
 
 const MIN_PRICE_ARS = 1000;
 
+function CrearPageSkeleton() {
+  return (
+    <div className="space-y-8">
+      <div>
+        <div className="fanpush-skeleton h-9 w-56 rounded-full" />
+        <div className="mt-3 fanpush-skeleton h-4 w-[420px] max-w-full rounded-full" />
+      </div>
+
+      <div className="rounded-[24px] border border-zinc-200 bg-white p-10 shadow-sm">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-[16px] bg-zinc-100">
+          <div className="fanpush-skeleton h-6 w-6 rounded-full" />
+        </div>
+        <div className="mt-6 flex flex-col items-center">
+          <div className="fanpush-skeleton h-6 w-64 rounded-full" />
+          <div className="mt-3 fanpush-skeleton h-4 w-48 rounded-full" />
+          <div className="mt-6 fanpush-skeleton h-10 w-40 rounded-[14px]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CrearPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -436,7 +458,10 @@ export default function CrearPage() {
 
       <div className="flex min-h-screen md:pl-60">
         <div className="mx-auto flex w-full max-w-none flex-col gap-6 px-4 py-6 pb-24 md:max-w-[720px] md:gap-8 md:px-6 md:py-10">
+          {authorStatus === "loading" ? <CrearPageSkeleton /> : null}
+
           {authorStatus !== "approved" ? (
+            authorStatus !== "loading" ? (
             <div className="space-y-6">
               <div>
                 <h1 className="text-3xl font-semibold">Crear contenido</h1>
@@ -452,9 +477,7 @@ export default function CrearPage() {
                     ? "Tu solicitud está en revisión. Cuando el equipo la apruebe se habilitará Crear automáticamente."
                     : authorStatus === "rejected"
                       ? "Tu solicitud fue rechazada. Revisa tus datos y vuelve a enviarla."
-                      : authorStatus === "loading"
-                        ? "Comprobando estado de autor..."
-                        : "Todavía no tienes acceso para crear publicaciones. Completa la verificación de identidad para convertirte en autor."}
+                      : "Todavía no tienes acceso para crear publicaciones. Completa la verificación de identidad para convertirte en autor."}
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-3">
@@ -479,6 +502,7 @@ export default function CrearPage() {
                 </div>
               </div>
             </div>
+            ) : null
           ) : null}
 
           {authorStatus === "approved" ? (

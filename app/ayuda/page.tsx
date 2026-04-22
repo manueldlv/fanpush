@@ -2,7 +2,7 @@ export default function AyudaPage() {
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-10 text-zinc-900 md:px-8">
       <div className="mx-auto max-w-[860px] rounded-[18px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-zinc-400">
+        <div className="text-sm font-medium text-zinc-500">
           FanPush
         </div>
         <h1 className="mt-3 text-3xl font-semibold">Centro de ayuda</h1>

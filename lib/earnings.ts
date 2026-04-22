@@ -10,6 +10,12 @@ export const parseTipAmountFromMessage = (message?: string | null) => {
   return match ? Number(match[1]) : 0;
 };
 
+export const parseTipNoteFromMessage = (message?: string | null) => {
+  if (!message) return "";
+  const match = message.match(/mensaje:\s*(.+)$/i);
+  return match ? match[1].trim() : "";
+};
+
 export const loadCreatorEarnings = async (
   supabase: SupabaseClient,
   userId: string,

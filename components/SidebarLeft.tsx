@@ -34,6 +34,7 @@ export default function SidebarLeft() {
   const [salesBadge, setSalesBadge] = useState(false);
   const [messagesBadge, setMessagesBadge] = useState(false);
   const canCreate = viewer?.access.canCreate ?? false;
+  const isAuthor = viewer?.access.isAuthor ?? false;
   const createHref = canCreate ? "/crear" : "/autor/solicitud";
 
   useEffect(() => {
@@ -238,17 +239,19 @@ export default function SidebarLeft() {
               <Bookmark className={iconClass(pathname === "/favoritos")} />
               <span>Favoritos</span>
             </Link>
-            <Link
-              href="/ventas"
-              className={itemClass(pathname === "/ventas")}
-            >
-              {showBadge(
-                pathname === "/ventas",
-                salesBadge || salesActivityBadge,
-                <DollarSign className={iconClass(pathname === "/ventas")} />,
-                "Mis ventas",
-              )}
-            </Link>
+            {isAuthor ? (
+              <Link
+                href="/ventas"
+                className={itemClass(pathname === "/ventas")}
+              >
+                {showBadge(
+                  pathname === "/ventas",
+                  salesBadge || salesActivityBadge,
+                  <DollarSign className={iconClass(pathname === "/ventas")} />,
+                  "Mis ventas",
+                )}
+              </Link>
+            ) : null}
             <Link
               href="/saldo"
               className={itemClass(pathname === "/saldo")}
@@ -374,14 +377,16 @@ export default function SidebarLeft() {
           {mobileBadge(purchaseBadge)}
           <ShoppingBag className="h-5 w-5" />
         </Link>
-        <Link
-          href="/ventas"
-          className={mobileIconWrapClass}
-          aria-label="Mis ventas"
-        >
-          {mobileBadge(salesBadge || salesActivityBadge)}
-          <DollarSign className="h-5 w-5" />
-        </Link>
+        {isAuthor ? (
+          <Link
+            href="/ventas"
+            className={mobileIconWrapClass}
+            aria-label="Mis ventas"
+          >
+            {mobileBadge(salesBadge || salesActivityBadge)}
+            <DollarSign className="h-5 w-5" />
+          </Link>
+        ) : null}
         <Link
           href="/perfil"
           className={mobileIconWrapClass}

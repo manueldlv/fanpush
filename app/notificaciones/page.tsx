@@ -1,87 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
-import {
-  BadgeDollarSign,
-  Bell,
-  CreditCard,
-  ShieldAlert,
-  Sparkles,
-  UserPlus,
-  Wallet,
-  type LucideProps,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bell } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import { buildUserProfileHref } from "@/lib/profileRoute";
 import {
   useGetNotificationCenterQuery,
   useMarkNotificationsAsReadMutation,
 } from "@/lib/redux/api/notificationsApi";
+import { getSupabaseClient } from "@/lib/supabase";
 import type { NotificationActivityItem } from "@/lib/server/repositories/notification-center";
 import { cn } from "@/lib/utils";
-
-type Tone = {
-  pillClassName: string;
-  iconWrapClassName: string;
-  iconClassName: string;
-  label: string;
-  icon: ComponentType<LucideProps>;
-};
-
-const NOTIFICATION_TONES: Record<string, Tone> = {
-  follow: {
-    label: "Nuevo seguidor",
-    pillClassName: "bg-sky-50 text-sky-700",
-    iconWrapClassName: "bg-sky-100",
-    iconClassName: "text-sky-700",
-    icon: UserPlus,
-  },
-  tip: {
-    label: "Nueva propina",
-    pillClassName: "bg-emerald-50 text-emerald-700",
-    iconWrapClassName: "bg-emerald-100",
-    iconClassName: "text-emerald-700",
-    icon: BadgeDollarSign,
-  },
-  purchase: {
-    label: "Nueva venta",
-    pillClassName: "bg-violet-50 text-violet-700",
-    iconWrapClassName: "bg-violet-100",
-    iconClassName: "text-violet-700",
-    icon: CreditCard,
-  },
-  withdrawal_update: {
-    label: "Retiro",
-    pillClassName: "bg-amber-50 text-amber-700",
-    iconWrapClassName: "bg-amber-100",
-    iconClassName: "text-amber-700",
-    icon: Wallet,
-  },
-  author_application_update: {
-    label: "Solicitud de autor",
-    pillClassName: "bg-indigo-50 text-indigo-700",
-    iconWrapClassName: "bg-indigo-100",
-    iconClassName: "text-indigo-700",
-    icon: Sparkles,
-  },
-  content_removed_update: {
-    label: "Moderación",
-    pillClassName: "bg-rose-50 text-rose-700",
-    iconWrapClassName: "bg-rose-100",
-    iconClassName: "text-rose-700",
-    icon: ShieldAlert,
-  },
-};
-
-const getTone = (type: string): Tone =>
-  NOTIFICATION_TONES[type] ?? {
-    label: "Notificación",
-    pillClassName: "bg-zinc-100 text-zinc-700",
-    iconWrapClassName: "bg-zinc-100",
-    iconClassName: "text-zinc-600",
-    icon: Bell,
-  };
 
 const PAGE_SIZE = 12;
 
@@ -122,59 +53,69 @@ function NotificationsSkeleton() {
 
 function NotificationRow({
   item,
+  isFollowing,
+  followLoading,
+  onFollow,
 }: {
   item: NotificationActivityItem;
+  isFollowing: boolean;
+  followLoading: boolean;
+  onFollow: (item: NotificationActivityItem) => Promise<void>;
 }) {
-  const tone = getTone(item.type);
-  const Icon = tone.icon;
   const content = (
-    <div className="group grid grid-cols-[56px_minmax(0,1fr)] gap-4 px-5 py-4 transition hover:bg-zinc-50/80">
-      {item.avatar ? (
-        <UserAvatar
-          src={item.avatar}
-          alt={item.text}
-          sizeClassName="h-11 w-11"
-          iconClassName="h-4 w-4"
-        />
-      ) : (
-        <div
-          className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
-            tone.iconWrapClassName,
-          )}
-        >
-          <Icon className={cn("h-[18px] w-[18px]", tone.iconClassName)} />
-        </div>
-      )}
+    <div className="flex items-center gap-3 px-5 py-4 transition hover:bg-zinc-50/80">
+      <UserAvatar
+        src={item.avatar}
+        alt={item.text}
+        sizeClassName="h-11 w-11"
+        iconClassName="h-4 w-4"
+      />
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex rounded-full px-3 py-1 text-[11px] font-semibold",
-              tone.pillClassName,
-            )}
-          >
-            {tone.label}
-          </span>
-          <span className="text-[12px] font-medium text-zinc-400">
-            {item.dateLabel} · {item.timeLabel}
-          </span>
-          {!item.isRead ? (
-            <span className="ml-1 h-2 w-2 rounded-full bg-[#ff334b]" aria-hidden="true" />
-          ) : null}
-        </div>
-
-        <p className="mt-2 max-w-[980px] text-[15px] leading-[1.45] text-zinc-900">
+        <p className="text-[14px] font-medium leading-[1.4] text-zinc-900">
           {item.text}
+          <span className="ml-2 text-[14px] text-zinc-400">{item.dateLabel}</span>
         </p>
       </div>
+
+      {item.type === "follow" && item.actorId ? (
+        <button
+          type="button"
+          onClick={async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await onFollow(item);
+          }}
+          disabled={followLoading}
+          className={cn(
+            "inline-flex min-w-[112px] items-center justify-center rounded-[10px] px-4 py-2.5 text-[14px] font-semibold transition",
+            isFollowing
+              ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+              : "bg-[#5A3EE7] text-white hover:bg-[#4931bc]",
+            followLoading ? "cursor-wait opacity-60" : "",
+          )}
+        >
+          {isFollowing ? "Siguiendo" : "Seguir"}
+        </button>
+      ) : null}
+
+      {!item.isRead ? (
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#5A3EE7]" aria-hidden="true" />
+      ) : null}
     </div>
   );
 
+  if (item.actorUsername) {
+    return (
+      <Link href={buildUserProfileHref(item.actorUsername)} className="block">
+        {content}
+      </Link>
+    );
+  }
+
   if (item.action) {
     return (
-      <Link href={item.action.href} className="block hover:bg-zinc-50">
+      <Link href={item.action.href} className="block">
         {content}
       </Link>
     );
@@ -192,9 +133,61 @@ export default function NotificacionesPage() {
   } = useGetNotificationCenterQuery();
   const [markNotificationsAsRead] = useMarkNotificationsAsReadMutation();
   const activity = centerData?.activity ?? [];
+  const [followingActorIds, setFollowingActorIds] = useState<Set<string>>(new Set());
+  const [followPendingIds, setFollowPendingIds] = useState<Set<string>>(new Set());
+  const followActorIdsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activity
+            .filter((item) => item.type === "follow" && item.actorId)
+            .map((item) => item.actorId as string),
+        ),
+      )
+        .sort()
+        .join(","),
+    [activity],
+  );
   const unreadIds = activity
     .filter((item) => !item.isRead)
     .map((item) => item.id);
+
+  useEffect(() => {
+    const loadFollowState = async () => {
+      const actorIds = followActorIdsKey
+        ? followActorIdsKey.split(",").filter(Boolean)
+        : [];
+      if (actorIds.length === 0) {
+        setFollowingActorIds((prev) => (prev.size === 0 ? prev : new Set()));
+        return;
+      }
+
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUserId = authData?.user?.id;
+      if (!currentUserId) return;
+
+      const { data } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", currentUserId)
+        .in("following_id", actorIds);
+
+      setFollowingActorIds(
+        (prev) => {
+          const next = new Set(
+            (data ?? []).map((row) => row.following_id).filter(Boolean),
+          );
+          const prevKey = Array.from(prev).sort().join(",");
+          const nextKey = Array.from(next).sort().join(",");
+          return prevKey === nextKey ? prev : next;
+        },
+      );
+    };
+
+    void loadFollowState();
+  }, [followActorIdsKey]);
 
   useEffect(() => {
     if (unreadIds.length > 0) {
@@ -233,6 +226,48 @@ export default function NotificacionesPage() {
   }, [activity.length]);
 
   const unreadCount = unreadIds.length;
+
+  const handleFollow = async (item: NotificationActivityItem) => {
+    if (!item.actorId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUserId = authData?.user?.id;
+    if (!currentUserId || currentUserId === item.actorId) return;
+
+    setFollowPendingIds((prev) => new Set(prev).add(item.actorId as string));
+    try {
+      if (followingActorIds.has(item.actorId)) {
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", currentUserId)
+          .eq("following_id", item.actorId);
+        if (error) throw error;
+
+        setFollowingActorIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.actorId as string);
+          return next;
+        });
+        return;
+      }
+
+      const { error } = await supabase.from("follows").insert({
+        follower_id: currentUserId,
+        following_id: item.actorId,
+      });
+      if (error) throw error;
+
+      setFollowingActorIds((prev) => new Set(prev).add(item.actorId as string));
+    } finally {
+      setFollowPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.actorId as string);
+        return next;
+      });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
@@ -283,7 +318,13 @@ export default function NotificacionesPage() {
                   </div>
                   <div className="divide-y divide-[#F1F1F1] bg-white">
                     {group.items.map((item) => (
-                      <NotificationRow key={item.id} item={item} />
+                      <NotificationRow
+                        key={item.id}
+                        item={item}
+                        isFollowing={Boolean(item.actorId && followingActorIds.has(item.actorId))}
+                        followLoading={Boolean(item.actorId && followPendingIds.has(item.actorId))}
+                        onFollow={handleFollow}
+                      />
                     ))}
                   </div>
                 </div>

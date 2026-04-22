@@ -2,7 +2,7 @@ export default function PrivacidadPage() {
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-10 text-zinc-900">
       <div className="mx-auto max-w-[900px] rounded-[20px] border border-zinc-200 bg-white p-6 shadow-sm md:p-10">
-        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-400">
+        <div className="text-sm font-medium text-zinc-500">
           FanPush
         </div>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">

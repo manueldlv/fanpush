@@ -31,7 +31,17 @@ type PurchaseItem = {
   status: string;
 };
 
+type SentTipItem = {
+  id: string;
+  recipient: string;
+  recipientAvatar: string | null;
+  date: string;
+  amount: number;
+  message: string;
+};
+
 export default function ComprasPage() {
+  const [activeTab, setActiveTab] = useState<"purchases" | "tips">("purchases");
   const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -44,6 +54,7 @@ export default function ComprasPage() {
     refetchOnMountOrArgChange: true,
   });
   const items = data?.items ?? [];
+  const sentTips = data?.sentTips ?? [];
   const ITEMS_PER_PAGE = 10;
 
   useEffect(() => {
@@ -59,24 +70,47 @@ export default function ComprasPage() {
   }, [refetch]);
 
   const displayItems = useMemo(() => items, [items]);
+  const displayTips = useMemo(() => sentTips, [sentTips]);
+  const hasAnyHistory = displayItems.length > 0 || displayTips.length > 0;
 
   const totalSpent = useMemo(
     () => displayItems.reduce((acc, item) => acc + item.price, 0),
     [displayItems],
   );
+  const totalTipsSent = useMemo(
+    () => displayTips.reduce((acc, item) => acc + item.amount, 0),
+    [displayTips],
+  );
   const totalPages = Math.max(1, Math.ceil(displayItems.length / ITEMS_PER_PAGE));
+  const totalTipPages = Math.max(1, Math.ceil(displayTips.length / ITEMS_PER_PAGE));
   const paginatedItems = useMemo(
     () =>
       displayItems.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
     [displayItems, page],
   );
+  const paginatedTips = useMemo(
+    () =>
+      displayTips.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
+    [displayTips, page],
+  );
   const rangeStart =
-    displayItems.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
-  const rangeEnd = Math.min(page * ITEMS_PER_PAGE, displayItems.length);
+    (activeTab === "purchases" ? displayItems.length : displayTips.length) === 0
+      ? 0
+      : (page - 1) * ITEMS_PER_PAGE + 1;
+  const rangeEnd = Math.min(
+    page * ITEMS_PER_PAGE,
+    activeTab === "purchases" ? displayItems.length : displayTips.length,
+  );
 
   useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
+    setPage((current) =>
+      Math.min(current, activeTab === "purchases" ? totalPages : totalTipPages),
+    );
+  }, [activeTab, totalPages, totalTipPages]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab]);
 
   const handleDownload = async (purchase: PurchaseItem) => {
     if (downloadingId) return;
@@ -104,6 +138,11 @@ export default function ComprasPage() {
     }
   };
 
+  const handleOpenPurchase = (purchase: PurchaseItem) => {
+    setOpenPurchase(purchase);
+    setOpenIndex(0);
+  };
+
   const renderThumbGrid = (purchase: PurchaseItem) => {
     const thumbItems =
       purchase.covers.length > 0 ? purchase.covers : [purchase.cover];
@@ -128,12 +167,15 @@ export default function ComprasPage() {
       layout.rows > 1 && remainder !== 0 ? layout.columns - remainder + 1 : 1;
 
     return (
-      <div
-        className="relative grid h-[88px] w-[88px] gap-1 overflow-hidden rounded-[12px] border border-zinc-200 bg-zinc-100 p-1"
+      <button
+        type="button"
+        onClick={() => handleOpenPurchase(purchase)}
+        className="relative grid h-[88px] w-[88px] gap-1 overflow-hidden rounded-[12px] border border-zinc-200 bg-zinc-100 p-1 text-left transition hover:border-zinc-300 hover:shadow-sm"
         style={{
           gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
         }}
+        aria-label={`Abrir ${purchase.title}`}
       >
         {visibleThumbs.map((src, index) => {
           const mediaKind = purchase.media[index]?.kind ?? "image";
@@ -171,7 +213,7 @@ export default function ComprasPage() {
             <Lock className="h-4 w-4" />
           </div>
         ) : null}
-      </div>
+      </button>
     );
   };
 
@@ -256,30 +298,32 @@ export default function ComprasPage() {
             </p>
           </div>
 
-          {!loading && displayItems.length > 0 ? (
+          {!loading && hasAnyHistory ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-                  Publicaciones compradas
+                <div className="text-[13px] font-medium text-zinc-500">
+                  publicaciones compradas
                 </div>
                 <div className="mt-2 text-xl font-semibold text-zinc-900">
                   {displayItems.length}
                 </div>
               </div>
               <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-                  Invertido en contenido
+                <div className="text-[13px] font-medium text-zinc-500">
+                  invertido en contenido
                 </div>
                 <div className="mt-2 text-xl font-semibold text-zinc-900">
-                  {formatARS(totalSpent)}
+                  {formatARS(activeTab === "purchases" ? totalSpent : totalTipsSent)}
                 </div>
               </div>
               <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-                  Última compra
+                <div className="text-[13px] font-medium text-zinc-500">
+                  {activeTab === "purchases" ? "última compra" : "última propina"}
                 </div>
                 <div className="mt-2 text-base font-semibold text-zinc-900">
-                  {displayItems[0]?.date ?? "—"}
+                  {activeTab === "purchases"
+                    ? displayItems[0]?.date ?? "—"
+                    : displayTips[0]?.date ?? "—"}
                 </div>
               </div>
             </div>
@@ -291,7 +335,7 @@ export default function ComprasPage() {
                 Cargando compras...
               </div>
             ) : null}
-            {!loading && displayItems.length === 0 ? (
+            {!loading && !hasAnyHistory ? (
               <div className="rounded-[16px] border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
                 <div className="text-lg font-semibold text-zinc-900">
                   Aún no tienes compras
@@ -303,7 +347,7 @@ export default function ComprasPage() {
                 <div className="mt-4 flex flex-wrap gap-3">
                   <a
                     href="/explorar"
-                    className="fanpush-button-primary rounded-[12px] px-4 py-3 text-sm"
+                    className="fanpush-button-primary inline-flex items-center justify-center rounded-[12px] px-4 py-3 text-sm"
                   >
                     Explorar contenido
                   </a>
@@ -316,18 +360,48 @@ export default function ComprasPage() {
                 </div>
               </div>
             ) : null}
-            {!loading && displayItems.length > 0 ? (
+            {!loading && hasAnyHistory ? (
               <div className="rounded-[14px] border border-zinc-200 bg-white">
+                <div className="border-b border-zinc-200 px-5 pt-4 pb-3 md:px-6 md:pt-5 md:pb-4">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("purchases")}
+                      className={`rounded-[12px] px-4 py-2.5 text-sm font-semibold transition ${
+                        activeTab === "purchases"
+                          ? "bg-zinc-900 text-white"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      }`}
+                    >
+                      Compras
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("tips")}
+                      className={`rounded-[12px] px-4 py-2.5 text-sm font-semibold transition ${
+                        activeTab === "tips"
+                          ? "bg-zinc-900 text-white"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      }`}
+                    >
+                      Propinas enviadas
+                    </button>
+                  </div>
+                </div>
                 <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">
-                      Historial de compras
+                      {activeTab === "purchases"
+                        ? "Historial de compras"
+                        : "Historial de propinas"}
                     </div>
                     <div className="text-xs text-zinc-500">
-                      Mostrando {rangeStart}-{rangeEnd} de {displayItems.length} compras
+                      {activeTab === "purchases"
+                        ? `Mostrando ${rangeStart}-${rangeEnd} de ${displayItems.length} compras`
+                        : `Mostrando ${rangeStart}-${rangeEnd} de ${displayTips.length} propinas`}
                     </div>
                   </div>
-                  {totalPages > 1 ? (
+                  {(activeTab === "purchases" ? totalPages : totalTipPages) > 1 ? (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -339,14 +413,19 @@ export default function ComprasPage() {
                         Anterior
                       </button>
                       <div className="min-w-[88px] text-center text-xs font-semibold text-zinc-600">
-                        Página {page} de {totalPages}
+                        Página {page} de {activeTab === "purchases" ? totalPages : totalTipPages}
                       </div>
                       <button
                         type="button"
                         onClick={() =>
-                          setPage((current) => Math.min(totalPages, current + 1))
+                          setPage((current) =>
+                            Math.min(
+                              activeTab === "purchases" ? totalPages : totalTipPages,
+                              current + 1,
+                            ),
+                          )
                         }
-                        disabled={page === totalPages}
+                        disabled={page === (activeTab === "purchases" ? totalPages : totalTipPages)}
                         className="inline-flex items-center gap-1 rounded-[10px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Siguiente
@@ -357,7 +436,18 @@ export default function ComprasPage() {
                 </div>
 
                 <div className="divide-y divide-zinc-200">
-                  {paginatedItems.map((purchase) => (
+                  {activeTab === "purchases" && paginatedItems.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-zinc-500">
+                      Todavía no hiciste compras de contenido.
+                    </div>
+                  ) : null}
+                  {activeTab === "tips" && paginatedTips.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-zinc-500">
+                      Todavía no enviaste propinas.
+                    </div>
+                  ) : null}
+                  {activeTab === "purchases"
+                    ? paginatedItems.map((purchase) => (
                     <div
                       key={purchase.id}
                       className="flex flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"
@@ -405,10 +495,7 @@ export default function ComprasPage() {
                       <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                         <button
                           type="button"
-                          onClick={() => {
-                            setOpenPurchase(purchase);
-                            setOpenIndex(0);
-                          }}
+                          onClick={() => handleOpenPurchase(purchase)}
                           className="inline-flex items-center justify-center gap-2 rounded-[10px] border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
                         >
                           <ImageIcon className="h-4 w-4" />
@@ -427,7 +514,41 @@ export default function ComprasPage() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    ))
+                    : paginatedTips.map((tip) => (
+                    <div
+                      key={tip.id}
+                      className="px-5 py-5 md:px-6"
+                    >
+                      <div className="min-w-0 max-w-[720px]">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                          <div className="truncate text-[17px] font-semibold text-zinc-900">
+                            Propina enviada
+                          </div>
+                          <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+                            apoyo directo
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-zinc-500">
+                          <Link
+                            href={buildUserProfileHref(tip.recipient)}
+                            className="font-medium text-zinc-700 transition hover:text-zinc-900 hover:underline"
+                          >
+                            @{tip.recipient}
+                          </Link>{" "}
+                          · {tip.date}
+                        </div>
+                        <div className="mt-3 text-sm leading-6 text-zinc-500">
+                          {tip.message}
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                          <span className="text-[28px] font-semibold leading-none text-zinc-900">
+                            {formatARS(tip.amount)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    ))}
                 </div>
               </div>
             ) : null}

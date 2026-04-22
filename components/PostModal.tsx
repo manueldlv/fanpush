@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bookmark, Heart, Lock, MoreHorizontal, Send, Unlock, X } from "lucide-react";
+import { Bookmark, CheckCircle2, Heart, Lock, MoreHorizontal, Send, Unlock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import UserAvatar from "@/components/UserAvatar";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
@@ -85,7 +85,11 @@ export default function PostModal({
   const [showUnlockedChip, setShowUnlockedChip] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState(post.media);
   const [ownerSalesCount, setOwnerSalesCount] = useState(0);
+  const [ownerSalesGross, setOwnerSalesGross] = useState(0);
   const lockedCount = resolvedMedia.filter((m) => m.locked).length;
+  const resolvedHasPaidContent = resolvedMedia.some(
+    (item) => item.locked || !item.hasAccess,
+  );
   const current = resolvedMedia[index] ?? resolvedMedia[0];
   const isOwner =
     Boolean(post.userId) &&
@@ -95,7 +99,8 @@ export default function PostModal({
     (item) => item.locked || !item.hasAccess,
   );
   const isPaidPost = Number(post.price ?? 0) > 0 || hasPaidContent;
-  const showUnlockedStatus = !isOwner && hasPaidContent && lockedCount === 0;
+  const showUnlockedStatus =
+    !isOwner && (isPaidPost || resolvedHasPaidContent) && lockedCount === 0;
   const videoCount = resolvedMedia.filter((item) => item.kind === "video").length;
   const imageCount = resolvedMedia.filter((item) => item.kind === "image").length;
   const mediaSummary = [
@@ -105,7 +110,6 @@ export default function PostModal({
     .filter(Boolean)
     .join(", ");
   const mediaLockedForViewer = Boolean(current?.locked) && !isOwner;
-  const ownerSalesGross = ownerSalesCount * Number(post.price ?? 0);
   const showPostActions = !isOwner && (!isPaidPost || lockedCount === 0);
 
   useEffect(() => {
@@ -185,28 +189,56 @@ export default function PostModal({
     const loadOwnerSales = async () => {
       if (!isOwner || !isPaidPost) {
         setOwnerSalesCount(0);
+        setOwnerSalesGross(0);
         return;
       }
 
       const supabase = getSupabaseClient();
       if (!supabase) return;
 
-      const { count } = await supabase
+      const mediaPostIds = Array.from(new Set(post.mediaPostIds.filter(Boolean)));
+      if (mediaPostIds.length === 0) {
+        setOwnerSalesCount(0);
+        setOwnerSalesGross(0);
+        return;
+      }
+
+      const { data, error } = await supabase
         .from("purchases")
-        .select("id", { count: "exact", head: true })
-        .eq("album_id", post.id);
+        .select("user_id,amount,status,post_id")
+        .in("post_id", mediaPostIds)
+        .eq("status", "approved");
+
+      if (error) return;
+
+      const approvedRows = data ?? [];
+      const uniqueBuyers = new Set(
+        approvedRows.map((row) => row.user_id).filter(Boolean),
+      );
+      const gross = approvedRows.reduce(
+        (sum, row) => sum + Number(row.amount || 0),
+        0,
+      );
 
       if (!cancelled) {
-        setOwnerSalesCount(count ?? 0);
+        setOwnerSalesCount(uniqueBuyers.size);
+        setOwnerSalesGross(gross);
       }
     };
 
     void loadOwnerSales();
 
+    const handlePurchasesUpdated = () => {
+      void loadOwnerSales();
+    };
+
+    window.addEventListener("purchases-updated", handlePurchasesUpdated);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("purchases-updated", handlePurchasesUpdated);
     };
-  }, [isOwner, isPaidPost, post.id]);
+  }, [isOwner, isPaidPost, post.mediaPostIds]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 md:p-6">
@@ -487,10 +519,17 @@ export default function PostModal({
                     {formatARS(Number(post.price ?? 0))}
                   </div>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-[12px] font-semibold text-zinc-900 shadow-sm">
-                  <Lock className="h-3.5 w-3.5" />
-                  Pago
-                </div>
+                {showUnlockedStatus ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-semibold text-emerald-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Desbloqueado
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-[12px] font-semibold text-zinc-900 shadow-sm">
+                    <Lock className="h-3.5 w-3.5" />
+                    Pago
+                  </div>
+                )}
               </div>
             ) : null}
 

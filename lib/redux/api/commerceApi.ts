@@ -3,7 +3,7 @@ import { notificationsApi } from "@/lib/redux/api/notificationsApi";
 import { profileApi } from "@/lib/redux/api/profileApi";
 import { sessionApi } from "@/lib/redux/api/sessionApi";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
-import { parseTipAmountFromMessage } from "@/lib/earnings";
+import { parseTipAmountFromMessage, parseTipNoteFromMessage } from "@/lib/earnings";
 import { parsePayoutProfile, type PayoutProfile } from "@/lib/payouts";
 import {
   getCurrentMonthKey,
@@ -25,8 +25,18 @@ type PurchaseItem = {
   status: string;
 };
 
+type SentTipItem = {
+  id: string;
+  recipient: string;
+  recipientAvatar: string | null;
+  date: string;
+  amount: number;
+  message: string;
+};
+
 type SaleItem = {
   id: string;
+  albumId: string;
   type: string;
   title: string;
   count: number;
@@ -38,6 +48,22 @@ type SaleItem = {
     full: string;
     avatar: string | null;
   };
+};
+
+const formatAssetCountLabel = (count: number, singular: string, plural: string) => {
+  if (count <= 0) return null;
+  return `${count} ${count === 1 ? singular : plural}`;
+};
+
+const buildSaleContentSummary = (imageCount: number, videoCount: number) => {
+  const parts = [
+    formatAssetCountLabel(imageCount, "foto", "fotos"),
+    formatAssetCountLabel(videoCount, "video", "videos"),
+  ].filter(Boolean) as string[];
+
+  if (parts.length === 0) return "Contenido";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} y ${parts[1]}`;
 };
 
 type WithdrawalItem = {
@@ -97,6 +123,7 @@ type FinalizeMercadoPagoResult = {
 
 type PurchasesResult = {
   items: PurchaseItem[];
+  sentTips: SentTipItem[];
 };
 
 type SalesResult = {
@@ -242,7 +269,7 @@ export const commerceApi = createApi({
           if (!supabase) throw new Error("Falta configurar Supabase.");
           const { data: authData } = await supabase.auth.getUser();
           const userId = authData?.user?.id;
-          if (!userId) return { data: { items: [] } };
+          if (!userId) return { data: { items: [], sentTips: [] } };
 
           const { data: purchaseRows } = await supabase
             .from("purchases")
@@ -328,7 +355,49 @@ export const commerceApi = createApi({
             });
           });
 
-          return { data: { items: Array.from(mapped.values()) } };
+          const { data: tipRows } = await supabase
+            .from("notifications")
+            .select("id,user_id,message,created_at")
+            .eq("actor_id", userId)
+            .eq("type", "tip")
+            .order("created_at", { ascending: false });
+
+          const recipientIds = Array.from(
+            new Set((tipRows ?? []).map((row) => row.user_id).filter(Boolean)),
+          );
+          const { data: recipientRows } = recipientIds.length
+            ? await supabase
+                .from("users")
+                .select("id,username,avatar_url")
+                .in("id", recipientIds)
+            : { data: [] };
+          const recipientMap = new Map(
+            (recipientRows ?? []).map((row) => [
+              row.id,
+              {
+                username: row.username ?? "usuario",
+                avatar: resolvePublicUrl(supabase, row.avatar_url ?? null),
+              },
+            ]),
+          );
+
+          const sentTips: SentTipItem[] = (tipRows ?? []).map((row) => {
+            const recipient = recipientMap.get(row.user_id);
+            const amount = parseTipAmountFromMessage(row.message ?? "");
+            return {
+              id: row.id,
+              recipient: recipient?.username ?? "usuario",
+              recipientAvatar: recipient?.avatar ?? null,
+              date: new Date(row.created_at).toLocaleDateString("es-AR", {
+                day: "2-digit",
+                month: "short",
+              }),
+              amount,
+              message: parseTipNoteFromMessage(row.message) || "Sin mensaje",
+            };
+          });
+
+          return { data: { items: Array.from(mapped.values()), sentTips } };
         } catch (error) {
           return { error: buildError(error, "No se pudieron cargar las compras.") };
         }
@@ -457,7 +526,10 @@ export const commerceApi = createApi({
             new Set((postRows ?? []).map((row) => row.album_posts?.[0]?.album_id).filter(Boolean) as string[]),
           );
           const { data: albumRows } = albumIds.length
-            ? await supabase.from("albums").select("id,description").in("id", albumIds)
+            ? await supabase
+                .from("albums")
+                .select("id,description,price,album_posts(post:posts(media_type))")
+                .in("id", albumIds)
             : { data: [] };
           const albumMap = new Map((albumRows ?? []).map((row) => [row.id, row]));
           const { data: albumPostRows } = albumIds.length
@@ -483,11 +555,28 @@ export const commerceApi = createApi({
             const current = grouped.get(groupKey);
             const mediaCount = albumCountMap.get(albumId) ?? (post?.media_type ? 1 : 0);
             const type = mediaCount > 1 ? "Album" : post?.media_type === "video" ? "Video" : "Foto";
+            const albumMediaRows = Array.isArray(album?.album_posts) ? album.album_posts : [];
+            const imageCount =
+              albumMediaRows.length > 0
+                ? albumMediaRows.filter((item: any) => item?.post?.media_type !== "video").length
+                : post?.media_type === "video"
+                  ? 0
+                  : 1;
+            const videoCount =
+              albumMediaRows.length > 0
+                ? albumMediaRows.filter((item: any) => item?.post?.media_type === "video").length
+                : post?.media_type === "video"
+                  ? 1
+                  : 0;
+            const normalizedSaleAmount = Number(album?.price || 0) > 0
+              ? Number(album?.price || 0)
+              : Number(row.amount || 0);
             const base: SaleItem = current ?? {
               id: groupKey,
+              albumId,
               type,
-              title: album?.description || post?.caption || "Publicación",
-              count: 0,
+              title: buildSaleContentSummary(imageCount, videoCount),
+              count: 1,
               total: 0,
               createdAt: row.created_at,
               buyer: {
@@ -500,8 +589,8 @@ export const commerceApi = createApi({
             const purchaseAmount = Number(row.amount || 0);
             grouped.set(groupKey, {
               ...base,
-              count: base.count + (purchaseAmount > 0 ? 1 : 0),
-              total: base.total + purchaseAmount,
+              count: 1,
+              total: base.total > 0 ? base.total : purchaseAmount > 0 ? normalizedSaleAmount : 0,
             });
           });
           const { data: tipRows } = await supabase
@@ -516,6 +605,7 @@ export const commerceApi = createApi({
             const buyer = buyerMap.get(row.actor_id);
             grouped.set(`tip-${row.id}`, {
               id: `tip-${row.id}`,
+              albumId: `tip-${row.id}`,
               type: "Propina",
               title: "Propina directa",
               count: 1,

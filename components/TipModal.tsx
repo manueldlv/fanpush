@@ -46,6 +46,7 @@ export default function TipModal({
   onSubmitted,
 }: TipModalProps) {
   const [amount, setAmount] = useState("100");
+  const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BalanceCheckoutResult | null>(null);
@@ -62,6 +63,7 @@ export default function TipModal({
   useEffect(() => {
     if (!open) return;
     setAmount("100");
+    setMessage("");
     setSubmitting(false);
     setError(null);
     setResult(null);
@@ -91,6 +93,7 @@ export default function TipModal({
         kind: "tip",
         targetUserId: recipientUserId,
         amount: amountValue,
+        message: message.trim() || undefined,
       });
       setResult(checkoutResult);
       onSubmitted?.(checkoutResult);
@@ -243,6 +246,22 @@ export default function TipModal({
                   <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
                   {formatUnits(platformFee)}
                 </span>
+              </div>
+            </div>
+
+            <div className="mt-7">
+              <label className="block text-[15px] font-semibold text-zinc-700 md:text-[16px]">
+                Mensaje corto <span className="font-normal text-zinc-400">(opcional)</span>
+              </label>
+              <textarea
+                value={message}
+                onChange={(event) => setMessage(event.target.value.slice(0, 140))}
+                rows={3}
+                placeholder={`Escribe algo para @${recipientLabel} si quieres...`}
+                className="mt-3 w-full rounded-[18px] border border-zinc-300 px-4 py-3 text-[14px] text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
+              />
+              <div className="mt-2 text-[11px] text-zinc-400">
+                {message.length}/140
               </div>
             </div>
 

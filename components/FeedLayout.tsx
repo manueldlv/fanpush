@@ -22,11 +22,6 @@ import {
   type FollowUpdatedDetail,
 } from "@/lib/followSync";
 import {
-  getPremiumPathFromPreview,
-  PREMIUM_MEDIA_BUCKET,
-  PUBLIC_MEDIA_BUCKET,
-} from "@/lib/media";
-import {
   applyResolvedMediaAccess,
   buildInitialPostMediaState,
   type ResolvedAccessMedia,
@@ -60,15 +55,6 @@ type AlbumUser = {
   avatar_url: string | null;
 };
 
-type AlbumLinkPost = {
-  media_url: string | null;
-};
-
-type AlbumLinkRow = {
-  post_id: string;
-  post: AlbumLinkPost | AlbumLinkPost[] | null;
-};
-
 const normalizeAlbumMedia = (
   albumPosts: AlbumPostRow[] | null | undefined,
 ): AlbumMediaPost[] =>
@@ -76,13 +62,6 @@ const normalizeAlbumMedia = (
     if (!item?.post) return [];
     return Array.isArray(item.post) ? item.post : [item.post];
   });
-
-const normalizeSingleRelation = <T,>(
-  value: T | T[] | null | undefined,
-): T | null => {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-};
 
 function renderCaptionWithHashtags(caption: string) {
   const parts = caption.split(/(#[\p{L}\p{N}_]+)/gu);
@@ -541,56 +520,9 @@ export default function FeedLayout() {
     if (!supabase || !currentUserId) return;
 
     try {
-      const { data: links, error: linksError } = await supabase
-        .from("album_posts")
-        .select("post_id, post:posts(media_url)")
-        .eq("album_id", albumId);
-      if (linksError) throw linksError;
-      const normalizedLinks = (links ?? []) as AlbumLinkRow[];
-      const postIds = normalizedLinks.map((row) => row.post_id);
-      const mediaPaths = normalizedLinks
-        .map((row) => normalizeSingleRelation(row.post)?.media_url)
-        .filter(Boolean) as string[];
-      const premiumPaths = normalizedLinks
-        .map((row) =>
-          getPremiumPathFromPreview(
-            currentUserId,
-            normalizeSingleRelation(row.post)?.media_url,
-          ),
-        )
-        .filter(Boolean) as string[];
-
-      const { error: albumPostsError } = await supabase
-        .from("album_posts")
-        .delete()
-        .eq("album_id", albumId);
-      if (albumPostsError) throw albumPostsError;
-
-      if (postIds.length > 0) {
-        const { error: postsError } = await supabase
-          .from("posts")
-          .delete()
-          .in("id", postIds)
-          .eq("user_id", currentUserId);
-        if (postsError) throw postsError;
-      }
-
-      if (mediaPaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from(PUBLIC_MEDIA_BUCKET)
-          .remove(mediaPaths);
-        if (storageError) throw storageError;
-      }
-      if (premiumPaths.length > 0) {
-        const { error: premiumError } = await supabase.storage
-          .from(PREMIUM_MEDIA_BUCKET)
-          .remove(premiumPaths);
-        if (premiumError) throw premiumError;
-      }
-
       const { error: albumsError } = await supabase
         .from("albums")
-        .delete()
+        .update({ visibility: "removed" })
         .eq("id", albumId)
         .eq("user_id", currentUserId);
       if (albumsError) throw albumsError;
@@ -871,7 +803,7 @@ export default function FeedLayout() {
           <div className="relative w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-2xl md:p-7">
             {!reportSent ? (
               <>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Moderación
                 </div>
                 <h3 className="mt-3 text-2xl font-semibold text-zinc-950">

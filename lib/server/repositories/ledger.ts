@@ -628,7 +628,7 @@ export const settleWithdrawalAsPaid = async ({
     .maybeSingle();
 
   throwRepositoryError(requestError, "No se pudo leer el retiro");
-  if (!requestRow || requestRow.status === "paid") return;
+  if (!requestRow) return;
 
   const { data: existingPayout, error: payoutReadError } = await admin
     .from("ledger_transactions")
@@ -639,6 +639,7 @@ export const settleWithdrawalAsPaid = async ({
     .maybeSingle();
 
   throwRepositoryError(payoutReadError, "No se pudo validar el pago del retiro");
+  if (requestRow.status === "paid" && existingPayout) return;
 
   if (!existingPayout) {
     const { data: transaction, error: transactionError } = await admin
@@ -724,7 +725,7 @@ export const releaseRejectedWithdrawalReservation = async ({
     .maybeSingle();
 
   throwRepositoryError(requestError, "No se pudo leer el retiro");
-  if (!requestRow || requestRow.status === "rejected") return;
+  if (!requestRow) return;
 
   const { data: existingRelease, error: releaseReadError } = await admin
     .from("ledger_transactions")
@@ -735,6 +736,7 @@ export const releaseRejectedWithdrawalReservation = async ({
     .maybeSingle();
 
   throwRepositoryError(releaseReadError, "No se pudo validar la liberación del retiro");
+  if (requestRow.status === "rejected" && existingRelease) return;
 
   if (!existingRelease) {
     const { data: transaction, error: transactionError } = await admin

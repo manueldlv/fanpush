@@ -137,13 +137,18 @@ export default function SidebarLeft() {
     </>
   );
 
-  const messagesNavIcon = (
+  const messagesNavIcon = (active = false) => (
     <Image
       src="/messages-nav-icon.png"
       alt=""
       width={22}
       height={18}
-      className="h-[18px] w-[22px] object-contain brightness-0 saturate-100"
+      className="h-[18px] w-[22px] object-contain"
+      style={{
+        filter: active
+          ? "brightness(0) saturate(100%) invert(33%) sepia(82%) saturate(2390%) hue-rotate(238deg) brightness(94%) contrast(93%)"
+          : "brightness(0) saturate(100%)",
+      }}
       unoptimized
       aria-hidden="true"
     />
@@ -195,7 +200,7 @@ export default function SidebarLeft() {
               {showBadge(
                 pathname === "/mensajes",
                 messagesBadge,
-                messagesNavIcon,
+                messagesNavIcon(pathname === "/mensajes"),
                 "Mensajes",
               )}
             </Link>

@@ -23,6 +23,7 @@ export default function VentasPage() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
+  const [withdrawalSubmitAttempted, setWithdrawalSubmitAttempted] = useState(false);
   const [tab, setTab] = useState<"sales" | "withdrawals">("sales");
   const [salesPage, setSalesPage] = useState(1);
   const [highlightPayoutSetup, setHighlightPayoutSetup] = useState(false);
@@ -89,7 +90,7 @@ export default function VentasPage() {
     const canRequest = withdrawable >= FANPUSH_WITHDRAWAL_MIN_ARS;
     const currentMonthKey = getCurrentMonthKey();
     const hasRequestThisMonth = withdrawals.some(
-      (item) => item.monthKey === currentMonthKey,
+      (item) => item.monthKey === currentMonthKey && item.status !== "rejected",
     );
 
     return {
@@ -161,6 +162,11 @@ export default function VentasPage() {
   }, [payoutProfile]);
 
   const handleRequestWithdrawal = async () => {
+    setWithdrawalSubmitAttempted(true);
+    if (withdrawalAmountError) {
+      return;
+    }
+
     if (!payoutProfile) {
       setHighlightPayoutSetup(true);
       payoutPromptRef.current?.scrollIntoView({
@@ -399,14 +405,20 @@ export default function VentasPage() {
                     Retiros con Mercado Pago
                   </div>
                   <p className="mt-2 max-w-[760px] text-sm leading-6 text-zinc-600">
-                    Desde acá puedes ingresar el monto que quieres retirar y enviar la solicitud cuando tu saldo esté listo.
+                    Desde acá puedes ingresar el monto que quieres retirar y enviar la solicitud cuando tu saldo esté listo. El mínimo para retirar es {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}.
                   </p>
                 </div>
                 <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 p-5">
                   <div className="text-[15px] font-semibold text-zinc-900">
                     Monto a retirar
                   </div>
-                  <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-zinc-200 bg-white px-4 py-4">
+                  <div
+                    className={`mt-4 flex items-center gap-2 rounded-[16px] border bg-white px-4 py-4 transition ${
+                      withdrawalSubmitAttempted && withdrawalAmountError && !totals.hasRequestThisMonth
+                        ? "border-red-400 ring-4 ring-red-500/10"
+                        : "border-zinc-200"
+                    }`}
+                  >
                     <span className="text-xl font-semibold text-zinc-500">$</span>
                     <input
                       type="number"
@@ -415,11 +427,19 @@ export default function VentasPage() {
                       max={Math.floor(totals.withdrawable)}
                       step={1}
                       value={withdrawalAmount}
-                      onChange={(event) => setWithdrawalAmount(event.target.value)}
+                      onChange={(event) => {
+                        setWithdrawalAmount(event.target.value);
+                        setWithdrawalSubmitAttempted(false);
+                      }}
                       className="w-full bg-transparent text-2xl font-semibold text-zinc-950 outline-none placeholder:text-zinc-300"
                       placeholder={`${FANPUSH_WITHDRAWAL_MIN_ARS.toLocaleString("es-AR")}`}
                     />
                   </div>
+                  {withdrawalSubmitAttempted && withdrawalAmountError && !totals.hasRequestThisMonth ? (
+                    <div className="mt-2 text-sm font-semibold text-red-600">
+                      {withdrawalAmountError}
+                    </div>
+                  ) : null}
 
                   <div className="mt-3 flex flex-wrap gap-2">
                     {quickAmounts.map((amount) => (
@@ -434,35 +454,19 @@ export default function VentasPage() {
                     ))}
                   </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="mt-4">
                     <div className="rounded-[14px] border border-zinc-200 bg-white p-4">
                       <div className="text-xs font-medium text-zinc-500">Disponible</div>
                       <div className="mt-2 text-lg font-semibold text-zinc-900">
                         {formatARS(totals.withdrawable)}
                       </div>
                     </div>
-                    <div className="rounded-[14px] border border-zinc-200 bg-white p-4">
-                      <div className="text-xs font-medium text-zinc-500">Mínimo</div>
-                      <div className="mt-2 text-lg font-semibold text-zinc-900">
-                        {formatARS(FANPUSH_WITHDRAWAL_MIN_ARS)}
-                      </div>
-                    </div>
                   </div>
                 </div>
 
-                {withdrawalAmountError && !totals.hasRequestThisMonth ? (
-                  <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    {withdrawalAmountError}
-                  </div>
-                ) : null}
                 {totals.hasRequestThisMonth ? (
                   <div className="rounded-[12px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
                     Ya solicitaste un retiro este mes.
-                  </div>
-                ) : null}
-                {!totals.canRequest && !totals.hasRequestThisMonth ? (
-                  <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    Te faltan {formatARS(totals.amountMissing)} para llegar al mínimo.
                   </div>
                 ) : null}
                 {totals.canRequest && !payoutProfile ? (
@@ -490,9 +494,7 @@ export default function VentasPage() {
                   onClick={handleRequestWithdrawal}
                   disabled={
                     requesting ||
-                    totals.hasRequestThisMonth ||
-                    !totals.canRequest ||
-                    Boolean(withdrawalAmountError)
+                    totals.hasRequestThisMonth
                   }
                   className="fanpush-button-primary w-full rounded-[16px] px-4 py-3.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
                 >

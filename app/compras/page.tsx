@@ -518,18 +518,18 @@ export default function ComprasPage() {
                     : paginatedTips.map((tip) => (
                     <div
                       key={tip.id}
-                      className="px-5 py-5 md:px-6"
+                      className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
                     >
-                      <div className="min-w-0 max-w-[720px]">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                          <div className="truncate text-[17px] font-semibold text-zinc-900">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <div className="truncate text-[15px] font-semibold text-zinc-900">
                             Propina enviada
                           </div>
                           <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
                             apoyo directo
                           </span>
                         </div>
-                        <div className="mt-2 text-sm text-zinc-500">
+                        <div className="mt-1 text-sm text-zinc-500">
                           <Link
                             href={buildUserProfileHref(tip.recipient)}
                             className="font-medium text-zinc-700 transition hover:text-zinc-900 hover:underline"
@@ -538,13 +538,14 @@ export default function ComprasPage() {
                           </Link>{" "}
                           · {tip.date}
                         </div>
-                        <div className="mt-3 text-sm leading-6 text-zinc-500">
+                        <div className="mt-2 line-clamp-2 max-w-[760px] text-sm leading-6 text-zinc-500">
                           {tip.message}
                         </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-3">
-                          <span className="text-[28px] font-semibold leading-none text-zinc-900">
-                            {formatARS(tip.amount)}
-                          </span>
+                      </div>
+                      <div className="shrink-0 text-left md:min-w-[150px] md:text-right">
+                        <div className="text-xs font-medium text-zinc-500">Monto</div>
+                        <div className="mt-1 text-[20px] font-semibold leading-none text-zinc-900">
+                          {formatARS(tip.amount)}
                         </div>
                       </div>
                     </div>

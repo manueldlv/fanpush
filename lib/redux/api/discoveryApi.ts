@@ -23,8 +23,10 @@ type UserRow = {
 };
 
 type AuthorAlbumPost = {
+  post_id?: string | null;
   post:
     | {
+        id?: string | null;
         media_url: string | null;
         media_type: string | null;
         is_locked: boolean | null;
@@ -40,6 +42,7 @@ type AuthorAlbumPost = {
 };
 
 type AuthorAlbumRow = {
+  id?: string | null;
   user_id: string | null;
   description: string | null;
   created_at: string | null;
@@ -66,8 +69,22 @@ const resolvePublicUrl = (
   return supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
 };
 
-const normalizeAlbumPost = (value: AuthorAlbumPost["post"]) =>
-  Array.isArray(value) ? (value[0] ?? null) : value;
+type NormalizedAuthorPost = {
+  id?: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  is_locked: boolean | null;
+  created_at: string | null;
+};
+
+const normalizeAlbumPost = (
+  value: AuthorAlbumPost["post"],
+): NormalizedAuthorPost | null => (Array.isArray(value) ? (value[0] ?? null) : value);
+
+const pickRandomItem = <T,>(items: T[]) => {
+  if (items.length === 0) return null;
+  return items[Math.floor(Math.random() * items.length)] ?? null;
+};
 
 export const discoveryApi = createApi({
   reducerPath: "discoveryApi",
@@ -112,7 +129,7 @@ export const discoveryApi = createApi({
               supabase
                 .from("albums")
                 .select(
-                  "user_id,description,created_at,album_posts(post:posts(media_url,media_type,is_locked,created_at))",
+                  "id,user_id,description,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
                 )
                 .eq("visibility", "published")
                 .in("user_id", authorIds)
@@ -127,11 +144,40 @@ export const discoveryApi = createApi({
             throw new Error(albumsError.message);
           }
 
-          const latestAlbumByUserId = new Map<string, AuthorAlbumRow>();
+          const albumsByUserId = new Map<string, AuthorAlbumRow[]>();
+          const candidatePostIds: string[] = [];
+
           for (const album of (albums ?? []) as AuthorAlbumRow[]) {
             const userId = album.user_id ?? "";
-            if (!userId || latestAlbumByUserId.has(userId)) continue;
-            latestAlbumByUserId.set(userId, album);
+            if (!userId) continue;
+
+            const current = albumsByUserId.get(userId) ?? [];
+            current.push(album);
+            albumsByUserId.set(userId, current);
+
+            for (const item of album.album_posts ?? []) {
+              const post = normalizeAlbumPost(item.post);
+              const postId = post?.id ?? item.post_id ?? null;
+              if (postId) candidatePostIds.push(postId);
+            }
+          }
+
+          const { data: purchases, error: purchasesError } = candidatePostIds.length
+            ? await supabase
+                .from("purchases")
+                .select("post_id")
+                .in("post_id", Array.from(new Set(candidatePostIds)))
+            : { data: [], error: null };
+
+          if (purchasesError) {
+            throw new Error(purchasesError.message);
+          }
+
+          const purchaseCountByPostId = new Map<string, number>();
+          for (const row of purchases ?? []) {
+            const postId = typeof row.post_id === "string" ? row.post_id : null;
+            if (!postId) continue;
+            purchaseCountByPostId.set(postId, (purchaseCountByPostId.get(postId) ?? 0) + 1);
           }
 
           const mapped: ExploreItem[] = ((users ?? []) as UserRow[])
@@ -139,20 +185,64 @@ export const discoveryApi = createApi({
               const userId = user.id ?? "";
               if (!userId || !user.username?.trim()) return null;
 
-              const latestAlbum = latestAlbumByUserId.get(userId) ?? null;
-              const firstVisibleMedia =
-                latestAlbum?.album_posts
-                  ?.map((item) => normalizeAlbumPost(item.post))
-                  .find((post) => post?.media_url && !post.is_locked) ?? null;
+              const userAlbums = albumsByUserId.get(userId) ?? [];
+              const postCandidates = userAlbums.flatMap((album) =>
+                (album.album_posts ?? [])
+                  .map((item) => {
+                    const post = normalizeAlbumPost(item.post);
+                    const postId = post?.id ?? item.post_id ?? null;
+                    if (!postId || !post?.media_url) return null;
+                    return {
+                      postId,
+                      mediaUrl: post.media_url,
+                      mediaType: post.media_type ?? "image",
+                      description: album.description ?? "",
+                      createdAt: post.created_at ?? album.created_at ?? "",
+                    };
+                  })
+                  .filter(Boolean) as Array<{
+                  postId: string;
+                  mediaUrl: string;
+                  mediaType: string;
+                  description: string;
+                  createdAt: string;
+                }>,
+              );
+
+              if (postCandidates.length === 0) {
+                return null;
+              }
+
+              const topSellingPost = [...postCandidates].sort((a, b) => {
+                const purchaseDiff =
+                  (purchaseCountByPostId.get(b.postId) ?? 0) -
+                  (purchaseCountByPostId.get(a.postId) ?? 0);
+                if (purchaseDiff !== 0) return purchaseDiff;
+
+                const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return bTime - aTime;
+              })[0];
+
+              const fallbackPost = pickRandomItem(postCandidates);
+              const coverPost =
+                (topSellingPost &&
+                (purchaseCountByPostId.get(topSellingPost.postId) ?? 0) > 0
+                  ? topSellingPost
+                  : fallbackPost) ?? null;
+
+              if (!coverPost) {
+                return null;
+              }
 
               return {
                 id: userId,
-                mediaUrl: resolvePublicUrl(supabase, firstVisibleMedia?.media_url ?? null),
-                mediaType: firstVisibleMedia?.media_type ?? "image",
+                mediaUrl: resolvePublicUrl(supabase, coverPost.mediaUrl),
+                mediaType: coverPost.mediaType,
                 username: user.username.trim(),
                 avatar: resolvePublicUrl(supabase, user.avatar_url ?? null),
-                description: latestAlbum?.description ?? "",
-                createdAt: latestAlbum?.created_at ?? "",
+                description: coverPost.description,
+                createdAt: coverPost.createdAt,
               };
             })
             .filter(Boolean) as ExploreItem[];

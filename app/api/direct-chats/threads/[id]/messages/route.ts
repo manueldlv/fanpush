@@ -16,6 +16,7 @@ import {
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
 import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
+import { cleanupUploadedStorageObjects, type UploadedStorageObject } from "@/lib/uploadCleanup";
 
 const ensureMediaBuckets = async (
   admin: SupabaseClient,
@@ -70,6 +71,7 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } },
 ) {
+  const uploadedObjects: UploadedStorageObject[] = [];
   try {
     const { admin, user, error } = await getAuthenticatedUser(request);
     if (error || !admin || !user) {
@@ -137,6 +139,11 @@ export async function POST(
                 throw new Error(`No se pudo subir el contenido pago: ${premiumError.message}`);
               }
 
+              uploadedObjects.push(
+                { bucket: PUBLIC_MEDIA_BUCKET, path: previewPath },
+                { bucket: PREMIUM_MEDIA_BUCKET, path: premiumPath },
+              );
+
               return {
                 id: `${token}-${index}`,
                 name: originalFile.name || `archivo-${index + 1}`,
@@ -165,6 +172,8 @@ export async function POST(
               throw new Error(`No se pudo subir el adjunto: ${publicError.message}`);
             }
 
+            uploadedObjects.push({ bucket: PUBLIC_MEDIA_BUCKET, path: publicPath });
+
             return {
               id: `${token}-${index}`,
               name: originalFile.name || `archivo-${index + 1}`,
@@ -183,18 +192,25 @@ export async function POST(
         publicPath?: string;
       }>;
 
-      await sendDirectMediaMessage({
-        admin,
-        viewerUserId: user.id,
-        threadId: params.id,
-        kind,
-        title: String(formData.get("title") ?? "Contenido privado"),
-        price: Math.min(
-          Math.max(Number(formData.get("price") ?? 0), MIN_CONTENT_PRICE_ARS),
-          MAX_CONTENT_PRICE_ARS,
-        ),
-        attachments: normalizedAttachments,
-      });
+      try {
+        await sendDirectMediaMessage({
+          admin,
+          viewerUserId: user.id,
+          threadId: params.id,
+          kind,
+          title: String(formData.get("title") ?? "Contenido privado"),
+          price: Math.min(
+            Math.max(Number(formData.get("price") ?? 0), MIN_CONTENT_PRICE_ARS),
+            MAX_CONTENT_PRICE_ARS,
+          ),
+          attachments: normalizedAttachments,
+        });
+      } catch (sendError) {
+        if (uploadedObjects.length > 0) {
+          await cleanupUploadedStorageObjects(admin, uploadedObjects);
+        }
+        throw sendError;
+      }
     } else {
       return NextResponse.json({ error: "Tipo de mensaje inválido." }, { status: 400 });
     }

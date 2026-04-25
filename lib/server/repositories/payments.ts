@@ -73,22 +73,20 @@ export const hasUserPurchasedAlbum = async (
   return (data ?? []).length > 0;
 };
 
-export const creditApprovedAlbumPurchase = async ({
+const persistAlbumPurchaseRows = async ({
   admin,
   buyerUserId,
   albumId,
   paymentId,
   amount,
-  sellerUserId,
-  externalReference,
+  fallback,
 }: {
   admin: SupabaseClient;
   buyerUserId: string;
   albumId: string;
-  paymentId: string | number;
+  paymentId: string;
   amount: number;
-  sellerUserId: string;
-  externalReference?: string | null;
+  fallback: string;
 }) => {
   const postIds = await getAlbumPostIds(admin, albumId);
   if (postIds.length === 0) {
@@ -100,6 +98,7 @@ export const creditApprovedAlbumPurchase = async ({
       postIds,
       insertedRows: 0,
       alreadyCredited: true,
+      insertedAnyRow: false,
     };
   }
 
@@ -126,8 +125,84 @@ export const creditApprovedAlbumPurchase = async ({
 
   if (missingRows.length > 0) {
     const { error: insertError } = await admin.from("purchases").insert(missingRows);
-    throwRepositoryError(insertError, "No se pudo acreditar la compra");
+    throwRepositoryError(insertError, fallback);
   }
+
+  return {
+    postIds,
+    insertedRows: missingRows.length,
+    alreadyCredited: missingRows.length === 0,
+    insertedAnyRow: missingRows.length > 0,
+  };
+};
+
+const ensureAlbumPurchaseNotification = async ({
+  admin,
+  sellerUserId,
+  buyerUserId,
+  albumId,
+  fallback,
+  shouldNotify,
+}: {
+  admin: SupabaseClient;
+  sellerUserId: string;
+  buyerUserId: string;
+  albumId: string;
+  fallback: string;
+  shouldNotify: boolean;
+}) => {
+  const { data: existingNotification, error: existingNotificationError } = await admin
+    .from("notifications")
+    .select("id")
+    .eq("user_id", sellerUserId)
+    .eq("actor_id", buyerUserId)
+    .eq("type", "purchase")
+    .eq("entity_id", albumId)
+    .limit(1)
+    .maybeSingle();
+
+  throwRepositoryError(existingNotificationError, fallback);
+
+  if (!shouldNotify || existingNotification) return;
+
+  const { error: notificationError } = await admin.from("notifications").insert({
+    user_id: sellerUserId,
+    actor_id: buyerUserId,
+    type: "purchase",
+    entity_id: albumId,
+    message: "compró tu contenido.",
+    is_read: false,
+  });
+
+  throwRepositoryError(notificationError, fallback);
+};
+
+export const creditApprovedAlbumPurchase = async ({
+  admin,
+  buyerUserId,
+  albumId,
+  paymentId,
+  amount,
+  sellerUserId,
+  externalReference,
+}: {
+  admin: SupabaseClient;
+  buyerUserId: string;
+  albumId: string;
+  paymentId: string | number;
+  amount: number;
+  sellerUserId: string;
+  externalReference?: string | null;
+}) => {
+  const normalizedPaymentId = String(paymentId);
+  const persisted = await persistAlbumPurchaseRows({
+    admin,
+    buyerUserId,
+    albumId,
+    paymentId: normalizedPaymentId,
+    amount,
+    fallback: "No se pudo acreditar la compra",
+  });
 
   await recordMercadoPagoCreatorCreditTransaction({
     admin,
@@ -141,38 +216,19 @@ export const creditApprovedAlbumPurchase = async ({
     externalReference,
   });
 
-  const { data: existingNotification, error: existingNotificationError } = await admin
-    .from("notifications")
-    .select("id")
-    .eq("user_id", sellerUserId)
-    .eq("actor_id", buyerUserId)
-    .eq("type", "purchase")
-    .eq("entity_id", albumId)
-    .limit(1)
-    .maybeSingle();
-
-  throwRepositoryError(
-    existingNotificationError,
-    "No se pudo validar la notificación de compra",
-  );
-
-  if (existingPaymentIds.size === 0 && !existingNotification) {
-    const { error: notificationError } = await admin.from("notifications").insert({
-      user_id: sellerUserId,
-      actor_id: buyerUserId,
-      type: "purchase",
-      entity_id: albumId,
-      message: "compró tu contenido.",
-      is_read: false,
-    });
-
-    throwRepositoryError(notificationError, "No se pudo notificar la compra");
-  }
+  await ensureAlbumPurchaseNotification({
+    admin,
+    sellerUserId,
+    buyerUserId,
+    albumId,
+    fallback: "No se pudo notificar la compra",
+    shouldNotify: persisted.insertedAnyRow,
+  });
 
   return {
-    postIds,
-    insertedRows: missingRows.length,
-    alreadyCredited: missingRows.length === 0,
+    postIds: persisted.postIds,
+    insertedRows: persisted.insertedRows,
+    alreadyCredited: persisted.alreadyCredited,
   };
 };
 
@@ -191,77 +247,28 @@ export const recordInternalAlbumPurchase = async ({
   amount: number;
   sellerUserId: string;
 }) => {
-  const postIds = await getAlbumPostIds(admin, albumId);
-  if (postIds.length === 0) {
-    throw new Error("No se encontró contenido para acreditar.");
-  }
+  const persisted = await persistAlbumPurchaseRows({
+    admin,
+    buyerUserId,
+    albumId,
+    paymentId: transactionId,
+    amount,
+    fallback: "No se pudo acreditar la compra interna",
+  });
 
-  if (await hasUserPurchasedAlbum(admin, buyerUserId, albumId)) {
-    return {
-      postIds,
-      insertedRows: 0,
-      alreadyCredited: true,
-    };
-  }
-
-  const purchaseRows = postIds.map((postId, index) => ({
-    user_id: buyerUserId,
-    post_id: postId,
-    payment_id: `${transactionId}-${postId}`,
-    amount: index === 0 ? amount : 0,
-    status: "approved",
-  }));
-
-  const { data: existingRows, error: existingError } = await admin
-    .from("purchases")
-    .select("payment_id")
-    .in(
-      "payment_id",
-      purchaseRows.map((row) => row.payment_id),
-    );
-
-  throwRepositoryError(existingError, "No se pudieron validar compras previas");
-
-  const existingPaymentIds = new Set((existingRows ?? []).map((row) => row.payment_id));
-  const missingRows = purchaseRows.filter((row) => !existingPaymentIds.has(row.payment_id));
-
-  if (missingRows.length > 0) {
-    const { error: insertError } = await admin.from("purchases").insert(missingRows);
-    throwRepositoryError(insertError, "No se pudo acreditar la compra interna");
-  }
-
-  const { data: existingNotification, error: existingNotificationError } = await admin
-    .from("notifications")
-    .select("id")
-    .eq("user_id", sellerUserId)
-    .eq("actor_id", buyerUserId)
-    .eq("type", "purchase")
-    .eq("entity_id", albumId)
-    .limit(1)
-    .maybeSingle();
-
-  throwRepositoryError(
-    existingNotificationError,
-    "No se pudo validar la notificación de compra interna",
-  );
-
-  if (existingPaymentIds.size === 0 && !existingNotification) {
-    const { error: notificationError } = await admin.from("notifications").insert({
-      user_id: sellerUserId,
-      actor_id: buyerUserId,
-      type: "purchase",
-      entity_id: albumId,
-      message: "compró tu contenido.",
-      is_read: false,
-    });
-
-    throwRepositoryError(notificationError, "No se pudo notificar la compra interna");
-  }
+  await ensureAlbumPurchaseNotification({
+    admin,
+    sellerUserId,
+    buyerUserId,
+    albumId,
+    fallback: "No se pudo notificar la compra interna",
+    shouldNotify: persisted.insertedAnyRow,
+  });
 
   return {
-    postIds,
-    insertedRows: missingRows.length,
-    alreadyCredited: missingRows.length === 0,
+    postIds: persisted.postIds,
+    insertedRows: persisted.insertedRows,
+    alreadyCredited: persisted.alreadyCredited,
   };
 };
 

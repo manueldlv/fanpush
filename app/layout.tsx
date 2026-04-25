@@ -1,18 +1,7 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import AppProviders from "@/components/AppProviders";
 import "../styles/globals.css";
 import AppChrome from "@/components/AppChrome";
-
-const inter = Inter({
-  variable: "--font-primary",
-  subsets: ["latin"],
-});
-
-const jetBrainsMono = JetBrains_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "FanPush",
@@ -26,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${jetBrainsMono.variable} antialiased`}>
+      <body className="antialiased">
         <AppProviders>
           <AppChrome>{children}</AppChrome>
         </AppProviders>

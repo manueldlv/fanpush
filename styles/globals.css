@@ -6,6 +6,10 @@
   --brand-accent: #5a3ee7;
   --paragraph-color: #464646;
   --surface-border: #e0e0e0;
+  --font-primary: "Segoe UI", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", ui-monospace, "Cascadia Code",
+    "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
 @theme inline {

@@ -18,6 +18,7 @@ import {
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
 import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
+import { cleanupUploadedStorageObjects, type UploadedStorageObject } from "@/lib/uploadCleanup";
 
 type ItemMeta = {
   id: string;
@@ -78,6 +79,11 @@ const uploadWithBucketRetry = async ({
 };
 
 export async function POST(request: Request) {
+  let cleanupAdmin: NonNullable<ReturnType<typeof getAdminSupabase>> | null = null;
+  let createdAlbumId: string | null = null;
+  let createdPostIds: string[] = [];
+  let uploadObjects: UploadedStorageObject[] = [];
+  let published = false;
   try {
     const { admin, user, error } = await requireApprovedAuthor(request);
     if (error || !admin || !user) {
@@ -87,6 +93,7 @@ export async function POST(request: Request) {
       );
     }
 
+    cleanupAdmin = admin;
     await ensureMediaBuckets();
 
     const formData = await request.formData();
@@ -163,6 +170,7 @@ export async function POST(request: Request) {
     if (albumError || !album?.id) {
       throw new Error(albumError?.message ?? "No se pudo crear la publicación.");
     }
+    createdAlbumId = album.id;
 
     const uploads = await Promise.all(
       itemsMeta.map(async (item, index) => {
@@ -224,6 +232,11 @@ export async function POST(request: Request) {
             );
           }
 
+          uploadObjects.push(
+            { bucket: PUBLIC_MEDIA_BUCKET, path: previewPath },
+            { bucket: PREMIUM_MEDIA_BUCKET, path: premiumPath },
+          );
+
           return {
             user_id: user.id,
             media_url: previewPath,
@@ -251,6 +264,8 @@ export async function POST(request: Request) {
           );
         }
 
+        uploadObjects.push({ bucket: PUBLIC_MEDIA_BUCKET, path: publicPath });
+
         return {
           user_id: user.id,
           media_url: publicPath,
@@ -270,6 +285,7 @@ export async function POST(request: Request) {
     if (insertError) {
       throw new Error(insertError.message);
     }
+    createdPostIds = (postRows ?? []).map((row) => row.id);
 
     const albumPosts = (postRows ?? []).map((row) => ({
       album_id: album.id,
@@ -283,8 +299,21 @@ export async function POST(request: Request) {
       if (linkError) throw new Error(linkError.message);
     }
 
+    published = true;
     return NextResponse.json({ ok: true, albumId: album.id });
   } catch (error) {
+    if (!published && cleanupAdmin) {
+      if (uploadObjects.length > 0) {
+        await cleanupUploadedStorageObjects(cleanupAdmin, uploadObjects);
+      }
+      if (createdPostIds.length > 0) {
+        await cleanupAdmin.from("album_posts").delete().in("post_id", createdPostIds);
+        await cleanupAdmin.from("posts").delete().in("id", createdPostIds);
+      }
+      if (createdAlbumId) {
+        await cleanupAdmin.from("albums").delete().eq("id", createdAlbumId);
+      }
+    }
     return NextResponse.json(
       {
         error:

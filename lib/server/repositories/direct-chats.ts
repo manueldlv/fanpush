@@ -49,6 +49,7 @@ type DirectChatAttachmentMeta = {
   id: string;
   name: string;
   kind: "foto" | "video";
+  previewMode?: "preview" | "locked";
   previewPath?: string | null;
   premiumPath?: string | null;
   publicPath?: string | null;
@@ -56,6 +57,7 @@ type DirectChatAttachmentMeta = {
 
 type DirectThreadSummary = {
   id: string;
+  participantUserId: string;
   username: string;
   fullName: string;
   handle: string;
@@ -63,6 +65,7 @@ type DirectThreadSummary = {
   avatarUrl: string | null;
   participantIsAuthor: boolean;
   lastSeen: string;
+  lastMessageAt: string;
   unread: boolean;
   pinned: boolean;
 };
@@ -84,6 +87,7 @@ type DirectMessageView =
         name: string;
         kind: "foto" | "video";
         previewUrl: string;
+        previewMode?: "preview" | "locked";
       }>;
       createdAt: string;
     }
@@ -107,6 +111,7 @@ type DirectMessageView =
         name: string;
         kind: "foto" | "video";
         previewUrl: string;
+        previewMode?: "preview" | "locked";
       }>;
       status: "locked" | "purchased";
       createdAt: string;
@@ -191,6 +196,7 @@ const parseAttachments = (metadata: Record<string, unknown> | null | undefined) 
       id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
       name: typeof item.name === "string" ? item.name : "archivo",
       kind,
+      previewMode: item.previewMode === "locked" ? "locked" : "preview",
       previewPath: typeof item.previewPath === "string" ? item.previewPath : null,
       premiumPath: typeof item.premiumPath === "string" ? item.premiumPath : null,
       publicPath: typeof item.publicPath === "string" ? item.publicPath : null,
@@ -260,6 +266,7 @@ const createThreadParticipantMap = async (
     const username = user?.username?.trim() || "usuario";
     result.set(userId, {
       id: "",
+      participantUserId: userId,
       username,
       fullName: profile?.full_name?.trim() || username,
       handle: username,
@@ -267,6 +274,7 @@ const createThreadParticipantMap = async (
       avatarUrl: resolvePublicUrl(admin, user?.avatar_url),
       participantIsAuthor: false,
       lastSeen: "Ahora",
+      lastMessageAt: new Date(0).toISOString(),
       unread: false,
       pinned: false,
     });
@@ -480,8 +488,10 @@ export const listDirectThreads = async (
       return {
         ...participant,
         id: thread.id,
+        participantUserId: otherUserId,
         preview: thread.last_message_preview?.trim() || "Iniciá la conversación",
         lastSeen: formatRelativeMessageTime(thread.last_message_at),
+        lastMessageAt: thread.last_message_at,
         unread,
         pinned: Boolean(member.pinned),
       } satisfies DirectThreadSummary;
@@ -491,7 +501,7 @@ export const listDirectThreads = async (
       if (Number(b.pinned) !== Number(a.pinned)) {
         return Number(b.pinned) - Number(a.pinned);
       }
-      return b.lastSeen.localeCompare(a.lastSeen);
+      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
     });
 };
 
@@ -601,11 +611,17 @@ export const getDirectThread = async ({
   const messages: DirectMessageView[] = await Promise.all(
     (messageRows ?? []).map(async (message) => {
       if (message.kind === "system") {
+        const systemBody =
+          typeof message.metadata?.recipientUserId === "string" &&
+          message.metadata.recipientUserId === viewerUserId &&
+          typeof message.metadata?.recipientBody === "string"
+            ? message.metadata.recipientBody
+            : message.body?.trim() || "";
         return {
           id: message.id,
           kind: "system",
           sender: "system",
-          body: message.body?.trim() || "",
+          body: systemBody,
           createdAt: formatMessageTimestamp(message.created_at),
         } satisfies DirectMessageView;
       }
@@ -643,6 +659,8 @@ export const getDirectThread = async ({
             name: attachment.name,
             kind: attachment.kind,
             previewUrl: resolvedPath || "",
+            previewMode:
+              attachment.previewMode === "locked" ? ("locked" as const) : ("preview" as const),
           };
         }),
       );
@@ -711,8 +729,10 @@ export const getDirectThread = async ({
   return {
     ...participant,
     id: threadRow.id,
+    participantUserId: otherUserId,
     preview: threadRow.last_message_preview?.trim() || "Iniciá la conversación",
     lastSeen: formatRelativeMessageTime(threadRow.last_message_at),
+    lastMessageAt: threadRow.last_message_at,
     unread,
     pinned: Boolean(memberRow.pinned),
     messages,
@@ -830,6 +850,153 @@ export const sendDirectMediaMessage = async ({
   });
 };
 
+export const sendDirectSystemMessage = async ({
+  admin,
+  actorUserId,
+  threadId,
+  body,
+  recipientUserId,
+  recipientBody,
+}: {
+  admin: SupabaseClient;
+  actorUserId: string;
+  threadId: string;
+  body: string;
+  recipientUserId?: string;
+  recipientBody?: string;
+}) => {
+  const trimmedBody = body.trim();
+  if (!trimmedBody) {
+    throw new Error("El mensaje del sistema no puede estar vacío.");
+  }
+
+  const { data: threadRow, error: threadError } = await admin
+    .from("direct_threads")
+    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .eq("id", threadId)
+    .maybeSingle();
+
+  throwRepositoryError(threadError, "No se pudo validar el chat");
+  if (!threadRow) throw new Error("No encontramos el chat.");
+  if (![threadRow.participant_low, threadRow.participant_high].includes(actorUserId)) {
+    throw new Error("No autorizado para registrar actividad en este chat.");
+  }
+
+  const { error: messageError } = await admin.from("direct_messages").insert({
+    thread_id: threadId,
+    sender_id: actorUserId,
+    kind: "system",
+    body: trimmedBody,
+    metadata:
+      recipientUserId && recipientBody?.trim()
+        ? {
+            recipientUserId,
+            recipientBody: recipientBody.trim(),
+          }
+        : null,
+  });
+
+  throwRepositoryError(messageError, "No se pudo registrar la actividad del chat");
+  await touchThreadAfterMessage({
+    admin,
+    thread: threadRow as ThreadRow,
+    senderUserId: actorUserId,
+    preview: trimmedBody,
+  });
+};
+
+export const deleteDirectMessage = async ({
+  admin,
+  viewerUserId,
+  messageId,
+}: {
+  admin: SupabaseClient;
+  viewerUserId: string;
+  messageId: string;
+}) => {
+  const { data: messageRow, error: messageError } = await admin
+    .from("direct_messages")
+    .select("id,thread_id,sender_id,kind,body,metadata,created_at")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  throwRepositoryError(messageError, "No se pudo validar el mensaje");
+  if (!messageRow) throw new Error("No encontramos ese mensaje.");
+  if (messageRow.sender_id !== viewerUserId) {
+    throw new Error("Solo puedes eliminar mensajes enviados por ti.");
+  }
+  if (messageRow.kind === "system") {
+    throw new Error("No se pueden eliminar mensajes del sistema.");
+  }
+
+  const { data: threadRow, error: threadError } = await admin
+    .from("direct_threads")
+    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id,created_at")
+    .eq("id", messageRow.thread_id)
+    .maybeSingle();
+
+  throwRepositoryError(threadError, "No se pudo validar el chat del mensaje");
+  if (!threadRow) throw new Error("No encontramos el chat del mensaje.");
+  if (![threadRow.participant_low, threadRow.participant_high].includes(viewerUserId)) {
+    throw new Error("No autorizado para eliminar mensajes en este chat.");
+  }
+
+  const { error: deleteError } = await admin.from("direct_messages").delete().eq("id", messageId);
+  throwRepositoryError(deleteError, "No se pudo eliminar el mensaje");
+
+  const { data: latestMessage, error: latestError } = await admin
+    .from("direct_messages")
+    .select("id,sender_id,kind,body,metadata,created_at")
+    .eq("thread_id", messageRow.thread_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  throwRepositoryError(latestError, "No se pudo recalcular el chat");
+
+  if (!latestMessage) {
+    const { error: resetThreadError } = await admin
+      .from("direct_threads")
+      .update({
+        last_message_preview: null,
+        last_message_at: threadRow.created_at ?? new Date().toISOString(),
+        last_sender_id: null,
+      })
+      .eq("id", messageRow.thread_id);
+
+    throwRepositoryError(resetThreadError, "No se pudo resetear el chat");
+
+    await admin
+      .from("direct_thread_members")
+      .update({ force_unread: false })
+      .eq("thread_id", messageRow.thread_id);
+
+    return;
+  }
+
+  const latestAttachments = parseAttachments(latestMessage.metadata);
+  const latestPreview = buildThreadPreview({
+    kind: latestMessage.kind,
+    body: latestMessage.body,
+    attachments: latestAttachments,
+    price:
+      typeof latestMessage.metadata?.price === "number"
+        ? latestMessage.metadata.price
+        : Number(latestMessage.metadata?.price ?? 0),
+  });
+
+  const { error: updateThreadError } = await admin
+    .from("direct_threads")
+    .update({
+      last_message_preview: latestPreview,
+      last_message_at: latestMessage.created_at,
+      last_sender_id: latestMessage.sender_id,
+    })
+    .eq("id", messageRow.thread_id);
+
+  throwRepositoryError(updateThreadError, "No se pudo actualizar el chat después de eliminar");
+};
+
 export const toggleDirectThreadPinned = async ({
   admin,
   viewerUserId,
@@ -847,6 +1014,20 @@ export const toggleDirectThreadPinned = async ({
     .maybeSingle();
 
   throwRepositoryError(error, "No se pudo leer el estado del chat");
+
+  if (!memberRow?.pinned) {
+    const { count, error: countError } = await admin
+      .from("direct_thread_members")
+      .select("thread_id", { count: "exact", head: true })
+      .eq("user_id", viewerUserId)
+      .eq("pinned", true);
+
+    throwRepositoryError(countError, "No se pudo validar el límite de chats pineados");
+
+    if ((count ?? 0) >= 5) {
+      throw new Error("Puedes pinear hasta 5 chats.");
+    }
+  }
 
   const { error: updateError } = await admin
     .from("direct_thread_members")

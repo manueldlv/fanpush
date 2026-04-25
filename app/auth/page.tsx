@@ -277,10 +277,10 @@ export default function AuthPage() {
   };
 
   const shellStyle: CSSProperties = {
-    margin: "0 auto",
+    margin: isMobile ? "0 auto" : "0 0 0 50px",
     minHeight: "100vh",
-    width: "100%",
-    maxWidth: "1400px",
+    width: isMobile ? "100%" : "calc(100vw - 50px)",
+    maxWidth: "none",
     display: "grid",
     gridTemplateColumns: isMobile
       ? "minmax(0, 1fr)"
@@ -294,7 +294,13 @@ export default function AuthPage() {
     justifyContent: "center",
     borderRight: isMobile ? "none" : "1px solid #e4e4e7",
     background: "#ffffff",
-    padding: isMobile ? "32px 20px 12px" : "40px 24px",
+    padding: isMobile ? "32px 20px 12px" : "0",
+    marginTop: isMobile ? "0" : "50px",
+    marginBottom: isMobile ? "0" : "50px",
+    marginLeft: isMobile ? "0" : "50px",
+    minHeight: isMobile ? undefined : "calc(100vh - 100px)",
+    overflow: "hidden",
+    borderRadius: isMobile ? "0" : "32px",
   };
 
   const rightPanelStyle: CSSProperties = {
@@ -699,24 +705,25 @@ export default function AuthPage() {
           }`}
           style={leftPanelStyle}
         >
+          <video
+            className="absolute inset-0 h-full w-full rounded-[32px] object-cover"
+            src="/auth-login-bg.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+          />
+          <div className="absolute inset-0 rounded-[32px] bg-black/10" />
           <div
-            className={`text-3xl font-semibold ${isMobile ? "absolute left-5 top-5 text-2xl" : "absolute left-10 top-10"}`}
+            className={`${isMobile ? "absolute left-5 top-5" : "absolute left-10 top-10"} z-10`}
           >
-            Fanpush
-          </div>
-          <div className={`text-center ${isMobile ? "w-full max-w-[380px] pt-10" : "max-w-[480px]"}`}>
-            <h1 className={`font-semibold leading-tight ${isMobile ? "text-[30px]" : "text-4xl"}`}>
-              Mira los momentos cotidianos de tus <span className="text-pink-500">mejores amigos</span>.
-            </h1>
-            <div className={`flex items-center justify-center ${isMobile ? "mt-6" : "mt-10"}`}>
-              <Image
-                src="/auth-illustration.svg"
-                alt="Fanpush ilustración"
-                width={isMobile ? 240 : 420}
-                height={isMobile ? 240 : 420}
-                className="rounded-[24px]"
-              />
-            </div>
+            <Image
+              src="/fanpush-logo.png"
+              alt="FanPush"
+              width={isMobile ? 84 : 110}
+              height={isMobile ? 84 : 110}
+              priority
+            />
           </div>
         </div>
 
@@ -726,7 +733,7 @@ export default function AuthPage() {
         >
           <div className="w-full max-w-[420px]" style={contentStyle}>
             <div className="mb-6 text-left">
-              <div className="text-xl font-semibold text-zinc-900">{title}</div>
+              <div className="text-[35px] font-bold leading-tight text-zinc-900">{title}</div>
               <p className="mt-2 text-sm leading-6 text-zinc-500">{subtitle}</p>
             </div>
 

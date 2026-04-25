@@ -83,8 +83,13 @@ export default function VentasPage() {
 
   const totals = useMemo(() => {
     const totalSales = sales.reduce((acc, item) => acc + item.total, 0);
-    const creator = totalSales * 0.7;
-    const platform = totalSales * 0.3;
+    const postSales = sales
+      .filter((item) => item.type !== "Propina" && item.type !== "Chat")
+      .reduce((acc, item) => acc + item.total, 0);
+    const creatorPosts = postSales * 0.7;
+    const tipsAndChats = sales
+      .filter((item) => item.type === "Propina" || item.type === "Chat")
+      .reduce((acc, item) => acc + item.total * 0.7, 0);
     const reserved = Math.max(reservedToWithdraw, getWithdrawalReservedAmount(withdrawals));
     const withdrawable = Math.max(availableToWithdraw, 0);
     const canRequest = withdrawable >= FANPUSH_WITHDRAWAL_MIN_ARS;
@@ -95,8 +100,8 @@ export default function VentasPage() {
 
     return {
       totalSales,
-      creator,
-      platform,
+      creatorPosts,
+      tipsAndChats,
       withdrawable,
       reserved,
       canRequest,
@@ -241,7 +246,7 @@ export default function VentasPage() {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
               <div className="text-xs text-zinc-500">Ventas totales</div>
               <div className="mt-2 text-2xl font-semibold">
@@ -249,9 +254,15 @@ export default function VentasPage() {
               </div>
             </div>
             <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
-              <div className="text-xs text-zinc-500">Tu ganancia (70%)</div>
+              <div className="text-xs text-zinc-500">Tu ganancia (posts)</div>
               <div className="mt-2 text-2xl font-semibold text-zinc-900">
-                {formatARS(totals.creator)}
+                {formatARS(totals.creatorPosts)}
+              </div>
+            </div>
+            <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
+              <div className="text-xs text-zinc-500">Propinas y chats (70%)</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-900">
+                {formatARS(totals.tipsAndChats)}
               </div>
             </div>
             <div className="rounded-[16px] border border-zinc-200 bg-white p-5">
@@ -343,12 +354,16 @@ export default function VentasPage() {
                         >
                           <td className="px-4 py-3">{sale.type}</td>
                           <td className="px-4 py-3">
-                            <Link
-                              href={`${buildUserProfileHref(viewer?.profile.username ?? "")}?post=${encodeURIComponent(sale.albumId)}`}
-                              className="font-medium text-blue-600 hover:underline"
-                            >
-                              {sale.title}
-                            </Link>
+                            {sale.href ? (
+                              <Link
+                                href={sale.href}
+                                className="font-medium text-blue-600 hover:underline"
+                              >
+                                {sale.title}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-zinc-700">{sale.title}</span>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <a

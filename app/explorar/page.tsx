@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
+import { FOLLOW_UPDATED_EVENT } from "@/lib/followSync";
 import { useGetExploreFeedQuery, type ExploreItem } from "@/lib/redux/api/discoveryApi";
 import { buildUserProfileHref } from "@/lib/profileRoute";
+import { getSupabaseClient } from "@/lib/supabase";
 
 function ExploreCardSkeleton() {
   return (
@@ -24,6 +27,73 @@ function ExploreCardSkeleton() {
 
 export default function ExplorarPage() {
   const { data: items = [], isLoading: loading } = useGetExploreFeedQuery();
+  const [followState, setFollowState] = useState<Record<string, boolean>>({});
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFollowState(
+      Object.fromEntries(items.map((item) => [item.id, Boolean(item.isFollowing)])),
+    );
+  }, [items]);
+
+  const toggleFollow = async (event: MouseEvent, item: ExploreItem) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const supabase = getSupabaseClient();
+    if (!supabase || pendingId === item.id) return;
+
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUserId = authData?.user?.id ?? null;
+    if (!currentUserId || currentUserId === item.id) return;
+
+    setPendingId(item.id);
+    const isFollowing = Boolean(followState[item.id]);
+
+    if (isFollowing) {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", currentUserId)
+        .eq("following_id", item.id);
+
+      if (!error) {
+        setFollowState((current) => ({ ...current, [item.id]: false }));
+        window.dispatchEvent(
+          new CustomEvent(FOLLOW_UPDATED_EVENT, {
+            detail: { userId: item.id, following: false },
+          }),
+        );
+      }
+    } else {
+      const { error } = await supabase.from("follows").insert({
+        follower_id: currentUserId,
+        following_id: item.id,
+      });
+      const duplicateFollow = error && "code" in error && error.code === "23505";
+
+      if (!error || duplicateFollow) {
+        setFollowState((current) => ({ ...current, [item.id]: true }));
+        window.dispatchEvent(
+          new CustomEvent(FOLLOW_UPDATED_EVENT, {
+            detail: { userId: item.id, following: true },
+          }),
+        );
+        if (!duplicateFollow) {
+          await supabase.from("notifications").insert({
+            user_id: item.id,
+            actor_id: currentUserId,
+            type: "follow",
+            entity_id: currentUserId,
+            message: "comenzó a seguirte.",
+            is_read: false,
+          });
+        }
+      }
+    }
+
+    setPendingId(null);
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -70,9 +140,14 @@ export default function ExplorarPage() {
                       <div className="truncate text-[15px] font-semibold leading-none text-zinc-900">
                         {item.username}
                       </div>
-                      <div className="mt-2 text-[14px] font-semibold leading-none text-[#5A3EE7]">
-                        Seguir
-                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => void toggleFollow(event, item)}
+                        disabled={pendingId === item.id}
+                        className="mt-2 text-[14px] font-semibold leading-none text-[#5A3EE7] disabled:opacity-50"
+                      >
+                        {followState[item.id] ? "Siguiendo" : "Seguir"}
+                      </button>
                     </div>
                   </div>
                 </Link>

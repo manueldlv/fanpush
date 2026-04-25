@@ -16,6 +16,8 @@ const SYSTEM_ACTIVITY_TYPES = new Set([
   "content_removed_update",
 ]);
 
+const FANPUSH_SYSTEM_AVATAR = "/fanpush-logo.png";
+
 export type NotificationActivityItem = {
   id: string;
   type: string;
@@ -78,18 +80,14 @@ const buildActivityAction = ({
   type: string;
   actorUsername?: string | null;
 }) => {
+  if (SYSTEM_ACTIVITY_TYPES.has(type)) {
+    return null;
+  }
   if (type === "follow" && actorUsername) {
     return { label: "Ver perfil", href: buildUserProfileHref(actorUsername) };
   }
   if (type === "purchase" || type === "tip") {
     return { label: "Ver ventas", href: "/ventas" };
-  }
-  if (
-    type === "withdrawal_update" ||
-    type === "author_application_update" ||
-    type === "content_removed_update"
-  ) {
-    return { label: "Abrir mensaje", href: "/notificaciones?tab=messages" };
   }
   return null;
 };
@@ -180,7 +178,7 @@ export const listUserNotificationActivity = async (
       dateLabel: buildDateLabel(row.created_at),
       timeLabel: buildTimeLabel(row.created_at),
       avatar: SYSTEM_ACTIVITY_TYPES.has(row.type ?? "")
-        ? null
+        ? FANPUSH_SYSTEM_AVATAR
         : resolvePublicImageUrl(admin, actor?.avatar_url ?? null),
       actorId: actor?.id ?? null,
       actorUsername: actor?.username ?? null,

@@ -1,0 +1,2 @@
+export const MIN_CONTENT_PRICE_ARS = 1000;
+export const MAX_CONTENT_PRICE_ARS = 10_000_000;

@@ -25,6 +25,7 @@ import { feedApi } from "@/lib/redux/api/feedApi";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
+import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 
 type UploadItem = {
   id: string;
@@ -34,8 +35,6 @@ type UploadItem = {
 };
 
 type Monetization = "free" | "paid";
-
-const MIN_PRICE_ARS = 1000;
 
 function CrearPageSkeleton() {
   return (
@@ -66,7 +65,7 @@ export default function CrearPage() {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [previewIds, setPreviewIds] = useState<string[]>([]);
   const [monetization, setMonetization] = useState<Monetization>("free");
-  const [price, setPrice] = useState(String(MIN_PRICE_ARS));
+  const [price, setPrice] = useState(String(MIN_CONTENT_PRICE_ARS));
   const [tipsEnabled, setTipsEnabled] = useState(false);
   const [description, setDescription] = useState("");
   const [contentAudience, setContentAudience] =
@@ -251,10 +250,16 @@ export default function CrearPage() {
 
   const previewCount = previewIds.length;
   const lockedCount = Math.max(items.length - previewCount, 0);
-  const normalizedPrice = Math.max(Number(price) || 0, MIN_PRICE_ARS);
+  const enteredPrice = Math.min(Number(price) || 0, MAX_CONTENT_PRICE_ARS);
+  const priceBelowMinimum =
+    monetization === "paid" && enteredPrice > 0 && enteredPrice < MIN_CONTENT_PRICE_ARS;
+  const normalizedPrice =
+    monetization === "paid" && enteredPrice >= MIN_CONTENT_PRICE_ARS
+      ? enteredPrice
+      : 0;
 
   const payout = useMemo(() => {
-    const value = normalizedPrice;
+    const value = enteredPrice;
     const creator = value * 0.7;
     const platform = value * 0.3;
     return {
@@ -262,7 +267,7 @@ export default function CrearPage() {
       creator: creator.toFixed(2),
       platform: platform.toFixed(2),
     };
-  }, [normalizedPrice]);
+  }, [enteredPrice]);
 
   const createImagePreviewFile = async (item: UploadItem) => {
     const bitmap = await createImageBitmap(item.file);
@@ -339,6 +344,12 @@ export default function CrearPage() {
 
   const handlePublish = async () => {
     if (items.length === 0 || publishing) return;
+    if (monetization === "paid" && enteredPrice < MIN_CONTENT_PRICE_ARS) {
+      setError(
+        `El mínimo para una publicación paga es ARS ${MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.`,
+      );
+      return;
+    }
     setError(null);
     setPublishing(true);
 
@@ -813,21 +824,44 @@ export default function CrearPage() {
                     <div className="text-sm font-semibold text-zinc-700">
                       Precio (ARS)
                     </div>
-                    <div className="mt-2 flex items-center gap-2 rounded-[5px] border border-zinc-300 bg-white px-3 py-2 text-lg font-semibold text-zinc-900">
+                    <div
+                      className={`mt-2 flex items-center gap-2 rounded-[5px] border bg-white px-3 py-2 text-lg font-semibold text-zinc-900 ${
+                        priceBelowMinimum
+                          ? "border-rose-400 bg-rose-50"
+                          : "border-zinc-300"
+                      }`}
+                    >
                       <span className="text-zinc-500">$</span>
                       <input
                         type="number"
                         inputMode="decimal"
                         value={price}
-                        onChange={(event) => setPrice(event.target.value)}
-                        min={MIN_PRICE_ARS}
+                        onChange={(event) => {
+                          const numeric = event.target.value.replace(/[^\d]/g, "");
+                          const nextValue = Math.min(
+                            Number(numeric || 0),
+                            MAX_CONTENT_PRICE_ARS,
+                          );
+                          setPrice(numeric ? String(nextValue) : "");
+                        }}
+                        min={MIN_CONTENT_PRICE_ARS}
+                        max={MAX_CONTENT_PRICE_ARS}
                         step={1}
                         className="w-full bg-transparent outline-none"
                       />
                     </div>
-                    <div className="mt-2 text-xs text-zinc-500">
-                      Minimo ARS {MIN_PRICE_ARS.toLocaleString("es-AR")} · Compra unica
+                    <div
+                      className={`mt-2 text-xs ${
+                        priceBelowMinimum ? "text-rose-600" : "text-zinc-500"
+                      }`}
+                    >
+                      Minimo ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")} · Maximo ARS {MAX_CONTENT_PRICE_ARS.toLocaleString("es-AR")} · Compra unica
                     </div>
+                    {priceBelowMinimum ? (
+                      <div className="mt-2 text-xs font-medium text-rose-600">
+                        El mínimo para una publicación paga es ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="rounded-[5px] border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
@@ -865,6 +899,9 @@ export default function CrearPage() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (monetization === "paid" && enteredPrice < MIN_CONTENT_PRICE_ARS) {
+                        return;
+                      }
                       if (monetization === "paid" && items.length > 0) {
                         if (previewCount === items.length) {
                           setPreviewIds(items.slice(0, -1).map((item) => item.id));
@@ -872,6 +909,7 @@ export default function CrearPage() {
                       }
                       setStep(3);
                     }}
+                    disabled={monetization === "paid" && enteredPrice < MIN_CONTENT_PRICE_ARS}
                     className="fanpush-button-primary flex-1 px-6 py-3"
                   >
                     Siguiente
@@ -1071,18 +1109,37 @@ export default function CrearPage() {
               {monetization === "paid" ? (
                 <div className="rounded-[5px] border border-zinc-200 bg-white p-5">
                   <div className="text-sm font-semibold text-zinc-900">Precio</div>
-                  <div className="mt-3 flex items-center gap-2 rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-900">
+                  <div
+                    className={`mt-3 flex items-center gap-2 rounded-[5px] border px-3 py-2 text-sm font-semibold text-zinc-900 ${
+                      priceBelowMinimum
+                        ? "border-rose-400 bg-rose-50"
+                        : "border-zinc-200 bg-zinc-50"
+                    }`}
+                  >
                     <span className="text-zinc-500">$</span>
                     <input
                       type="number"
                       inputMode="decimal"
                       value={price}
-                      onChange={(event) => setPrice(event.target.value)}
-                      min={MIN_PRICE_ARS}
+                      onChange={(event) => {
+                        const numeric = event.target.value.replace(/[^\d]/g, "");
+                        const nextValue = Math.min(
+                          Number(numeric || 0),
+                          MAX_CONTENT_PRICE_ARS,
+                        );
+                        setPrice(numeric ? String(nextValue) : "");
+                      }}
+                      min={MIN_CONTENT_PRICE_ARS}
+                      max={MAX_CONTENT_PRICE_ARS}
                       step={1}
                       className="w-full bg-transparent outline-none"
                     />
                   </div>
+                  {priceBelowMinimum ? (
+                    <div className="mt-2 text-xs font-medium text-rose-600">
+                      El mínimo para una publicación paga es ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex items-center justify-between text-sm text-zinc-600">
                     <span>Precio de venta</span>
                     <span className="text-xl font-semibold">
@@ -1123,7 +1180,7 @@ export default function CrearPage() {
                     type="button"
                     onClick={handlePublish}
                     className="fanpush-button-primary flex-1 rounded-[5px] px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-70"
-                    disabled={publishing}
+                    disabled={publishing || (monetization === "paid" && enteredPrice < MIN_CONTENT_PRICE_ARS)}
                   >
                     {publishing
                       ? "Publicando..."

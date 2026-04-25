@@ -39,6 +39,15 @@ function NotificationPreviewItem({
   onFollow: (item: NotificationActivityItem) => Promise<void>;
   onSelect: () => void;
 }) {
+  const router = useRouter();
+  const profilePrefix =
+    item.actorUsername && item.text.startsWith(`${item.actorUsername} `)
+      ? `${item.actorUsername} `
+      : null;
+  const profileSuffix = profilePrefix ? item.text.slice(profilePrefix.length) : item.text;
+  const rowHref = item.action?.href ?? (!item.action && item.type === "follow" && item.actorUsername
+    ? buildUserProfileHref(item.actorUsername)
+    : null);
   const content = (
     <div className="flex items-center gap-3 px-4 py-3 transition hover:bg-zinc-50">
       <UserAvatar
@@ -50,7 +59,23 @@ function NotificationPreviewItem({
 
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[12px] font-medium leading-[1.35] text-zinc-900">
-          {item.text}
+          {profilePrefix && item.actorUsername ? (
+            <>
+              <Link
+                href={buildUserProfileHref(item.actorUsername)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect();
+                }}
+                className="text-[#2563eb] hover:underline"
+              >
+                {item.actorUsername}
+              </Link>{" "}
+              {profileSuffix}
+            </>
+          ) : (
+            item.text
+          )}
           <span className="ml-1 text-zinc-400">{item.dateLabel}</span>
         </p>
       </div>
@@ -76,23 +101,22 @@ function NotificationPreviewItem({
         </button>
       ) : null}
 
-      {!item.isRead ? <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950" /> : null}
+      {!item.isRead ? <span className="h-2 w-2 shrink-0 rounded-full bg-[#ff334b]" /> : null}
     </div>
   );
 
-  if (item.actorUsername) {
+  if (rowHref) {
     return (
-      <Link href={buildUserProfileHref(item.actorUsername)} onClick={onSelect} className="block">
+      <button
+        type="button"
+        onClick={() => {
+          onSelect();
+          router.push(rowHref);
+        }}
+        className="block w-full text-left"
+      >
         {content}
-      </Link>
-    );
-  }
-
-  if (item.action) {
-    return (
-      <Link href={item.action.href} onClick={onSelect} className="block">
-        {content}
-      </Link>
+      </button>
     );
   }
 

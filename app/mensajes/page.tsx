@@ -6,6 +6,8 @@ import {
   Ban,
   Check,
   ImagePlus,
+  Loader2,
+  Lock,
   Mail,
   MoreHorizontal,
   Pin,
@@ -20,12 +22,14 @@ import {
   Package2,
 } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
+import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import {
   CHAT_BLOCKED_USERS_UPDATED_EVENT,
 } from "@/lib/chatPreferences";
+import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
-import { redirectToSaldoIfNeeded } from "@/lib/purchaseRedirect";
+import { isInsufficientBalanceMessage } from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 
@@ -34,6 +38,7 @@ type AttachmentPreview = {
   name: string;
   kind: "foto" | "video";
   previewUrl: string;
+  previewMode?: "preview" | "locked";
   file?: File;
 };
 
@@ -75,8 +80,15 @@ type MessageItem =
 
 type PremiumMessageItem = Extract<MessageItem, { kind: "premium" }>;
 
+type ChatPreviewState = {
+  attachments: AttachmentPreview[];
+  index: number;
+  unlocked: boolean;
+};
+
 type ThreadItem = {
   id: string;
+  participantUserId: string;
   username: string;
   fullName: string;
   handle: string;
@@ -84,6 +96,7 @@ type ThreadItem = {
   avatarUrl: string | null;
   participantIsAuthor: boolean;
   lastSeen: string;
+  lastMessageAt?: string;
   unread?: boolean;
   pinned?: boolean;
   messages: MessageItem[];
@@ -177,6 +190,7 @@ const chatRequest = async <T,>(input: string, init?: RequestInit) => {
 
 const toThreadSummary = (thread: ThreadSummaryItem | ThreadItem): ThreadSummaryItem => ({
   id: thread.id,
+  participantUserId: thread.participantUserId,
   username: thread.username,
   fullName: thread.fullName,
   handle: thread.handle,
@@ -184,6 +198,7 @@ const toThreadSummary = (thread: ThreadSummaryItem | ThreadItem): ThreadSummaryI
   avatarUrl: thread.avatarUrl,
   participantIsAuthor: thread.participantIsAuthor,
   lastSeen: thread.lastSeen,
+  lastMessageAt: thread.lastMessageAt,
   unread: Boolean(thread.unread),
   pinned: Boolean(thread.pinned),
 });
@@ -243,12 +258,23 @@ function PremiumComposer({
   useEffect(() => {
     if (!open) return;
     setAttachments(initialAttachments.map((attachment) => ({ ...attachment })));
-    setPrice("5500");
+    setPrice(String(Math.max(5500, MIN_CONTENT_PRICE_ARS)));
   }, [initialAttachments, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   const resetComposer = () => {
     setAttachments([]);
-    setPrice("5500");
+    setPrice(String(Math.max(5500, MIN_CONTENT_PRICE_ARS)));
   };
 
   const handleClose = () => {
@@ -256,7 +282,24 @@ function PremiumComposer({
     onClose();
   };
 
-  const canSend = attachments.length > 0 && Number(price || 0) > 0;
+  const canSend =
+    attachments.length > 0 && Number(price || 0) >= MIN_CONTENT_PRICE_ARS;
+  const hasInvalidPrice =
+    price.trim().length > 0 && Number(price || 0) < MIN_CONTENT_PRICE_ARS;
+
+  const toggleAttachmentPreviewMode = (attachmentId: string) => {
+    setAttachments((current) =>
+      current.map((attachment) =>
+        attachment.id === attachmentId
+          ? {
+              ...attachment,
+              previewMode:
+                attachment.previewMode === "locked" ? "preview" : "locked",
+            }
+          : attachment,
+      ),
+    );
+  };
 
   if (!open) return null;
 
@@ -294,15 +337,20 @@ function PremiumComposer({
                   ? "Este video se enviará como contenido pago en el chat."
                   : "Este pack se enviará como contenido pago en el chat."}
             </div>
+            <div className="mt-1 text-[12px] leading-[1.45] text-zinc-500 md:text-[13px]">
+              Por defecto todos salen bloqueados. Haz click en una miniatura si quieres dejarla como vista previa.
+            </div>
 
             {attachments.length > 0 ? (
               <div
-                className={`mt-4 grid max-w-[516px] gap-3 ${
+                className={`mt-4 grid gap-3 ${
                   attachments.length === 1
-                    ? "grid-cols-1"
+                    ? "grid-cols-1 max-w-[120px]"
                     : attachments.length === 2
-                      ? "grid-cols-2"
-                      : "grid-cols-4"
+                      ? "grid-cols-2 max-w-[252px]"
+                      : attachments.length === 3
+                        ? "grid-cols-3 max-w-[384px]"
+                        : "grid-cols-4 max-w-[516px]"
                 }`}
               >
                 {attachments.map((attachment) => (
@@ -323,6 +371,17 @@ function PremiumComposer({
                         className="aspect-square h-full w-full object-cover"
                       />
                     )}
+                    <button
+                      type="button"
+                      onClick={() => toggleAttachmentPreviewMode(attachment.id)}
+                      className={`absolute inset-0 flex items-center justify-center text-center text-[12px] font-semibold text-white transition ${
+                        attachment.previewMode === "locked"
+                          ? "bg-black/40"
+                          : "bg-black/15"
+                      }`}
+                    >
+                      {attachment.previewMode === "locked" ? "Bloqueado" : "Vista previa"}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -337,7 +396,13 @@ function PremiumComposer({
             <label className="block text-[15px] font-semibold text-zinc-700 md:text-[16px]">
               Precio del contenido
             </label>
-            <div className="mt-3 flex h-[64px] items-center rounded-[18px] border border-zinc-300 px-5 md:h-[72px]">
+            <div
+              className={`mt-3 flex h-[64px] items-center rounded-[18px] border px-5 md:h-[72px] ${
+                hasInvalidPrice
+                  ? "border-rose-400 bg-rose-50"
+                  : "border-zinc-300"
+              }`}
+            >
               <img
                 src="/tip-lightning.png"
                 alt=""
@@ -346,14 +411,31 @@ function PremiumComposer({
               />
               <input
                 value={price}
-                onChange={(event) =>
-                  setPrice(event.target.value.replace(/[^\d]/g, "").slice(0, 9))
-                }
+                onChange={(event) => {
+                  const numeric = event.target.value.replace(/[^\d]/g, "");
+                  const nextValue = Math.min(
+                    Number(numeric || 0),
+                    MAX_CONTENT_PRICE_ARS,
+                  );
+                  setPrice(numeric ? String(nextValue) : "");
+                }}
                 inputMode="numeric"
                 placeholder="Precio"
                 className="w-full bg-transparent pl-3 text-[20px] font-semibold text-zinc-900 outline-none md:text-[22px]"
               />
             </div>
+            <div
+              className={`mt-2 text-[12px] leading-[1.45] md:text-[13px] ${
+                hasInvalidPrice ? "text-rose-600" : "text-zinc-500"
+              }`}
+            >
+              Mínimo ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")} · Máximo ARS {MAX_CONTENT_PRICE_ARS.toLocaleString("es-AR")}
+            </div>
+            {hasInvalidPrice ? (
+              <div className="mt-2 text-[12px] font-medium text-rose-600 md:text-[13px]">
+                El mínimo para enviar contenido pago por chat es ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-7 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 md:px-5 md:py-5">
@@ -401,7 +483,7 @@ function PremiumComposer({
                 });
                 handleClose();
               }}
-              className="rounded-[14px] bg-zinc-950 px-5 py-2.5 text-[14px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:min-w-[210px]"
+              className="fanpush-button-primary rounded-[14px] px-5 py-2.5 text-[14px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:min-w-[210px]"
             >
               Enviar al chat
             </button>
@@ -416,26 +498,69 @@ function PremiumMessageCard({
   message,
   own,
   confirmUnlock,
+  unlocking,
+  canDelete,
+  menuOpen,
+  onToggleMenu,
+  onDelete,
   onStartUnlock,
   onUnlock,
   onCancelUnlock,
+  onOpenPreview,
 }: {
   message: PremiumMessageItem;
   own: boolean;
   confirmUnlock: boolean;
+  unlocking: boolean;
+  canDelete: boolean;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onDelete: () => void;
   onStartUnlock: () => void;
   onUnlock: () => void;
   onCancelUnlock: () => void;
+  onOpenPreview: (index: number) => void;
 }) {
   const visibleItems = message.attachmentPreviews.slice(0, 6);
-  const canSeeContent = own || message.status === "purchased";
+  const canSeeContent = message.status === "purchased";
 
   return (
-    <div className="w-full max-w-[345px] rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
+    <div className="relative w-full max-w-[345px] rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
+      {canDelete ? (
+        <div
+          className="absolute right-3 top-3"
+          data-message-menu-root="true"
+        >
+          <button
+            type="button"
+            onClick={onToggleMenu}
+            className="rounded-full bg-white/95 p-1.5 text-[#6b7280] shadow-sm transition hover:bg-white hover:text-[#161823]"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen ? (
+            <div className="absolute right-0 top-9 z-10 min-w-[140px] rounded-[10px] border border-zinc-200 bg-white p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] font-medium text-red-600 transition hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="text-[15px] font-semibold tracking-[-0.02em]">
         {message.title}
       </div>
-      <div className="mt-1 text-[12px] text-[#6b7280]">{message.caption}</div>
+      <div className="mt-1 flex items-center gap-2">
+        <div className="text-[12px] text-[#6b7280]">{message.caption}</div>
+        <span className="inline-flex rounded-full bg-[#ede7ff] px-2 py-1 text-[11px] font-semibold text-[#5A3EE7]">
+          ${formatUnits(message.price)}
+        </span>
+      </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
         {visibleItems.map((attachment, index) => (
@@ -443,30 +568,40 @@ function PremiumMessageCard({
             key={attachment.id}
             className="relative overflow-hidden rounded-[5px] bg-white"
           >
-            {attachment.kind === "video" ? (
-              <video
-                src={attachment.previewUrl}
-                className={`aspect-square h-full w-full object-cover ${
-                  canSeeContent ? "" : "scale-105 blur-[8px]"
-                }`}
-                muted
-              />
-            ) : (
-              <img
-                src={attachment.previewUrl}
-                alt={attachment.name}
-                className={`aspect-square h-full w-full object-cover ${
-                  canSeeContent ? "" : "scale-105 blur-[8px]"
-                }`}
-              />
-            )}
+            <button
+              type="button"
+              onClick={() => onOpenPreview(index)}
+              className="block w-full"
+            >
+              {attachment.kind === "video" ? (
+                <video
+                  src={attachment.previewUrl}
+                  className={`aspect-square h-full w-full object-cover ${
+                    canSeeContent || attachment.previewMode !== "locked"
+                      ? ""
+                      : "scale-105 blur-[8px]"
+                  }`}
+                  muted
+                />
+              ) : (
+                <img
+                  src={attachment.previewUrl}
+                  alt={attachment.name}
+                  className={`aspect-square h-full w-full object-cover ${
+                    canSeeContent || attachment.previewMode !== "locked"
+                      ? ""
+                      : "scale-105 blur-[8px]"
+                  }`}
+                />
+              )}
+            </button>
             {!canSeeContent && index < 5 ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/15 text-[10px] font-semibold text-white">
-                Vista Previa
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15 text-[10px] font-semibold text-white">
+                {attachment.previewMode === "locked" ? "Bloqueado" : "Vista Previa"}
               </div>
             ) : null}
             {!canSeeContent && index === 5 && message.attachmentPreviews.length > 6 ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/35 text-[14px] font-semibold text-white">
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35 text-[14px] font-semibold text-white">
                 +{message.attachmentPreviews.length - 5}
               </div>
             ) : null}
@@ -485,22 +620,33 @@ function PremiumMessageCard({
       ) : confirmUnlock ? (
         <div className="mt-3 grid gap-2">
           <div className="text-[12px] text-[#464646]">
-            Confirmá si querés desbloquear este contenido.
+            {unlocking
+              ? "Procesando la compra de este contenido..."
+              : "Confirmá si querés desbloquear este contenido."}
           </div>
           <div className="flex gap-2">
             <button
               type="button"
+              disabled={unlocking}
               onClick={onCancelUnlock}
-              className="rounded-[5px] border border-[#E0E0E0] bg-white px-3 py-2 text-[13px] font-semibold text-[#464646]"
+              className="rounded-[5px] border border-[#E0E0E0] bg-white px-3 py-2 text-[13px] font-semibold text-[#464646] disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar
             </button>
             <button
               type="button"
+              disabled={unlocking}
               onClick={onUnlock}
-              className="rounded-[5px] bg-[#5A3EE7] px-3 py-2 text-[13px] font-semibold text-white"
+              className="inline-flex items-center gap-2 rounded-[5px] bg-[#5A3EE7] px-3 py-2 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Confirmar por ${formatUnits(message.price)}
+              {unlocking ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>Confirmar por ${formatUnits(message.price)}</>
+              )}
             </button>
           </div>
         </div>
@@ -521,33 +667,80 @@ function PremiumMessageCard({
 
 function AttachmentMessageCard({
   attachments,
+  canDelete,
+  menuOpen,
+  onToggleMenu,
+  onDelete,
+  onOpenPreview,
 }: {
   attachments: AttachmentPreview[];
+  canDelete: boolean;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onDelete: () => void;
+  onOpenPreview: (index: number) => void;
 }) {
   const visibleItems = attachments.slice(0, 4);
   const extraCount = Math.max(attachments.length - 4, 0);
+  const isSingleAttachment = attachments.length === 1;
 
   return (
-    <div className="w-full max-w-[345px] rounded-[12px] bg-[#f3f3f3] p-3">
-      <div className="grid grid-cols-2 gap-2">
+    <div className="relative w-full max-w-[345px] rounded-[12px] bg-[#f3f3f3] p-3">
+      {canDelete ? (
+        <div
+          className="absolute right-3 top-3"
+          data-message-menu-root="true"
+        >
+          <button
+            type="button"
+            onClick={onToggleMenu}
+            className="rounded-full p-1.5 text-[#6b7280] transition hover:bg-black/5 hover:text-[#161823]"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen ? (
+            <div className="absolute right-0 top-9 z-10 min-w-[140px] rounded-[10px] border border-zinc-200 bg-white p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] font-medium text-red-600 transition hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <div className={`grid gap-2 ${isSingleAttachment ? "grid-cols-1" : "grid-cols-2"}`}>
         {visibleItems.map((attachment, index) => (
           <div
             key={attachment.id}
             className="relative overflow-hidden rounded-[10px] bg-white"
           >
-            {attachment.kind === "video" ? (
-              <video
-                src={attachment.previewUrl}
-                className="aspect-square h-full w-full object-cover"
-                muted
-              />
-            ) : (
-              <img
-                src={attachment.previewUrl}
-                alt={attachment.name}
-                className="aspect-square h-full w-full object-cover"
-              />
-            )}
+            <button
+              type="button"
+              onClick={() => onOpenPreview(index)}
+              className="block w-full"
+            >
+              {attachment.kind === "video" ? (
+                <video
+                  src={attachment.previewUrl}
+                  className={`h-full w-full object-cover ${
+                    isSingleAttachment ? "aspect-[4/5]" : "aspect-square"
+                  }`}
+                  muted
+                />
+              ) : (
+                <img
+                  src={attachment.previewUrl}
+                  alt={attachment.name}
+                  className={`h-full w-full object-cover ${
+                    isSingleAttachment ? "aspect-[4/5]" : "aspect-square"
+                  }`}
+                />
+              )}
+            </button>
             {extraCount > 0 && index === visibleItems.length - 1 ? (
               <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-[15px] font-semibold text-white">
                 +{extraCount}
@@ -571,7 +764,7 @@ export default function MensajesPage() {
   const paidVideoInputRef = useRef<HTMLInputElement | null>(null);
   const paidPackInputRef = useRef<HTMLInputElement | null>(null);
   const prefillHandledRef = useRef(false);
-  const { data: viewer } = useGetViewerQuery();
+  const { data: viewer, refetch: refetchViewer } = useGetViewerQuery();
   const prefillUsername = searchParams.get("user");
 
   const [threads, setThreads] = useState<ThreadSummaryItem[]>([]);
@@ -581,6 +774,7 @@ export default function MensajesPage() {
   const [draft, setDraft] = useState("");
   const [emojiQuery, setEmojiQuery] = useState("");
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
   const [premiumMode, setPremiumMode] = useState<
     "photo" | "photo-paid" | "video-paid" | "pack-paid"
   >("pack-paid");
@@ -588,6 +782,9 @@ export default function MensajesPage() {
     AttachmentPreview[]
   >([]);
   const [confirmUnlockId, setConfirmUnlockId] = useState<string | null>(null);
+  const [unlockingMessageId, setUnlockingMessageId] = useState<string | null>(null);
+  const [messageMenuId, setMessageMenuId] = useState<string | null>(null);
+  const [openPreview, setOpenPreview] = useState<ChatPreviewState | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [composeMenuOpen, setComposeMenuOpen] = useState(false);
@@ -603,9 +800,15 @@ export default function MensajesPage() {
 
   const filteredThreads = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const visibleThreads = [...threads].sort(
-      (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)),
-    );
+    const visibleThreads = [...threads].sort((a, b) => {
+      if (Number(Boolean(b.pinned)) !== Number(Boolean(a.pinned))) {
+        return Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      }
+      return (
+        new Date(b.lastMessageAt ?? 0).getTime() -
+        new Date(a.lastMessageAt ?? 0).getTime()
+      );
+    });
     if (!term) return visibleThreads;
     return visibleThreads.filter(
       (thread) =>
@@ -764,6 +967,7 @@ export default function MensajesPage() {
         | "video"
         | "foto",
       previewUrl: URL.createObjectURL(file),
+      previewMode: "locked" as const,
       file,
     }));
 
@@ -971,6 +1175,8 @@ export default function MensajesPage() {
   const unlockPremiumMessage = async (messageId: string) => {
     if (!selectedThread) return;
     try {
+      setUnlockingMessageId(messageId);
+      setChatError(null);
       const result = await chatRequest<{
         ok: true;
         thread: ThreadItem;
@@ -993,14 +1199,44 @@ export default function MensajesPage() {
         error instanceof Error
           ? error.message
           : "No se pudo comprar el contenido del chat.";
-      if (redirectToSaldoIfNeeded(message)) {
+      if (isInsufficientBalanceMessage(message)) {
+        setChatError("No tienes saldo suficiente para comprar este contenido. Te redirigimos para cargar saldo.");
+        window.setTimeout(() => {
+          window.location.assign("/saldo?reason=insufficient-balance");
+        }, 1200);
         return;
       }
       setChatError(
         message,
       );
     } finally {
+      setUnlockingMessageId(null);
       setConfirmUnlockId(null);
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    if (!selectedThread) return;
+    try {
+      const result = await chatRequest<{
+        ok: true;
+        thread: ThreadItem;
+      }>(`/api/direct-chats/messages/${messageId}?threadId=${selectedThread.id}`, {
+        method: "DELETE",
+      });
+      const detail = toThreadDetail(result.thread);
+      setSelectedThread(detail);
+      setThreads((current) =>
+        current.map((thread) =>
+          thread.id === detail.id ? toThreadSummary(detail) : thread,
+        ),
+      );
+      setMessageMenuId(null);
+      setChatError(null);
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : "No se pudo eliminar el mensaje.",
+      );
     }
   };
 
@@ -1040,6 +1276,29 @@ export default function MensajesPage() {
     return () => window.removeEventListener("mousedown", handleClickOutside);
   }, [composeMenuOpen]);
 
+  useEffect(() => {
+    if (!messageMenuId) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-message-menu-root='true']")) {
+        setMessageMenuId(null);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [messageMenuId]);
+
+  useEffect(() => {
+    if (!openPreview) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenPreview(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [openPreview]);
+
   const filteredEmojis = EMOJI_OPTIONS.filter((emoji) =>
     emojiQuery.trim() ? emoji.includes(emojiQuery.trim()) : true,
   );
@@ -1062,6 +1321,12 @@ export default function MensajesPage() {
             formData.append("price", String(payload.price));
             payload.originalFiles.forEach((file, index) => {
               formData.append(`original_${index}`, file);
+            });
+            payload.attachmentPreviews.forEach((attachment, index) => {
+              formData.append(
+                `preview_mode_${index}`,
+                attachment.previewMode === "locked" ? "locked" : "preview",
+              );
             });
             const result = await chatRequest<{
               ok: true;
@@ -1093,6 +1358,116 @@ export default function MensajesPage() {
           }
         }}
       />
+      <TipModal
+        open={tipOpen}
+        availableBalance={viewer?.commerce.balance ?? 0}
+        recipientLabel={selectedThread?.username ?? "usuario"}
+        recipientUserId={selectedThread?.participantUserId ?? null}
+        threadId={selectedThread?.id ?? null}
+        onClose={() => setTipOpen(false)}
+        onSubmitted={async () => {
+          setTipOpen(false);
+          setChatError(null);
+          window.dispatchEvent(new Event("purchases-updated"));
+          window.dispatchEvent(new Event("balance-updated"));
+          await refetchViewer();
+        }}
+      />
+      {openPreview ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-6">
+          <div
+            className="absolute inset-0"
+            onClick={() => setOpenPreview(null)}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            onClick={() => setOpenPreview(null)}
+            className="absolute right-6 top-6 z-[111] rounded-[10px] bg-white/90 p-2"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="relative z-[111] flex w-full max-w-[960px] overflow-hidden rounded-[12px] bg-black">
+            <div className="relative h-[70vh] w-full bg-black">
+              {openPreview.attachments[openPreview.index]?.kind === "video" ? (
+                <video
+                  src={openPreview.attachments[openPreview.index]?.previewUrl}
+                  className={`h-full w-full object-contain ${
+                    openPreview.unlocked ||
+                    openPreview.attachments[openPreview.index]?.previewMode !== "locked"
+                      ? ""
+                      : "blur-[14px]"
+                  }`}
+                  controls
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={openPreview.attachments[openPreview.index]?.previewUrl}
+                  alt={openPreview.attachments[openPreview.index]?.name ?? "Vista previa"}
+                  className={`h-full w-full object-contain ${
+                    openPreview.unlocked ||
+                    openPreview.attachments[openPreview.index]?.previewMode !== "locked"
+                      ? ""
+                      : "blur-[14px]"
+                  }`}
+                />
+              )}
+              {!openPreview.unlocked &&
+              openPreview.attachments[openPreview.index]?.previewMode === "locked" ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="rounded-[10px] bg-white/20 p-4 text-white shadow-sm backdrop-blur-[2px]">
+                    <Lock className="h-8 w-8" strokeWidth={2.2} />
+                  </div>
+                </div>
+              ) : null}
+              {openPreview.attachments.length > 1 ? (
+                <>
+                  <div className="absolute inset-y-0 left-0 z-20 flex items-center pl-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenPreview((current) =>
+                          current
+                            ? {
+                                ...current,
+                                index:
+                                  (current.index - 1 + current.attachments.length) %
+                                  current.attachments.length,
+                              }
+                            : current,
+                        )
+                      }
+                      className="rounded-[10px] bg-white/80 px-3 py-2 text-sm font-semibold text-zinc-700"
+                    >
+                      ‹
+                    </button>
+                  </div>
+                  <div className="absolute inset-y-0 right-0 z-20 flex items-center pr-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenPreview((current) =>
+                          current
+                            ? {
+                                ...current,
+                                index: (current.index + 1) % current.attachments.length,
+                              }
+                            : current,
+                        )
+                      }
+                      className="rounded-[10px] bg-white/80 px-3 py-2 text-sm font-semibold text-zinc-700"
+                    >
+                      ›
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pendingAction ? (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 px-4">
@@ -1350,8 +1725,13 @@ export default function MensajesPage() {
 
                           {message.kind === "system" ? (
                             <div className="flex items-center gap-2 text-[12px] text-[#5b5b5b]">
-                              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#1fb84f] text-[10px] font-bold text-white">
-                                ✓
+                              <span className="inline-flex h-4 w-4 items-center justify-center">
+                                <img
+                                  src="/tip-lightning.png"
+                                  alt=""
+                                  aria-hidden="true"
+                                  className="h-3.5 w-3.5 object-contain"
+                                />
                               </span>
                               <span>{message.body}</span>
                             </div>
@@ -1362,25 +1742,91 @@ export default function MensajesPage() {
                                   message={message}
                                   own={own}
                                   confirmUnlock={confirmUnlockId === message.id}
+                                  unlocking={unlockingMessageId === message.id}
+                                  canDelete={own}
+                                  menuOpen={messageMenuId === message.id}
+                                  onToggleMenu={() =>
+                                    setMessageMenuId((current) =>
+                                      current === message.id ? null : message.id,
+                                    )
+                                  }
+                                  onDelete={() => deleteMessage(message.id)}
                                   onStartUnlock={() => setConfirmUnlockId(message.id)}
                                   onUnlock={() => unlockPremiumMessage(message.id)}
                                   onCancelUnlock={() => setConfirmUnlockId(null)}
+                                  onOpenPreview={(index) =>
+                                    setOpenPreview({
+                                      attachments: message.attachmentPreviews,
+                                      index,
+                                      unlocked: message.status === "purchased",
+                                    })
+                                  }
                                 />
                               ) : message.kind === "attachment" ? (
-                                <AttachmentMessageCard attachments={message.attachments} />
+                                <AttachmentMessageCard
+                                  attachments={message.attachments}
+                                  canDelete={own}
+                                  menuOpen={messageMenuId === message.id}
+                                  onToggleMenu={() =>
+                                    setMessageMenuId((current) =>
+                                      current === message.id ? null : message.id,
+                                    )
+                                  }
+                                  onDelete={() => deleteMessage(message.id)}
+                                  onOpenPreview={(index) =>
+                                    setOpenPreview({
+                                      attachments: message.attachments,
+                                      index,
+                                      unlocked: true,
+                                    })
+                                  }
+                                />
                               ) : (
-                                <div
-                                  className={`max-w-[430px] rounded-full px-4 py-2.5 font-semibold ${
-                                    isEmojiOnlyMessage(message.body)
-                                      ? "text-[30px] leading-none"
-                                      : "text-[14px]"
-                                  } ${
-                                    own
-                                      ? "bg-[#ede7ff] text-[#3d3565]"
-                                      : "bg-[#f3f3f3] text-[#2f2f2f]"
-                                  }`}
-                                >
-                                  {message.body}
+                                <div className="relative inline-block max-w-[430px]">
+                                  {own ? (
+                                    <div
+                                      className="absolute right-1 top-1 z-10"
+                                      data-message-menu-root="true"
+                                      ref={messageMenuId === message.id ? menuRef : null}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setMessageMenuId((current) =>
+                                            current === message.id ? null : message.id,
+                                          )
+                                        }
+                                        className="rounded-full p-1.5 text-[#6b7280] transition hover:bg-black/5 hover:text-[#161823]"
+                                      >
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </button>
+                                      {messageMenuId === message.id ? (
+                                        <div className="absolute right-0 top-9 z-10 min-w-[140px] rounded-[10px] border border-zinc-200 bg-white p-1 shadow-lg">
+                                          <button
+                                            type="button"
+                                            onClick={() => deleteMessage(message.id)}
+                                            className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] font-medium text-red-600 transition hover:bg-red-50"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                            Eliminar
+                                          </button>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                  <div
+                                    className={`inline-flex max-w-[430px] rounded-full px-4 py-2.5 font-semibold ${
+                                      isEmojiOnlyMessage(message.body)
+                                        ? "text-[30px] leading-none"
+                                        : "text-[14px]"
+                                    } ${
+                                      own
+                                        ? "bg-[#ede7ff] pr-10 text-[#3d3565]"
+                                        : "bg-[#f3f3f3] text-[#2f2f2f]"
+                                    }`}
+                                  >
+                                    {message.body}
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -1489,6 +1935,20 @@ export default function MensajesPage() {
                     ) : null}
                     <button
                       type="button"
+                      onClick={() => setTipOpen(true)}
+                      disabled={!selectedThread || sendingMessage}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#8b8b8b] transition hover:bg-white hover:text-[#161823] disabled:opacity-50"
+                      aria-label="Enviar propina"
+                    >
+                      <img
+                        src="/tip-lightning.png"
+                        alt=""
+                        aria-hidden="true"
+                        className="h-4 w-4 object-contain"
+                      />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setEmojiOpen((current) => !current)}
                       className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#8b8b8b] transition hover:bg-white hover:text-[#161823]"
                       aria-label="Abrir emojis"
@@ -1550,16 +2010,6 @@ export default function MensajesPage() {
                               {emoji}
                             </button>
                           ))}
-                        </div>
-                        <div className="mt-4 flex items-center justify-between border-t border-[#E0E0E0] px-1 pt-3 text-[#8b8b8b]">
-                          <Smile className="h-5 w-5 text-[#161823]" />
-                          <span className="text-[20px]">🐾</span>
-                          <span className="text-[20px]">🍴</span>
-                          <span className="text-[20px]">🏀</span>
-                          <span className="text-[20px]">🚗</span>
-                          <span className="text-[20px]">💡</span>
-                          <span className="text-[20px]">➕</span>
-                          <span className="text-[20px]">🏳️</span>
                         </div>
                       </div>
                     ) : null}

@@ -17,6 +17,7 @@ import {
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 
 type ItemMeta = {
   id: string;
@@ -24,8 +25,6 @@ type ItemMeta = {
   isPreview: boolean;
   fileName: string;
 };
-
-const MIN_PRICE_ARS = 1000;
 
 const ensureMediaBuckets = async () => {
   const admin = getAdminSupabase();
@@ -101,7 +100,12 @@ export async function POST(request: Request) {
     const tipsEnabled = String(formData.get("tipsEnabled") ?? "false") === "true";
     const rawModerationTags = formData.get("moderationTags");
     const normalizedPrice =
-      monetization === "paid" ? Math.max(rawPrice || 0, MIN_PRICE_ARS) : 0;
+      monetization === "paid"
+        ? Math.min(
+            Math.max(rawPrice || 0, MIN_CONTENT_PRICE_ARS),
+            MAX_CONTENT_PRICE_ARS,
+          )
+        : 0;
     const contentAudience = CONTENT_AUDIENCE_OPTIONS.some(
       (option) => option.value === rawContentAudience,
     )

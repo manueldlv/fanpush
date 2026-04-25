@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sendSignupConfirmationEmail } from "@/lib/server/auth/emails";
 import { getAdminSupabase } from "@/lib/server/auth/session";
+import { getReservedUsernameError } from "@/lib/usernames";
 
 type RegisterBody = {
   fullName?: string;
@@ -62,6 +63,11 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       );
+    }
+
+    const reservedUsernameError = getReservedUsernameError(username);
+    if (reservedUsernameError) {
+      return NextResponse.json({ error: reservedUsernameError }, { status: 400 });
     }
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

@@ -19,12 +19,14 @@ export default function AppChrome({
     pathname?.startsWith("/privacidad") ||
     pathname?.startsWith("/ayuda") ||
     pathname?.startsWith("/faq");
+  const hideFloatingMessages =
+    isStandalone || pathname?.startsWith("/compras");
 
   return (
     <AuthGate>
       {!isStandalone ? <TopBar /> : null}
       {!isStandalone ? <SearchPanel /> : null}
-      {!isStandalone ? <FloatingMessagesButton /> : null}
+      {!hideFloatingMessages ? <FloatingMessagesButton /> : null}
       <div className={isStandalone ? "" : "pb-16 pt-16 md:pb-0"}>{children}</div>
     </AuthGate>
   );

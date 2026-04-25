@@ -6,6 +6,7 @@ import {
   runBalanceCheckout,
   type BalanceCheckoutResult,
 } from "@/lib/balanceCheckout";
+import { MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 
 const formatUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -33,6 +34,7 @@ type TipModalProps = {
   availableBalance: number;
   recipientLabel: string;
   recipientUserId: string | null;
+  threadId?: string | null;
   onClose: () => void;
   onSubmitted?: (result: BalanceCheckoutResult) => void;
 };
@@ -42,27 +44,30 @@ export default function TipModal({
   availableBalance,
   recipientLabel,
   recipientUserId,
+  threadId,
   onClose,
   onSubmitted,
 }: TipModalProps) {
-  const [amount, setAmount] = useState("100");
+  const [amount, setAmount] = useState(String(MIN_CONTENT_PRICE_ARS));
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BalanceCheckoutResult | null>(null);
 
   const amountValue = useMemo(() => Number(amount), [amount]);
+  const hasInvalidAmount =
+    amount.trim().length > 0 && amountValue < MIN_CONTENT_PRICE_ARS;
   const creatorReceives = Math.floor(Math.max(0, amountValue) * 0.7);
   const platformFee = Math.max(0, amountValue) - creatorReceives;
   const canSubmit =
     Boolean(recipientUserId) &&
     Number.isFinite(amountValue) &&
-    amountValue > 0 &&
+    amountValue >= MIN_CONTENT_PRICE_ARS &&
     !submitting;
 
   useEffect(() => {
     if (!open) return;
-    setAmount("100");
+    setAmount(String(MIN_CONTENT_PRICE_ARS));
     setMessage("");
     setSubmitting(false);
     setError(null);
@@ -82,8 +87,13 @@ export default function TipModal({
 
   const handleSubmit = async () => {
     if (!recipientUserId) return;
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setError("Ingresá un monto válido para la propina.");
+    if (
+      !Number.isFinite(amountValue) ||
+      amountValue < MIN_CONTENT_PRICE_ARS
+    ) {
+      setError(
+        `La propina mínima es de $${formatUnits(MIN_CONTENT_PRICE_ARS)}.`,
+      );
       return;
     }
     setSubmitting(true);
@@ -94,6 +104,7 @@ export default function TipModal({
         targetUserId: recipientUserId,
         amount: amountValue,
         message: message.trim() || undefined,
+        threadId: threadId || undefined,
       });
       setResult(checkoutResult);
       onSubmitted?.(checkoutResult);
@@ -202,12 +213,18 @@ export default function TipModal({
               <label className="block text-[15px] font-semibold text-zinc-700 md:text-[16px]">
                 Monto de la propina
               </label>
-              <div className="mt-3 flex h-[64px] items-center rounded-[18px] border border-zinc-300 px-5 md:h-[72px]">
+              <div
+                className={`mt-3 flex h-[64px] items-center rounded-[18px] border px-5 md:h-[72px] ${
+                  hasInvalidAmount
+                    ? "border-rose-400 bg-rose-50"
+                    : "border-zinc-300"
+                }`}
+              >
                 <TipLightningIcon className="h-[22px] w-[22px] object-contain md:h-[24px] md:w-[24px]" />
                 <input
                   type="number"
                   inputMode="numeric"
-                  min="1"
+                  min={MIN_CONTENT_PRICE_ARS}
                   step="1"
                   value={amount}
                   onChange={(event) =>
@@ -216,13 +233,22 @@ export default function TipModal({
                   className="w-full bg-transparent pl-3 text-[20px] font-semibold text-zinc-900 outline-none md:text-[22px]"
                 />
               </div>
-              <div className="mt-2 text-[11px] text-zinc-400">
+              <div
+                className={`mt-2 text-[11px] ${
+                  hasInvalidAmount ? "text-rose-600" : "text-zinc-400"
+                }`}
+              >
                 <span className="inline-flex items-center gap-1.5">
-                  Saldo disponible:
+                  Mínimo {formatUnits(MIN_CONTENT_PRICE_ARS)} · Saldo disponible:
                   <TipLightningIcon className="h-3.5 w-3.5 object-contain" />
                   {formatUnits(availableBalance)}
                 </span>
               </div>
+              {hasInvalidAmount ? (
+                <div className="mt-2 text-[12px] font-medium text-rose-600">
+                  El mínimo para enviar una propina es ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-7 rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 md:px-5 md:py-5">

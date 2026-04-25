@@ -35,7 +35,7 @@ import {
   profileApi,
   useGetProfileViewQuery,
 } from "@/lib/redux/api/profileApi";
-import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
+import { sessionApi, useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { buildPostSharePath } from "@/lib/postShare";
 import { buildUserProfileHref } from "@/lib/profileRoute";
@@ -873,6 +873,19 @@ export default function PerfilPage({
       const uploadedAvatarUrl =
         supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
 
+      const { error: userUpdateError } = await supabase.from("users").upsert(
+        {
+          id: userId,
+          username: safeUsername,
+          avatar_url: path,
+        },
+        { onConflict: "id" },
+      );
+
+      if (userUpdateError) {
+        throw userUpdateError;
+      }
+
       if (avatarCropSource?.startsWith("blob:")) {
         URL.revokeObjectURL(avatarCropSource);
       }
@@ -895,6 +908,7 @@ export default function PerfilPage({
           { type: "ProfileView", id: `username:${safeUsername.toLowerCase()}` },
         ]),
       );
+      dispatch(sessionApi.util.invalidateTags(["Viewer", "Session"]));
 
       setUiMessage({
         tone: "success",

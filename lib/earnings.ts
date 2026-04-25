@@ -41,6 +41,30 @@ export const loadCreatorEarnings = async (
     );
   }
 
+  const { data: directMessageRows } = await supabase
+    .from("direct_messages")
+    .select("id")
+    .eq("sender_id", userId)
+    .eq("kind", "premium");
+
+  const directMessageIds = (directMessageRows ?? []).map(
+    (row: { id: string }) => row.id,
+  );
+
+  let chatGross = 0;
+  if (directMessageIds.length > 0) {
+    const { data: directPurchaseRows } = await supabase
+      .from("direct_message_purchases")
+      .select("amount")
+      .in("message_id", directMessageIds);
+
+    chatGross = (directPurchaseRows ?? []).reduce(
+      (sum: number, row: { amount: number | string | null }) =>
+        sum + Number(row.amount || 0),
+      0,
+    );
+  }
+
   const { data: tipRows } = await supabase
     .from("notifications")
     .select("message")
@@ -53,7 +77,7 @@ export const loadCreatorEarnings = async (
     0,
   );
 
-  const gross = purchaseGross + tipGross;
+  const gross = purchaseGross + chatGross + tipGross;
   const commissionProfile = await getLatestUserCommissionProfile(supabase, userId);
   const creatorShare = getCreatorShareFromProfile(commissionProfile?.record);
   const creatorNet = gross * creatorShare;
@@ -61,6 +85,7 @@ export const loadCreatorEarnings = async (
 
   return {
     purchasesGross: purchaseGross,
+    chatsGross: chatGross,
     tipsGross: tipGross,
     totalGross: gross,
     creatorNet,

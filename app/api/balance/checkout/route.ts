@@ -4,6 +4,8 @@ import {
   processInternalAlbumPurchase,
   processInternalTipPayment,
 } from "@/lib/server/repositories/ledger";
+import { sendDirectSystemMessage } from "@/lib/server/repositories/direct-chats";
+import { MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import {
   getPurchaseAlbumTarget,
   hasUserPurchasedAlbum,
@@ -21,6 +23,7 @@ type CheckoutBody =
       targetUserId: string;
       amount: number;
       message?: string;
+      threadId?: string;
     };
 
 const mapCheckoutError = (message: string) => {
@@ -40,7 +43,10 @@ const mapCheckoutError = (message: string) => {
     case "cannot_tip_self":
       return { status: 400, error: "No puedes enviarte una propina a ti mismo." };
     case "invalid_tip_amount":
-      return { status: 400, error: "La propina debe tener un monto válido." };
+      return {
+        status: 400,
+        error: `La propina mínima es de $${MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.`,
+      };
     case "insufficient_balance":
       return {
         status: 400,
@@ -107,9 +113,11 @@ export async function POST(request: Request) {
     }
 
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!Number.isFinite(amount) || amount < MIN_CONTENT_PRICE_ARS) {
       return NextResponse.json(
-        { error: "La propina debe tener un monto válido." },
+        {
+          error: `La propina mínima es de $${MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.`,
+        },
         { status: 400 },
       );
     }
@@ -131,6 +139,18 @@ export async function POST(request: Request) {
       message: tipMessage,
       is_read: false,
     });
+
+    if (body.threadId) {
+      const amountLabel = amount.toLocaleString("es-AR");
+      await sendDirectSystemMessage({
+        admin,
+        actorUserId: user.id,
+        threadId: body.threadId,
+        body: `Enviaste una propina de $${amountLabel} ARS a este chat.`,
+        recipientUserId: body.targetUserId,
+        recipientBody: `Recibiste una propina de $${amountLabel} ARS en este chat.`,
+      });
+    }
 
     const balance = await getUserBalanceSnapshot(admin, user.id);
 

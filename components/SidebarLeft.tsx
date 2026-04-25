@@ -32,7 +32,7 @@ export default function SidebarLeft() {
   const [signOut] = useSignOutMutation();
   const [purchaseBadge, setPurchaseBadge] = useState(false);
   const [salesBadge, setSalesBadge] = useState(false);
-  const [messagesBadge, setMessagesBadge] = useState(false);
+  const [messagesBadgeCount, setMessagesBadgeCount] = useState(0);
   const canCreate = viewer?.access.canCreate ?? false;
   const isAuthor = viewer?.access.isAuthor ?? false;
   const createHref = canCreate ? "/crear" : "/autor/solicitud";
@@ -57,9 +57,9 @@ export default function SidebarLeft() {
           threads?: Array<{ unread?: boolean }>;
         };
         if (!response.ok || cancelled) return;
-        setMessagesBadge(Boolean((result.threads ?? []).some((thread) => thread.unread)));
+        setMessagesBadgeCount((result.threads ?? []).filter((thread) => thread.unread).length);
       } catch {
-        if (!cancelled) setMessagesBadge(false);
+        if (!cancelled) setMessagesBadgeCount(0);
       }
     };
 
@@ -122,15 +122,17 @@ export default function SidebarLeft() {
 
   const showBadge = (
     _active: boolean,
-    dotVisible: boolean,
+    badgeCount: number,
     icon: ReactNode,
     label: string,
   ) => (
     <>
       <span className="relative">
         {icon}
-        {dotVisible ? (
-          <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
+        {badgeCount > 0 ? (
+          <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#ff334b] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+            {badgeCount > 99 ? "99+" : badgeCount}
+          </span>
         ) : null}
       </span>
       <span>{label}</span>
@@ -157,9 +159,11 @@ export default function SidebarLeft() {
   const mobileIconWrapClass =
     "relative flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100";
 
-  const mobileBadge = (visible: boolean) =>
-    visible ? (
-      <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
+  const mobileBadge = (count: number) =>
+    count > 0 ? (
+      <span className="absolute right-0 top-0 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#ff334b] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+        {count > 99 ? "99+" : count}
+      </span>
     ) : null;
 
   return (
@@ -199,7 +203,7 @@ export default function SidebarLeft() {
             >
               {showBadge(
                 pathname === "/mensajes",
-                messagesBadge,
+                messagesBadgeCount,
                 messagesNavIcon(pathname === "/mensajes"),
                 "Mensajes",
               )}
@@ -210,7 +214,7 @@ export default function SidebarLeft() {
             >
               {showBadge(
                 pathname === "/notificaciones",
-                unreadNotifications,
+                unreadNotifications ? 1 : 0,
                 <Bell className={iconClass(pathname === "/notificaciones")} />,
                 "Notificaciones",
               )}
@@ -232,7 +236,7 @@ export default function SidebarLeft() {
             >
               {showBadge(
                 pathname === "/compras",
-                purchaseBadge,
+                purchaseBadge ? 1 : 0,
                 <ShoppingBag className={iconClass(pathname === "/compras")} />,
                 "Mis compras",
               )}
@@ -251,7 +255,7 @@ export default function SidebarLeft() {
               >
                 {showBadge(
                   pathname === "/ventas",
-                  salesBadge || salesActivityBadge,
+                  salesBadge || salesActivityBadge ? 1 : 0,
                   <DollarSign className={iconClass(pathname === "/ventas")} />,
                   "Mis ventas",
                 )}
@@ -348,7 +352,7 @@ export default function SidebarLeft() {
           className={mobileIconWrapClass}
           aria-label="Mensajes"
         >
-          {mobileBadge(messagesBadge)}
+          {mobileBadge(messagesBadgeCount)}
           <Image
             src="/messages-nav-icon.png"
             alt=""
@@ -371,7 +375,7 @@ export default function SidebarLeft() {
           className={mobileIconWrapClass}
           aria-label="Notificaciones"
         >
-          {mobileBadge(unreadNotifications)}
+          {mobileBadge(unreadNotifications ? 1 : 0)}
           <Bell className="h-5 w-5" />
         </Link>
         <Link
@@ -379,7 +383,7 @@ export default function SidebarLeft() {
           className={mobileIconWrapClass}
           aria-label="Mis compras"
         >
-          {mobileBadge(purchaseBadge)}
+          {mobileBadge(purchaseBadge ? 1 : 0)}
           <ShoppingBag className="h-5 w-5" />
         </Link>
         {isAuthor ? (
@@ -388,7 +392,7 @@ export default function SidebarLeft() {
             className={mobileIconWrapClass}
             aria-label="Mis ventas"
           >
-            {mobileBadge(salesBadge || salesActivityBadge)}
+            {mobileBadge(salesBadge || salesActivityBadge ? 1 : 0)}
             <DollarSign className="h-5 w-5" />
           </Link>
         ) : null}

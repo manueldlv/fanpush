@@ -253,21 +253,59 @@ export async function GET(request: Request) {
       string,
       { purchasesGross: number; tipsGross: number }
     >();
+    const spendingByUser = new Map<
+      string,
+      { purchaseSpend: number; tipsSent: number; spendingPlatformFee: number }
+    >();
+    let purchaseGrossTotal = 0;
+    let tipGrossTotal = 0;
+    let purchasePlatformFeeTotal = 0;
+    let tipPlatformFeeTotal = 0;
     const addSales = (userId: string, purchaseAmount = 0, tipAmount = 0) => {
       const current = salesByUser.get(userId) ?? { purchasesGross: 0, tipsGross: 0 };
       current.purchasesGross += purchaseAmount;
       current.tipsGross += tipAmount;
       salesByUser.set(userId, current);
     };
+    const addSpending = (
+      userId: string,
+      purchaseAmount = 0,
+      tipAmount = 0,
+      platformFeeAmount = 0,
+    ) => {
+      const current = spendingByUser.get(userId) ?? {
+        purchaseSpend: 0,
+        tipsSent: 0,
+        spendingPlatformFee: 0,
+      };
+      current.purchaseSpend += purchaseAmount;
+      current.tipsSent += tipAmount;
+      current.spendingPlatformFee += platformFeeAmount;
+      spendingByUser.set(userId, current);
+    };
 
     allPurchases.forEach((row) => {
       const ownerId = postOwnerMap.get(row.post_id);
       if (!ownerId) return;
-      addSales(ownerId, Number(row.amount || 0), 0);
+      const amount = Number(row.amount || 0);
+      const commissionProfile = commissionMap.get(ownerId) ?? null;
+      const creatorShare = getCreatorShareFromProfile(commissionProfile);
+      const platformFee = amount - amount * creatorShare;
+      addSales(ownerId, amount, 0);
+      addSpending(row.user_id, amount, 0, platformFee);
+      purchaseGrossTotal += amount;
+      purchasePlatformFeeTotal += platformFee;
     });
 
     allTips.forEach((row) => {
-      addSales(row.user_id, 0, parseTipAmountFromMessage(row.message));
+      const amount = parseTipAmountFromMessage(row.message);
+      const commissionProfile = commissionMap.get(row.user_id) ?? null;
+      const creatorShare = getCreatorShareFromProfile(commissionProfile);
+      const platformFee = amount - amount * creatorShare;
+      addSales(row.user_id, 0, amount);
+      addSpending(row.actor_id, 0, amount, platformFee);
+      tipGrossTotal += amount;
+      tipPlatformFeeTotal += platformFee;
     });
 
     const resolveAvatar = (value: string | null) => {
@@ -360,6 +398,11 @@ export async function GET(request: Request) {
         const commissionProfile = commissionMap.get(row.id) ?? null;
         const creatorShare = getCreatorShareFromProfile(commissionProfile);
         const grosses = salesByUser.get(row.id) ?? { purchasesGross: 0, tipsGross: 0 };
+        const spending = spendingByUser.get(row.id) ?? {
+          purchaseSpend: 0,
+          tipsSent: 0,
+          spendingPlatformFee: 0,
+        };
         const totalGross = grosses.purchasesGross + grosses.tipsGross;
         const creatorNet = totalGross * creatorShare;
         const platformFee = totalGross - creatorNet;
@@ -418,6 +461,10 @@ export async function GET(request: Request) {
           platformFee,
           tipsGross: grosses.tipsGross,
           purchasesGross: grosses.purchasesGross,
+          purchaseSpend: spending.purchaseSpend,
+          tipsSent: spending.tipsSent,
+          totalSpent: spending.purchaseSpend + spending.tipsSent,
+          spendingPlatformFee: spending.spendingPlatformFee,
           posts: authoredAlbums.map((album) => {
             const media = Array.isArray(album.album_posts)
               ? album.album_posts
@@ -455,6 +502,8 @@ export async function GET(request: Request) {
       })
       .sort((a, b) => a.username.localeCompare(b.username));
 
+    const authorsCount = usersDetailed.filter((item) => item.role === "author").length;
+
     const totalCreatorsNet = usersDetailed.reduce(
       (sum, item) => sum + item.creatorNet,
       0,
@@ -464,14 +513,8 @@ export async function GET(request: Request) {
       0,
     );
 
-    const purchaseGross = (purchasesRowsResult.data ?? []).reduce(
-      (sum, row) => sum + Number(row.amount || 0),
-      0,
-    );
-    const tipGross = (tipRowsResult.data ?? []).reduce(
-      (sum, row) => sum + parseTipAmountFromMessage(row.message),
-      0,
-    );
+    const purchaseGross = purchaseGrossTotal;
+    const tipGross = tipGrossTotal;
 
     const recentPurchases = (recentPurchasesResult.data ?? []).map((row) => {
       const buyer = userMap.get(row.user_id);
@@ -545,6 +588,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       metrics: {
         users: usersCountResult.count ?? 0,
+        authors: authorsCount,
         albums: albumsCountResult.count ?? 0,
         posts: postsCountResult.count ?? 0,
         purchases: (purchasesRowsResult.data ?? []).length,
@@ -553,6 +597,8 @@ export async function GET(request: Request) {
         totalGross: purchaseGross + tipGross,
         creatorsNet: totalCreatorsNet,
         platformFee: totalPlatformFee,
+        purchasePlatformFee: purchasePlatformFeeTotal,
+        tipPlatformFee: tipPlatformFeeTotal,
       },
       commerce: {
         recentPurchases,

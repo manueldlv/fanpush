@@ -9,6 +9,7 @@ import {
   getPurchaseAlbumTarget,
   hasUserPurchasedAlbum,
 } from "@/lib/server/repositories/payments";
+import { MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 
 type PreferenceBody =
   | {
@@ -172,9 +173,11 @@ export async function POST(request: Request) {
     }
 
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!Number.isFinite(amount) || amount < MIN_CONTENT_PRICE_ARS) {
       return NextResponse.json(
-        { error: "La propina debe tener un monto valido." },
+        {
+          error: `La propina mínima es de $${MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")}.`,
+        },
         { status: 400 },
       );
     }

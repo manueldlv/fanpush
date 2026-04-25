@@ -29,6 +29,7 @@ type PurchaseItem = {
   covers: string[];
   media: { url: string; kind: "image" | "video" }[];
   status: string;
+  source?: "post" | "chat";
 };
 
 type SentTipItem = {
@@ -101,6 +102,7 @@ export default function ComprasPage() {
     page * ITEMS_PER_PAGE,
     activeTab === "purchases" ? displayItems.length : displayTips.length,
   );
+  const isPurchasesTab = activeTab === "purchases";
 
   useEffect(() => {
     setPage((current) =>
@@ -143,11 +145,22 @@ export default function ComprasPage() {
     setOpenIndex(0);
   };
 
+  const getPurchaseMedia = (purchase: PurchaseItem) =>
+    purchase.media.length > 0
+      ? purchase.media
+      : purchase.covers.map((url) => ({ url, kind: "image" as const }));
+
   const renderThumbGrid = (purchase: PurchaseItem) => {
-    const thumbItems =
-      purchase.covers.length > 0 ? purchase.covers : [purchase.cover];
-    const visibleThumbs = thumbItems.slice(0, 10);
-    const extraCount = Math.max(thumbItems.length - 10, 0);
+    const thumbMedia = getPurchaseMedia(purchase);
+    const fallbackThumbs =
+      purchase.covers.length > 0
+        ? purchase.covers.map((url) => ({ url, kind: "image" as const }))
+        : purchase.cover
+          ? [{ url: purchase.cover, kind: "image" as const }]
+          : [];
+    const allThumbs = thumbMedia.length > 0 ? thumbMedia : fallbackThumbs;
+    const visibleThumbs = allThumbs.slice(0, 10);
+    const extraCount = Math.max(allThumbs.length - 10, 0);
     const thumbCount = visibleThumbs.length || 1;
 
     const layout =
@@ -177,19 +190,19 @@ export default function ComprasPage() {
         }}
         aria-label={`Abrir ${purchase.title}`}
       >
-        {visibleThumbs.map((src, index) => {
-          const mediaKind = purchase.media[index]?.kind ?? "image";
+        {visibleThumbs.map((item, index) => {
+          const mediaKind = item.kind;
           const isLastVisible = index === visibleThumbs.length - 1;
           const shouldSpan =
             isLastVisible && finalItemSpan > 1;
           return (
             <div
-              key={`${purchase.id}-thumb-${index}-${src}`}
+              key={`${purchase.id}-thumb-${index}-${item.url}`}
               className="relative overflow-hidden rounded-[8px] bg-zinc-100"
               style={shouldSpan ? { gridColumn: `span ${finalItemSpan}` } : undefined}
             >
               <MediaImage
-                src={src}
+                src={item.url}
                 alt={purchase.title}
                 className="h-full w-full object-cover"
                 fallbackClassName="h-full w-full"
@@ -237,31 +250,31 @@ export default function ComprasPage() {
           </button>
           <div className="relative z-10 flex w-full max-w-[900px] overflow-hidden rounded-[5px] bg-black">
             <div className="relative h-[520px] w-full bg-black">
-              {openPurchase.media[openIndex]?.kind === "video" ? (
+              {getPurchaseMedia(openPurchase)[openIndex]?.kind === "video" ? (
                 <video
-                  src={openPurchase.media[openIndex]?.url}
+                  src={getPurchaseMedia(openPurchase)[openIndex]?.url}
                   className="h-full w-full object-contain"
                   controls
                   playsInline
                 />
               ) : (
                 <MediaImage
-                  src={openPurchase.media[openIndex]?.url}
+                  src={getPurchaseMedia(openPurchase)[openIndex]?.url}
                   alt={openPurchase.title}
                   className="h-full w-full object-contain"
                   fallbackClassName="h-full w-full bg-zinc-950 text-zinc-500"
                   iconClassName="h-8 w-8"
                 />
               )}
-              {openPurchase.media.length > 1 ? (
+              {getPurchaseMedia(openPurchase).length > 1 ? (
                 <>
                   <div className="absolute inset-y-0 left-0 z-20 flex items-center pl-3">
                     <button
                       type="button"
                       onClick={() =>
                         setOpenIndex((prev) =>
-                          (prev - 1 + openPurchase.media.length) %
-                          openPurchase.media.length,
+                          (prev - 1 + getPurchaseMedia(openPurchase).length) %
+                          getPurchaseMedia(openPurchase).length,
                         )
                       }
                       className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
@@ -274,7 +287,7 @@ export default function ComprasPage() {
                       type="button"
                       onClick={() =>
                         setOpenIndex((prev) =>
-                          (prev + 1) % openPurchase.media.length,
+                          (prev + 1) % getPurchaseMedia(openPurchase).length,
                         )
                       }
                       className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
@@ -299,7 +312,7 @@ export default function ComprasPage() {
           </div>
 
           {!loading && hasAnyHistory ? (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
                 <div className="text-[13px] font-medium text-zinc-500">
                   publicaciones compradas
@@ -310,20 +323,10 @@ export default function ComprasPage() {
               </div>
               <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
                 <div className="text-[13px] font-medium text-zinc-500">
-                  invertido en contenido
+                  {isPurchasesTab ? "invertido en contenido" : "propinas enviadas"}
                 </div>
                 <div className="mt-2 text-xl font-semibold text-zinc-900">
-                  {formatARS(activeTab === "purchases" ? totalSpent : totalTipsSent)}
-                </div>
-              </div>
-              <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
-                <div className="text-[13px] font-medium text-zinc-500">
-                  {activeTab === "purchases" ? "última compra" : "última propina"}
-                </div>
-                <div className="mt-2 text-base font-semibold text-zinc-900">
-                  {activeTab === "purchases"
-                    ? displayItems[0]?.date ?? "—"
-                    : displayTips[0]?.date ?? "—"}
+                  {formatARS(isPurchasesTab ? totalSpent : totalTipsSent)}
                 </div>
               </div>
             </div>
@@ -391,17 +394,17 @@ export default function ComprasPage() {
                 <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">
-                      {activeTab === "purchases"
+                      {isPurchasesTab
                         ? "Historial de compras"
                         : "Historial de propinas"}
                     </div>
                     <div className="text-xs text-zinc-500">
-                      {activeTab === "purchases"
+                      {isPurchasesTab
                         ? `Mostrando ${rangeStart}-${rangeEnd} de ${displayItems.length} compras`
                         : `Mostrando ${rangeStart}-${rangeEnd} de ${displayTips.length} propinas`}
                     </div>
                   </div>
-                  {(activeTab === "purchases" ? totalPages : totalTipPages) > 1 ? (
+                  {(isPurchasesTab ? totalPages : totalTipPages) > 1 ? (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -413,19 +416,19 @@ export default function ComprasPage() {
                         Anterior
                       </button>
                       <div className="min-w-[88px] text-center text-xs font-semibold text-zinc-600">
-                        Página {page} de {activeTab === "purchases" ? totalPages : totalTipPages}
+                        Página {page} de {isPurchasesTab ? totalPages : totalTipPages}
                       </div>
                       <button
                         type="button"
                         onClick={() =>
                           setPage((current) =>
                             Math.min(
-                              activeTab === "purchases" ? totalPages : totalTipPages,
+                              isPurchasesTab ? totalPages : totalTipPages,
                               current + 1,
                             ),
                           )
                         }
-                        disabled={page === (activeTab === "purchases" ? totalPages : totalTipPages)}
+                        disabled={page === (isPurchasesTab ? totalPages : totalTipPages)}
                         className="inline-flex items-center gap-1 rounded-[10px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Siguiente
@@ -435,18 +438,18 @@ export default function ComprasPage() {
                   ) : null}
                 </div>
 
-                <div className="divide-y divide-zinc-200">
-                  {activeTab === "purchases" && paginatedItems.length === 0 ? (
+                <div key={activeTab} className="divide-y divide-zinc-200">
+                  {isPurchasesTab && paginatedItems.length === 0 ? (
                     <div className="px-4 py-8 text-sm text-zinc-500">
                       Todavía no hiciste compras de contenido.
                     </div>
                   ) : null}
-                  {activeTab === "tips" && paginatedTips.length === 0 ? (
+                  {!isPurchasesTab && paginatedTips.length === 0 ? (
                     <div className="px-4 py-8 text-sm text-zinc-500">
                       Todavía no enviaste propinas.
                     </div>
                   ) : null}
-                  {activeTab === "purchases"
+                  {isPurchasesTab
                     ? paginatedItems.map((purchase) => (
                     <div
                       key={purchase.id}
@@ -459,7 +462,19 @@ export default function ComprasPage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                               <div className="truncate text-[15px] font-semibold text-zinc-900">
-                                {purchase.title}
+                                {purchase.source === "chat" ? (
+                                  <>
+                                    Chat con{" "}
+                                    <Link
+                                      href={buildUserProfileHref(purchase.creator)}
+                                      className="font-semibold text-[#2563eb] transition hover:text-[#1d4ed8] hover:underline"
+                                    >
+                                      @{purchase.creator}
+                                    </Link>
+                                  </>
+                                ) : (
+                                  purchase.title
+                                )}
                               </div>
                               <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
                                 {purchase.media.length} archivo
@@ -472,7 +487,7 @@ export default function ComprasPage() {
                             <div className="mt-1 text-sm text-zinc-500">
                               <Link
                                 href={buildUserProfileHref(purchase.creator)}
-                                className="font-medium text-zinc-700 transition hover:text-zinc-900 hover:underline"
+                                className="font-medium text-[#2563eb] transition hover:text-[#1d4ed8] hover:underline"
                               >
                                 @{purchase.creator}
                               </Link>{" "}
@@ -523,16 +538,23 @@ export default function ComprasPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <div className="truncate text-[15px] font-semibold text-zinc-900">
-                            Propina enviada
+                            Propina enviada a{" "}
+                            <Link
+                              href={buildUserProfileHref(tip.recipient)}
+                              className="font-semibold text-[#2563eb] transition hover:text-[#1d4ed8] hover:underline"
+                            >
+                              @{tip.recipient}
+                            </Link>
                           </div>
                           <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
                             apoyo directo
                           </span>
                         </div>
                         <div className="mt-1 text-sm text-zinc-500">
+                          chat con{" "}
                           <Link
                             href={buildUserProfileHref(tip.recipient)}
-                            className="font-medium text-zinc-700 transition hover:text-zinc-900 hover:underline"
+                            className="font-medium text-[#2563eb] transition hover:text-[#1d4ed8] hover:underline"
                           >
                             @{tip.recipient}
                           </Link>{" "}
@@ -550,6 +572,31 @@ export default function ComprasPage() {
                       </div>
                     </div>
                     ))}
+                </div>
+                <div className="flex items-center justify-end gap-2 border-t border-zinc-200 px-4 py-3 md:px-6">
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    disabled={page === 1}
+                    className="inline-flex items-center gap-2 rounded-[10px] border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPage((current) =>
+                        Math.min(
+                          activeTab === "purchases" ? totalPages : totalTipPages,
+                          current + 1,
+                        ),
+                      )
+                    }
+                    disabled={page === (activeTab === "purchases" ? totalPages : totalTipPages)}
+                    className="inline-flex items-center gap-2 rounded-[10px] border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Siguiente
+                  </button>
                 </div>
               </div>
             ) : null}

@@ -28,6 +28,7 @@ import { cn, formatARS } from "@/lib/utils";
 type AdminDashboardData = {
   metrics: {
     users: number;
+    authors: number;
     albums: number;
     posts: number;
     purchases: number;
@@ -36,6 +37,8 @@ type AdminDashboardData = {
     totalGross: number;
     creatorsNet: number;
     platformFee: number;
+    purchasePlatformFee: number;
+    tipPlatformFee: number;
   };
   commerce: {
     recentPurchases: Array<{
@@ -178,6 +181,10 @@ type AdminDashboardData = {
       platformFee: number;
       tipsGross: number;
       purchasesGross: number;
+      purchaseSpend: number;
+      tipsSent: number;
+      totalSpent: number;
+      spendingPlatformFee: number;
       posts: Array<{
         id: string;
         description: string;
@@ -237,14 +244,16 @@ function StatCard({
   return (
     <div
       className={cn(
-        "rounded-[24px] border p-5 shadow-sm",
+        "min-w-0 rounded-[24px] border p-5 shadow-sm",
         tone === "default" && "border-zinc-200 bg-white",
         tone === "emerald" && "border-emerald-200 bg-emerald-50",
         tone === "blue" && "border-blue-200 bg-blue-50",
       )}
     >
-      <div className="text-sm font-medium text-zinc-500">{label}</div>
-      <div className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950">
+      <div className="text-sm font-medium leading-5 text-zinc-500 [text-wrap:balance]">
+        {label}
+      </div>
+      <div className="mt-3 break-all text-[1.1rem] font-semibold leading-snug text-zinc-950 tabular-nums md:text-[1.35rem]">
         {value}
       </div>
     </div>
@@ -258,9 +267,15 @@ export default function AdminPage() {
   const [commerceView, setCommerceView] = useState<
     "purchases" | "tips" | "withdrawals" | "withdrawal-history"
   >("purchases");
-  const [usersView, setUsersView] = useState<"all" | "authors" | "users">("all");
-  const [authorsView, setAuthorsView] = useState<"pending" | "history" | "archived">("pending");
-  const [reportsView, setReportsView] = useState<"pending" | "history" | "archived">("pending");
+  const [usersView, setUsersView] = useState<"all" | "authors" | "users">(
+    "all",
+  );
+  const [authorsView, setAuthorsView] = useState<
+    "pending" | "history" | "archived"
+  >("pending");
+  const [reportsView, setReportsView] = useState<
+    "pending" | "history" | "archived"
+  >("pending");
   const [contentView, setContentView] = useState<
     "queue" | "reported" | "resolved" | "archived"
   >("queue");
@@ -276,19 +291,29 @@ export default function AdminPage() {
   const [contentSearch, setContentSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [updatingContentId, setUpdatingContentId] = useState<string | null>(null);
-  const [updatingWithdrawalId, setUpdatingWithdrawalId] = useState<string | null>(
+  const [updatingContentId, setUpdatingContentId] = useState<string | null>(
     null,
   );
+  const [updatingWithdrawalId, setUpdatingWithdrawalId] = useState<
+    string | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AdminDashboardData | null>(null);
-  const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
+  const [selectedContent, setSelectedContent] = useState<ContentItem | null>(
+    null,
+  );
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [updatingReportId, setUpdatingReportId] = useState<string | null>(null);
-  const [restoringArchiveId, setRestoringArchiveId] = useState<string | null>(null);
+  const [restoringArchiveId, setRestoringArchiveId] = useState<string | null>(
+    null,
+  );
   const [updatingAuthorId, setUpdatingAuthorId] = useState<string | null>(null);
-  const [archivingAuthorId, setArchivingAuthorId] = useState<string | null>(null);
-  const [restoringAuthorId, setRestoringAuthorId] = useState<string | null>(null);
+  const [archivingAuthorId, setArchivingAuthorId] = useState<string | null>(
+    null,
+  );
+  const [restoringAuthorId, setRestoringAuthorId] = useState<string | null>(
+    null,
+  );
   const [reportActionState, setReportActionState] = useState<{
     archivingId: string | null;
     restoringId: string | null;
@@ -326,13 +351,14 @@ export default function AdminPage() {
   const [selectedUserPost, setSelectedUserPost] = useState<
     AdminDashboardData["commerce"]["users"][number]["posts"][number] | null
   >(null);
-  const [selectedUserPostMediaIndex, setSelectedUserPostMediaIndex] = useState(0);
-  const [updatingUserCommissionId, setUpdatingUserCommissionId] = useState<string | null>(
-    null,
-  );
-  const [updatingUserAuthorStatusId, setUpdatingUserAuthorStatusId] = useState<string | null>(
-    null,
-  );
+  const [selectedUserPostMediaIndex, setSelectedUserPostMediaIndex] =
+    useState(0);
+  const [updatingUserCommissionId, setUpdatingUserCommissionId] = useState<
+    string | null
+  >(null);
+  const [updatingUserAuthorStatusId, setUpdatingUserAuthorStatusId] = useState<
+    string | null
+  >(null);
   const [commissionDraft, setCommissionDraft] = useState(70);
 
   const load = async () => {
@@ -360,7 +386,9 @@ export default function AdminPage() {
       setData(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo cargar el panel admin.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo cargar el panel admin.",
       );
     } finally {
       setLoading(false);
@@ -379,7 +407,9 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!selectedUser || !data) return;
-    const refreshed = data.commerce.users.find((item) => item.id === selectedUser.id);
+    const refreshed = data.commerce.users.find(
+      (item) => item.id === selectedUser.id,
+    );
     if (refreshed) {
       setSelectedUser(refreshed);
       setCommissionDraft(refreshed.commissionPercent);
@@ -402,9 +432,7 @@ export default function AdminPage() {
   const overviewStats = useMemo(
     () => [
       { label: "Usuarios registrados", value: data?.metrics.users ?? 0 },
-      { label: "Álbumes publicados", value: data?.metrics.albums ?? 0 },
-      { label: "Archivos totales", value: data?.metrics.posts ?? 0 },
-      { label: "Compras realizadas", value: data?.metrics.purchases ?? 0 },
+      { label: "Autores", value: data?.metrics.authors ?? 0 },
     ],
     [data],
   );
@@ -412,24 +440,29 @@ export default function AdminPage() {
   const financeStats = useMemo(
     () => [
       {
-        label: "Ventas totales de usuarios",
-        value: formatARS(data?.metrics.creatorsNet ?? 0),
-        tone: "emerald" as const,
-      },
-      {
-        label: "Comisión FanPush",
-        value: formatARS(data?.metrics.platformFee ?? 0),
-        tone: "blue" as const,
-      },
-      {
-        label: "Facturación bruta del sitio",
-        value: formatARS(data?.metrics.totalGross ?? 0),
+        label: "Ventas totales",
+        value: formatARS(data?.metrics.purchaseGross ?? 0),
         tone: "default" as const,
       },
       {
-        label: "Propinas brutas",
+        label: "Comisión sobre ventas",
+        value: formatARS(data?.metrics.purchasePlatformFee ?? 0),
+        tone: "default" as const,
+      },
+      {
+        label: "Propinas",
         value: formatARS(data?.metrics.tipGross ?? 0),
         tone: "default" as const,
+      },
+      {
+        label: "Comisión sobre propinas",
+        value: formatARS(data?.metrics.tipPlatformFee ?? 0),
+        tone: "default" as const,
+      },
+      {
+        label: "Ganancia FanPush",
+        value: formatARS(data?.metrics.platformFee ?? 0),
+        tone: "blue" as const,
       },
     ],
     [data],
@@ -439,8 +472,7 @@ export default function AdminPage() {
     () =>
       data?.commerce.authorApplications.filter(
         (item) => item.status === "pending" && !item.archived,
-      ) ??
-      [],
+      ) ?? [],
     [data],
   );
 
@@ -448,8 +480,7 @@ export default function AdminPage() {
     () =>
       data?.commerce.authorApplications.filter(
         (item) => item.status !== "pending" && !item.archived,
-      ) ??
-      [],
+      ) ?? [],
     [data],
   );
 
@@ -500,9 +531,9 @@ export default function AdminPage() {
     return source.filter((item) => {
       if (
         normalizedContentSearch &&
-        !`${item.username} ${item.description}`.toLowerCase().includes(
-          normalizedContentSearch,
-        )
+        !`${item.username} ${item.description}`
+          .toLowerCase()
+          .includes(normalizedContentSearch)
       ) {
         return false;
       }
@@ -545,14 +576,18 @@ export default function AdminPage() {
   const visibleContentQueue = useMemo(
     () =>
       filteredContentQueue.filter(
-        (item) => !item.moderationState && (pendingReportCountByAlbum.get(item.id) ?? 0) === 0,
+        (item) =>
+          !item.moderationState &&
+          (pendingReportCountByAlbum.get(item.id) ?? 0) === 0,
       ),
     [filteredContentQueue, pendingReportCountByAlbum],
   );
   const resolvedContent = useMemo(
     () =>
       filteredContentQueue.filter(
-        (item) => item.moderationState === "approved" || item.moderationState === "archived",
+        (item) =>
+          item.moderationState === "approved" ||
+          item.moderationState === "archived",
       ),
     [filteredContentQueue],
   );
@@ -602,7 +637,10 @@ export default function AdminPage() {
 
       setData((prev) =>
         prev
-          ? { ...prev, content: prev.content.filter((item) => item.id !== albumId) }
+          ? {
+              ...prev,
+              content: prev.content.filter((item) => item.id !== albumId),
+            }
           : prev,
       );
       if (selectedContent?.id === albumId) {
@@ -652,7 +690,9 @@ export default function AdminPage() {
               ...prev,
               commerce: {
                 ...prev.commerce,
-                withdrawals: prev.commerce.withdrawals.filter((item) => item.id !== id),
+                withdrawals: prev.commerce.withdrawals.filter(
+                  (item) => item.id !== id,
+                ),
               },
             }
           : prev,
@@ -700,7 +740,9 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo actualizar el reporte.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo actualizar el reporte.",
       );
     } finally {
       setUpdatingReportId(null);
@@ -728,7 +770,9 @@ export default function AdminPage() {
         },
         body: JSON.stringify({ action }),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
       if (!response.ok) {
         throw new Error(result.error ?? "No se pudo actualizar el contenido.");
       }
@@ -739,7 +783,9 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo actualizar el contenido.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo actualizar el contenido.",
       );
     } finally {
       setUpdatingContentId(null);
@@ -771,7 +817,9 @@ export default function AdminPage() {
           reason: status === "rejected" ? reason.trim() : "",
         }),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
       if (!response.ok) {
         throw new Error(
           result.error ?? "No se pudo actualizar la solicitud de autor.",
@@ -791,8 +839,8 @@ export default function AdminPage() {
               ...prev,
               commerce: {
                 ...prev.commerce,
-                authorApplications: prev.commerce.authorApplications.map((item) =>
-                  item.id === id ? { ...item, status } : item,
+                authorApplications: prev.commerce.authorApplications.map(
+                  (item) => (item.id === id ? { ...item, status } : item),
                 ),
               },
             }
@@ -847,7 +895,9 @@ export default function AdminPage() {
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo archivar la solicitud.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo archivar la solicitud.",
       );
     } finally {
       setArchivingAuthorId(null);
@@ -878,7 +928,9 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo restaurar la solicitud.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo restaurar la solicitud.",
       );
     } finally {
       setRestoringAuthorId(null);
@@ -950,7 +1002,15 @@ export default function AdminPage() {
   const handleExportWithdrawals = () => {
     if (!data?.commerce.withdrawals.length) return;
     const csvRows = [
-      ["usuario", "monto", "estado", "fecha", "alias", "titular", "documento"].join(","),
+      [
+        "usuario",
+        "monto",
+        "estado",
+        "fecha",
+        "alias",
+        "titular",
+        "documento",
+      ].join(","),
       ...data.commerce.withdrawals.map((item) =>
         [
           item.username,
@@ -965,7 +1025,9 @@ export default function AdminPage() {
           .join(","),
       ),
     ];
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([csvRows.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -997,14 +1059,19 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo restablecer el contenido.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo restablecer el contenido.",
       );
     } finally {
       setRestoringArchiveId(null);
     }
   };
 
-  const handleUpdateUserCommission = async (userId: string, percent: number) => {
+  const handleUpdateUserCommission = async (
+    userId: string,
+    percent: number,
+  ) => {
     try {
       setUpdatingUserCommissionId(userId);
       const supabase = getSupabaseAdminBrowserClient();
@@ -1029,7 +1096,9 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo actualizar la comisión.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo actualizar la comisión.",
       );
     } finally {
       setUpdatingUserCommissionId(null);
@@ -1060,7 +1129,9 @@ export default function AdminPage() {
       };
 
       if (!response.ok) {
-        throw new Error(result.error ?? "No se pudo quitar el acceso de autor.");
+        throw new Error(
+          result.error ?? "No se pudo quitar el acceso de autor.",
+        );
       }
 
       setData((prev) =>
@@ -1094,7 +1165,9 @@ export default function AdminPage() {
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo quitar el acceso de autor.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo quitar el acceso de autor.",
       );
     } finally {
       setUpdatingUserAuthorStatusId(null);
@@ -1108,7 +1181,7 @@ export default function AdminPage() {
       }
     : null;
   const selectedContentReports = selectedContent
-    ? reportsByAlbum.get(selectedContent.id) ?? []
+    ? (reportsByAlbum.get(selectedContent.id) ?? [])
     : [];
 
   return (
@@ -1124,16 +1197,20 @@ export default function AdminPage() {
                 Panel de control
               </h1>
               <p className="mt-3 max-w-[720px] text-sm text-zinc-500 md:text-base">
-                Supervisá métricas del sitio, flujo de compras, retiros y todo el
-                contenido publicado desde un solo lugar.
+                Supervisá métricas del sitio, flujo de compras, retiros y todo
+                el contenido publicado desde un solo lugar.
               </p>
             </div>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-              {[
+            {[
               { id: "metrics", label: "Métricas", icon: BarChart3 },
-              { id: "commerce", label: "Compras, ventas y retiros", icon: CreditCard },
+              {
+                id: "commerce",
+                label: "Compras, ventas y retiros",
+                icon: CreditCard,
+              },
               { id: "users", label: "Usuarios", icon: Eye },
               { id: "authors", label: "Autores y verificación", icon: Shield },
               { id: "reports", label: "Reportes y denuncias", icon: Eye },
@@ -1171,11 +1248,13 @@ export default function AdminPage() {
           <div className="space-y-6">
             <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap gap-3">
-                {([
-                  ["all", "Todos"],
-                  ["authors", "Autores"],
-                  ["users", "Usuarios normales"],
-                ] as const).map(([id, label]) => (
+                {(
+                  [
+                    ["all", "Todos"],
+                    ["authors", "Autores"],
+                    ["users", "Usuarios normales"],
+                  ] as const
+                ).map(([id, label]) => (
                   <button
                     key={id}
                     type="button"
@@ -1194,9 +1273,12 @@ export default function AdminPage() {
             </div>
 
             <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Usuarios del sitio</div>
+              <div className="text-lg font-semibold text-zinc-950">
+                Usuarios del sitio
+              </div>
               <div className="mt-1 text-sm text-zinc-500">
-                Revisa cada cuenta, su rendimiento, sus relaciones y ajusta la comisión individual cuando haga falta.
+                Revisa cada cuenta, su rendimiento, sus relaciones y ajusta la
+                comisión individual cuando haga falta.
               </div>
               <div className="mt-4 max-h-[560px] overflow-auto rounded-[20px] border border-zinc-200">
                 <table className="min-w-full divide-y divide-zinc-200 text-sm">
@@ -1207,14 +1289,19 @@ export default function AdminPage() {
                       <th className="px-4 py-3 font-medium">Seguidores</th>
                       <th className="px-4 py-3 font-medium">Posts</th>
                       <th className="px-4 py-3 font-medium">Ventas</th>
-                      <th className="px-4 py-3 font-medium">Comisión creador</th>
+                      <th className="px-4 py-3 font-medium">
+                        Comisión creador
+                      </th>
                       <th className="px-4 py-3 font-medium">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-200 bg-white">
                     {visibleUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-zinc-500">
+                        <td
+                          colSpan={7}
+                          className="px-4 py-6 text-center text-zinc-500"
+                        >
                           No hay usuarios para este filtro.
                         </td>
                       </tr>
@@ -1223,9 +1310,14 @@ export default function AdminPage() {
                         <tr key={item.id}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
-                              <UserAvatar src={item.avatar} alt={item.username} />
+                              <UserAvatar
+                                src={item.avatar}
+                                alt={item.username}
+                              />
                               <div>
-                                <div className="font-medium text-zinc-900">@{item.username}</div>
+                                <div className="font-medium text-zinc-900">
+                                  @{item.username}
+                                </div>
                                 <div className="text-xs text-zinc-500">
                                   {item.fullName || item.email || "Sin datos"}
                                 </div>
@@ -1235,10 +1327,20 @@ export default function AdminPage() {
                           <td className="px-4 py-3 text-zinc-700">
                             {item.role === "author" ? "Autor" : "Usuario"}
                           </td>
-                          <td className="px-4 py-3 text-zinc-700">{item.followersCount}</td>
-                          <td className="px-4 py-3 text-zinc-700">{item.posts.length}</td>
-                          <td className="px-4 py-3 text-zinc-900">{formatARS(item.creatorNet)}</td>
-                          <td className="px-4 py-3 text-zinc-700">{item.commissionPercent}%</td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            {item.followersCount}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            {item.posts.length}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-900">
+                            {formatARS(
+                              item.role === "author" ? item.creatorNet : 0,
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            {item.commissionPercent}%
+                          </td>
                           <td className="px-4 py-3">
                             <button
                               type="button"
@@ -1271,7 +1373,11 @@ export default function AdminPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               {overviewStats.map((item) => (
-                <StatCard key={item.label} label={item.label} value={item.value} />
+                <StatCard
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                />
               ))}
             </div>
 
@@ -1280,11 +1386,11 @@ export default function AdminPage() {
                 Ingresos del sitio
               </div>
               <div className="mt-1 text-sm text-zinc-500">
-                Separación entre lo que corresponde a creadores y la comisión de
-                FanPush.
+                Suma global sobre todos los autores y operaciones registradas en
+                el sitio.
               </div>
 
-              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 {financeStats.map((item) => (
                   <StatCard
                     key={item.label}
@@ -1307,46 +1413,57 @@ export default function AdminPage() {
                   <tbody className="divide-y divide-zinc-200 bg-white">
                     <tr>
                       <td className="px-4 py-3 font-medium text-zinc-900">
-                        Compras brutas
+                        Ventas totales
                       </td>
                       <td className="px-4 py-3 text-zinc-900">
                         {formatARS(data.metrics.purchaseGross)}
                       </td>
                       <td className="px-4 py-3 text-zinc-500">
-                        Total facturado por contenido bloqueado.
+                        Todo lo vendido por publicaciones y contenido pago.
                       </td>
                     </tr>
                     <tr>
                       <td className="px-4 py-3 font-medium text-zinc-900">
-                        Propinas brutas
+                        Comisión sobre ventas
+                      </td>
+                      <td className="px-4 py-3 text-zinc-900">
+                        {formatARS(data.metrics.purchasePlatformFee)}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-500">
+                        Comisión FanPush retenida sobre ventas.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-medium text-zinc-900">
+                        Propinas
                       </td>
                       <td className="px-4 py-3 text-zinc-900">
                         {formatARS(data.metrics.tipGross)}
                       </td>
                       <td className="px-4 py-3 text-zinc-500">
-                        Total cobrado en propinas directas.
+                        Todo lo recibido en propinas.
                       </td>
                     </tr>
                     <tr>
                       <td className="px-4 py-3 font-medium text-zinc-900">
-                        Neto de usuarios
+                        Comisión sobre propinas
                       </td>
-                      <td className="px-4 py-3 text-emerald-700">
-                        {formatARS(data.metrics.creatorsNet)}
+                      <td className="px-4 py-3 text-zinc-900">
+                        {formatARS(data.metrics.tipPlatformFee)}
                       </td>
                       <td className="px-4 py-3 text-zinc-500">
-                        70% acreditable a creadores.
+                        Comisión FanPush retenida sobre propinas.
                       </td>
                     </tr>
                     <tr>
                       <td className="px-4 py-3 font-medium text-zinc-900">
-                        Comisión FanPush
+                        Ganancia FanPush
                       </td>
                       <td className="px-4 py-3 text-blue-700">
                         {formatARS(data.metrics.platformFee)}
                       </td>
                       <td className="px-4 py-3 text-zinc-500">
-                        30% retenido por la plataforma.
+                        Suma de comisión sobre ventas y sobre propinas.
                       </td>
                     </tr>
                   </tbody>
@@ -1412,225 +1529,258 @@ export default function AdminPage() {
             </div>
 
             {commerceView === "purchases" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Compras</div>
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Comprador</th>
-                      <th className="px-4 py-3 font-medium">Vendedor</th>
-                      <th className="px-4 py-3 font-medium">Monto</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.recentPurchases.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Compras
+                </div>
+                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          Todavía no hay compras.
-                        </td>
+                        <th className="px-4 py-3 font-medium">Comprador</th>
+                        <th className="px-4 py-3 font-medium">Vendedor</th>
+                        <th className="px-4 py-3 font-medium">Monto</th>
+                        <th className="px-4 py-3 font-medium">Fecha</th>
                       </tr>
-                    ) : (
-                      data.commerce.recentPurchases.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            @{item.buyer}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.seller}</td>
-                          <td className="px-4 py-3 text-zinc-900">
-                            {formatARS(item.amount)}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.createdAt).toLocaleString("es-AR")}
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {data.commerce.recentPurchases.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            Todavía no hay compras.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        data.commerce.recentPurchases.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 font-medium text-zinc-900">
+                              @{item.buyer}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              @{item.seller}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-900">
+                              {formatARS(item.amount)}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500">
+                              {new Date(item.createdAt).toLocaleString("es-AR")}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             ) : null}
 
             {commerceView === "tips" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Propinas</div>
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Usuario que envía</th>
-                      <th className="px-4 py-3 font-medium">Usuario que recibe</th>
-                      <th className="px-4 py-3 font-medium">Monto</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.recentTips.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Propinas
+                </div>
+                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          Todavía no hay propinas.
-                        </td>
+                        <th className="px-4 py-3 font-medium">
+                          Usuario que envía
+                        </th>
+                        <th className="px-4 py-3 font-medium">
+                          Usuario que recibe
+                        </th>
+                        <th className="px-4 py-3 font-medium">Monto</th>
+                        <th className="px-4 py-3 font-medium">Fecha</th>
                       </tr>
-                    ) : (
-                      data.commerce.recentTips.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            @{item.actor}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.receiver}</td>
-                          <td className="px-4 py-3 text-zinc-900">
-                            {formatARS(item.amount)}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.createdAt).toLocaleString("es-AR")}
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {data.commerce.recentTips.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            Todavía no hay propinas.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        data.commerce.recentTips.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 font-medium text-zinc-900">
+                              @{item.actor}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              @{item.receiver}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-900">
+                              {formatARS(item.amount)}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500">
+                              {new Date(item.createdAt).toLocaleString("es-AR")}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             ) : null}
 
             {commerceView === "withdrawals" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Retiros</div>
-              <div className="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleExportWithdrawals}
-                  className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700"
-                >
-                  Exportar CSV
-                </button>
-              </div>
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Usuario</th>
-                      <th className="px-4 py-3 font-medium">Monto</th>
-                      <th className="px-4 py-3 font-medium">Estado</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                      <th className="px-4 py-3 font-medium">Alias / CVU / CBU</th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.withdrawals.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Retiros
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleExportWithdrawals}
+                    className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700"
+                  >
+                    Exportar CSV
+                  </button>
+                </div>
+                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-zinc-500">
-                          No hay retiros solicitados.
-                        </td>
+                        <th className="px-4 py-3 font-medium">Usuario</th>
+                        <th className="px-4 py-3 font-medium">Monto</th>
+                        <th className="px-4 py-3 font-medium">Estado</th>
+                        <th className="px-4 py-3 font-medium">Fecha</th>
+                        <th className="px-4 py-3 font-medium">
+                          Alias / CVU / CBU
+                        </th>
+                        <th className="px-4 py-3 font-medium">Acciones</th>
                       </tr>
-                    ) : (
-                      data.commerce.withdrawals.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            @{item.username}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-900">
-                            {formatARS(item.amount)}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.statusLabel}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.createdAt).toLocaleString("es-AR")}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-600">
-                            <div>{item.payoutAlias ?? "Sin datos"}</div>
-                            {item.payoutHolder ? (
-                              <div className="text-xs text-zinc-500">
-                                {item.payoutHolder} · {item.payoutDocument ?? "Sin doc"}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateWithdrawal(item.id, "sent")}
-                                disabled={updatingWithdrawalId === item.id}
-                                className="rounded-[12px] bg-emerald-500 px-3 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
-                              >
-                                Enviado
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRejectingWithdrawal({
-                                    id: item.id,
-                                    username: item.username,
-                                  });
-                                  setWithdrawalRejectReason("");
-                                }}
-                                disabled={updatingWithdrawalId === item.id}
-                                className="rounded-[12px] bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                              >
-                                Rechazar
-                              </button>
-                            </div>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {data.commerce.withdrawals.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            No hay retiros solicitados.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        data.commerce.withdrawals.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 font-medium text-zinc-900">
+                              @{item.username}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-900">
+                              {formatARS(item.amount)}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              {item.statusLabel}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500">
+                              {new Date(item.createdAt).toLocaleString("es-AR")}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-600">
+                              <div>{item.payoutAlias ?? "Sin datos"}</div>
+                              {item.payoutHolder ? (
+                                <div className="text-xs text-zinc-500">
+                                  {item.payoutHolder} ·{" "}
+                                  {item.payoutDocument ?? "Sin doc"}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateWithdrawal(item.id, "sent")
+                                  }
+                                  disabled={updatingWithdrawalId === item.id}
+                                  className="rounded-[12px] bg-emerald-500 px-3 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
+                                >
+                                  Enviado
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRejectingWithdrawal({
+                                      id: item.id,
+                                      username: item.username,
+                                    });
+                                    setWithdrawalRejectReason("");
+                                  }}
+                                  disabled={updatingWithdrawalId === item.id}
+                                  className="rounded-[12px] bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
+                                >
+                                  Rechazar
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-
             ) : null}
 
             {commerceView === "withdrawal-history" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Historial de retiros</div>
-              <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Acción</th>
-                      <th className="px-4 py-3 font-medium">Monto</th>
-                      <th className="px-4 py-3 font-medium">Motivo</th>
-                      <th className="px-4 py-3 font-medium">Admin</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.withdrawalHistory.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Historial de retiros
+                </div>
+                <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
-                          No hay movimientos todavía.
-                        </td>
+                        <th className="px-4 py-3 font-medium">Acción</th>
+                        <th className="px-4 py-3 font-medium">Monto</th>
+                        <th className="px-4 py-3 font-medium">Motivo</th>
+                        <th className="px-4 py-3 font-medium">Admin</th>
+                        <th className="px-4 py-3 font-medium">Fecha</th>
                       </tr>
-                    ) : (
-                      data.commerce.withdrawalHistory.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            {item.statusLabel}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {formatARS(item.amount)}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.reason || "Sin motivo"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.actor}</td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.actedAt).toLocaleString("es-AR")}
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {data.commerce.withdrawalHistory.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            No hay movimientos todavía.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        data.commerce.withdrawalHistory.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 font-medium text-zinc-900">
+                              {item.statusLabel}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              {formatARS(item.amount)}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              {item.reason || "Sin motivo"}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              @{item.actor}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500">
+                              {new Date(item.actedAt).toLocaleString("es-AR")}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             ) : null}
-
           </div>
         ) : null}
 
@@ -1678,199 +1828,114 @@ export default function AdminPage() {
             </div>
 
             {authorsView === "pending" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Solicitudes de autor
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Revisa identidad, edad y documentación antes de habilitar la
-                creación y venta de contenido.
-              </div>
-              <div className="mt-4 max-h-[520px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Usuario</th>
-                      <th className="px-4 py-3 font-medium">Identidad</th>
-                      <th className="px-4 py-3 font-medium">Ubicación</th>
-                      <th className="px-4 py-3 font-medium">Documentos</th>
-                      <th className="px-4 py-3 font-medium">Estado</th>
-                      <th className="px-4 py-3 font-medium">Enviada</th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {pendingAuthorApplications.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Solicitudes de autor
+                </div>
+                <div className="mt-1 text-sm text-zinc-500">
+                  Revisa identidad, edad y documentación antes de habilitar la
+                  creación y venta de contenido.
+                </div>
+                <div className="mt-4 max-h-[520px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-zinc-500">
-                          No hay solicitudes pendientes para revisar.
-                        </td>
+                        <th className="px-4 py-3 font-medium">Usuario</th>
+                        <th className="px-4 py-3 font-medium">Identidad</th>
+                        <th className="px-4 py-3 font-medium">Ubicación</th>
+                        <th className="px-4 py-3 font-medium">Documentos</th>
+                        <th className="px-4 py-3 font-medium">Estado</th>
+                        <th className="px-4 py-3 font-medium">Enviada</th>
+                        <th className="px-4 py-3 font-medium">Acciones</th>
                       </tr>
-                    ) : (
-                      pendingAuthorApplications.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 align-top">
-                            <div className="font-medium text-zinc-900">@{item.username}</div>
-                          </td>
-                          <td className="px-4 py-3 align-top text-zinc-700">
-                            <div className="font-medium text-zinc-900">{item.fullName}</div>
-                            <div className="text-xs text-zinc-500">
-                              {item.documentType} {item.documentNumber}
-                            </div>
-                            <div className="text-xs text-zinc-500">
-                              Nacimiento: {new Date(item.birthDate).toLocaleDateString("es-AR")}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top text-zinc-700">
-                            <div>{item.city}, {item.province}</div>
-                            <div className="text-xs text-zinc-500">{item.country}</div>
-                            <div className="text-xs text-zinc-500">{item.address}</div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex gap-2">
-                              <a
-                                href={item.documentFrontUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                              >
-                                Ver frente
-                              </a>
-                              <a
-                                href={item.documentBackUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                              >
-                                Ver dorso
-                              </a>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top text-zinc-700">
-                            {item.status === "approved"
-                              ? "Aprobado"
-                              : item.status === "rejected"
-                                ? "Rechazado"
-                                : "Pendiente"}
-                          </td>
-                          <td className="px-4 py-3 align-top text-zinc-500">
-                            {new Date(item.submittedAt).toLocaleString("es-AR")}
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateAuthor(item.id, "approved")}
-                                disabled={updatingAuthorId === item.id}
-                                className="rounded-[12px] bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
-                              >
-                                Aprobar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAuthorRejectState({
-                                    target: {
-                                      id: item.id,
-                                      username: item.username,
-                                    },
-                                    reason: "",
-                                  });
-                                }}
-                                disabled={updatingAuthorId === item.id}
-                                className="rounded-[12px] bg-red-100 px-4 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                              >
-                                Rechazar
-                              </button>
-                            </div>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {pendingAuthorApplications.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            No hay solicitudes pendientes para revisar.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            ) : null}
-
-            {authorsView === "history" ? (
-              <>
-                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Solicitudes resueltas
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Consultas puntuales sobre solicitudes ya aprobadas o rechazadas. Desde acá puedes cambiar la decisión si fue un error.
-              </div>
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Usuario</th>
-                      <th className="px-4 py-3 font-medium">Estado actual</th>
-                      <th className="px-4 py-3 font-medium">Documentos</th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {reviewedAuthorApplications.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          No hay solicitudes resueltas todavía.
-                        </td>
-                      </tr>
-                    ) : (
-                      reviewedAuthorApplications.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 align-top">
-                            <div className="font-medium text-zinc-900">@{item.username}</div>
-                            <div className="text-xs text-zinc-500">{item.fullName}</div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-semibold",
-                                item.status === "approved"
-                                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                                  : "border border-red-200 bg-red-50 text-red-700",
+                      ) : (
+                        pendingAuthorApplications.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 align-top">
+                              <div className="font-medium text-zinc-900">
+                                @{item.username}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-700">
+                              <div className="font-medium text-zinc-900">
+                                {item.fullName}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {item.documentType} {item.documentNumber}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                Nacimiento:{" "}
+                                {new Date(item.birthDate).toLocaleDateString(
+                                  "es-AR",
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-700">
+                              <div>
+                                {item.city}, {item.province}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {item.country}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {item.address}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex gap-2">
+                                <a
+                                  href={item.documentFrontUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
+                                >
+                                  Ver frente
+                                </a>
+                                <a
+                                  href={item.documentBackUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
+                                >
+                                  Ver dorso
+                                </a>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-700">
+                              {item.status === "approved"
+                                ? "Aprobado"
+                                : item.status === "rejected"
+                                  ? "Rechazado"
+                                  : "Pendiente"}
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-500">
+                              {new Date(item.submittedAt).toLocaleString(
+                                "es-AR",
                               )}
-                            >
-                              {item.status === "approved" ? "Aprobado" : "Rechazado"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex gap-2">
-                              <a
-                                href={item.documentFrontUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                              >
-                                Ver frente
-                              </a>
-                              <a
-                                href={item.documentBackUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                              >
-                                Ver dorso
-                              </a>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex flex-wrap gap-2">
-                              {item.status === "rejected" ? (
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex flex-wrap gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateAuthor(item.id, "approved")}
+                                  onClick={() =>
+                                    handleUpdateAuthor(item.id, "approved")
+                                  }
                                   disabled={updatingAuthorId === item.id}
                                   className="rounded-[12px] bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
                                 >
                                   Aprobar
                                 </button>
-                              ) : null}
-                              {item.status === "approved" ? (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1887,72 +1952,200 @@ export default function AdminPage() {
                                 >
                                   Rechazar
                                 </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                onClick={() => handleArchiveAuthor(item.id)}
-                                disabled={archivingAuthorId === item.id}
-                                className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                              >
-                                {archivingAuthorId === item.id ? "Archivando..." : "Archivar"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+            ) : null}
+
+            {authorsView === "history" ? (
+              <>
+                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                  <div className="text-lg font-semibold text-zinc-950">
+                    Solicitudes resueltas
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-500">
+                    Consultas puntuales sobre solicitudes ya aprobadas o
+                    rechazadas. Desde acá puedes cambiar la decisión si fue un
+                    error.
+                  </div>
+                  <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                      <thead className="bg-zinc-100 text-left text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Usuario</th>
+                          <th className="px-4 py-3 font-medium">
+                            Estado actual
+                          </th>
+                          <th className="px-4 py-3 font-medium">Documentos</th>
+                          <th className="px-4 py-3 font-medium">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 bg-white">
+                        {reviewedAuthorApplications.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-6 text-center text-zinc-500"
+                            >
+                              No hay solicitudes resueltas todavía.
+                            </td>
+                          </tr>
+                        ) : (
+                          reviewedAuthorApplications.map((item) => (
+                            <tr key={item.id}>
+                              <td className="px-4 py-3 align-top">
+                                <div className="font-medium text-zinc-900">
+                                  @{item.username}
+                                </div>
+                                <div className="text-xs text-zinc-500">
+                                  {item.fullName}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 align-top">
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-semibold",
+                                    item.status === "approved"
+                                      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : "border border-red-200 bg-red-50 text-red-700",
+                                  )}
+                                >
+                                  {item.status === "approved"
+                                    ? "Aprobado"
+                                    : "Rechazado"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 align-top">
+                                <div className="flex gap-2">
+                                  <a
+                                    href={item.documentFrontUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
+                                  >
+                                    Ver frente
+                                  </a>
+                                  <a
+                                    href={item.documentBackUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
+                                  >
+                                    Ver dorso
+                                  </a>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 align-top">
+                                <div className="flex flex-wrap gap-2">
+                                  {item.status === "rejected" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUpdateAuthor(item.id, "approved")
+                                      }
+                                      disabled={updatingAuthorId === item.id}
+                                      className="rounded-[12px] bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
+                                    >
+                                      Aprobar
+                                    </button>
+                                  ) : null}
+                                  {item.status === "approved" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAuthorRejectState({
+                                          target: {
+                                            id: item.id,
+                                            username: item.username,
+                                          },
+                                          reason: "",
+                                        });
+                                      }}
+                                      disabled={updatingAuthorId === item.id}
+                                      className="rounded-[12px] bg-red-100 px-4 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
+                                    >
+                                      Rechazar
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleArchiveAuthor(item.id)}
+                                    disabled={archivingAuthorId === item.id}
+                                    className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                                  >
+                                    {archivingAuthorId === item.id
+                                      ? "Archivando..."
+                                      : "Archivar"}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Historial de movimientos
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Registro cronológico de cada aprobación o rechazo con su motivo.
-              </div>
-              <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Estado</th>
-                      <th className="px-4 py-3 font-medium">Motivo</th>
-                      <th className="px-4 py-3 font-medium">Admin</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.authorApplicationHistory.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          No hay movimientos todavía.
-                        </td>
-                      </tr>
-                    ) : (
-                      data.commerce.authorApplicationHistory.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            {item.action === "approved"
-                              ? "Aprobado"
-                              : item.action === "rejected"
-                                ? "Rechazado"
-                                : "Pendiente"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.reason || "Sin motivo"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.actor}</td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.actedAt).toLocaleString("es-AR")}
-                          </td>
+                  <div className="text-lg font-semibold text-zinc-950">
+                    Historial de movimientos
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-500">
+                    Registro cronológico de cada aprobación o rechazo con su
+                    motivo.
+                  </div>
+                  <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
+                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                      <thead className="bg-zinc-100 text-left text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Estado</th>
+                          <th className="px-4 py-3 font-medium">Motivo</th>
+                          <th className="px-4 py-3 font-medium">Admin</th>
+                          <th className="px-4 py-3 font-medium">Fecha</th>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 bg-white">
+                        {data.commerce.authorApplicationHistory.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-6 text-center text-zinc-500"
+                            >
+                              No hay movimientos todavía.
+                            </td>
+                          </tr>
+                        ) : (
+                          data.commerce.authorApplicationHistory.map((item) => (
+                            <tr key={item.id}>
+                              <td className="px-4 py-3 font-medium text-zinc-900">
+                                {item.action === "approved"
+                                  ? "Aprobado"
+                                  : item.action === "rejected"
+                                    ? "Rechazado"
+                                    : "Pendiente"}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                {item.reason || "Sin motivo"}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                @{item.actor}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-500">
+                                {new Date(item.actedAt).toLocaleString("es-AR")}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </>
             ) : null}
@@ -1963,7 +2156,8 @@ export default function AdminPage() {
                   Solicitudes archivadas
                 </div>
                 <div className="mt-1 text-sm text-zinc-500">
-                  Solicitudes ya procesadas y archivadas. Puedes restaurarlas para volver a verlas en historial.
+                  Solicitudes ya procesadas y archivadas. Puedes restaurarlas
+                  para volver a verlas en historial.
                 </div>
                 <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
                   <table className="min-w-full divide-y divide-zinc-200 text-sm">
@@ -1978,7 +2172,10 @@ export default function AdminPage() {
                     <tbody className="divide-y divide-zinc-200 bg-white">
                       {archivedAuthorApplications.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
+                          <td
+                            colSpan={4}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
                             No hay solicitudes archivadas.
                           </td>
                         </tr>
@@ -1989,10 +2186,14 @@ export default function AdminPage() {
                               @{item.username}
                             </td>
                             <td className="px-4 py-3 text-zinc-700">
-                              {item.status === "approved" ? "Aprobado" : "Rechazado"}
+                              {item.status === "approved"
+                                ? "Aprobado"
+                                : "Rechazado"}
                             </td>
                             <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.submittedAt).toLocaleString("es-AR")}
+                              {new Date(item.submittedAt).toLocaleString(
+                                "es-AR",
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               <button
@@ -2001,7 +2202,9 @@ export default function AdminPage() {
                                 disabled={restoringAuthorId === item.id}
                                 className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
                               >
-                                {restoringAuthorId === item.id ? "Restaurando..." : "Restaurar"}
+                                {restoringAuthorId === item.id
+                                  ? "Restaurando..."
+                                  : "Restaurar"}
                               </button>
                             </td>
                           </tr>
@@ -2022,8 +2225,8 @@ export default function AdminPage() {
                 Reportes de contenido
               </div>
               <div className="mt-1 text-sm text-zinc-500">
-                Denuncias enviadas por usuarios para que moderación pueda revisar y
-                abrir la publicación exacta denunciada.
+                Denuncias enviadas por usuarios para que moderación pueda
+                revisar y abrir la publicación exacta denunciada.
               </div>
             </div>
 
@@ -2052,294 +2255,353 @@ export default function AdminPage() {
             </div>
 
             {reportsView === "pending" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-950">
-                    Cola de denuncias
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-950">
+                      Cola de denuncias
+                    </div>
+                    <div className="text-sm text-zinc-500">
+                      {pendingReports.length} reportes pendientes de revisión
+                      visual.
+                    </div>
                   </div>
-                  <div className="text-sm text-zinc-500">
-                    {pendingReports.length} reportes pendientes de revisión visual.
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTab("content")}
+                    className="rounded-[14px] border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-800"
+                  >
+                    Ir a moderación
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setTab("content")}
-                  className="rounded-[14px] border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-800"
-                >
-                  Ir a moderación
-                </button>
-              </div>
 
-              <div className="max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Reportado por</th>
-                      <th className="px-4 py-3 font-medium">Creador</th>
-                      <th className="px-4 py-3 font-medium">Estado</th>
-                      <th className="px-4 py-3 font-medium">Motivo</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                      <th className="px-4 py-3 font-medium">Contenido</th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {pendingReports.length === 0 ? (
+                <div className="max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-zinc-500">
-                          No hay reportes todavía.
-                        </td>
+                        <th className="px-4 py-3 font-medium">Reportado por</th>
+                        <th className="px-4 py-3 font-medium">Creador</th>
+                        <th className="px-4 py-3 font-medium">Estado</th>
+                        <th className="px-4 py-3 font-medium">Motivo</th>
+                        <th className="px-4 py-3 font-medium">Fecha</th>
+                        <th className="px-4 py-3 font-medium">Contenido</th>
+                        <th className="px-4 py-3 font-medium">Acciones</th>
                       </tr>
-                    ) : (
-                      pendingReports.map((item) => {
-                        const contentItem =
-                          data.content.find((content) => content.id === item.albumId) ??
-                          null;
-                        return (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.reportedBy}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">@{item.owner}</td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {item.status === "open"
-                                ? "Abierto"
-                                : item.status === "reviewed"
-                                  ? "Revisado"
-                                  : item.status === "dismissed"
-                                    ? "Descartado"
-                                    : "Contenido eliminado"}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">{item.reason}</td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.createdAt).toLocaleString("es-AR")}
-                            </td>
-                            <td className="px-4 py-3">
-                              {contentItem ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedContent(contentItem);
-                                    setSelectedMediaIndex(0);
-                                  }}
-                                  className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
-                                >
-                                  Ver contenido
-                                </button>
-                              ) : (
-                                <span className="text-zinc-400">No disponible</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateReport(item.id, "reviewed")}
-                                  disabled={updatingReportId === item.id}
-                                  className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                >
-                                  Revisado
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateReport(item.id, "dismissed")}
-                                  disabled={updatingReportId === item.id}
-                                  className="rounded-[12px] bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                >
-                                  Descartar
-                                </button>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {pendingReports.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            No hay reportes todavía.
+                          </td>
+                        </tr>
+                      ) : (
+                        pendingReports.map((item) => {
+                          const contentItem =
+                            data.content.find(
+                              (content) => content.id === item.albumId,
+                            ) ?? null;
+                          return (
+                            <tr key={item.id}>
+                              <td className="px-4 py-3 font-medium text-zinc-900">
+                                @{item.reportedBy}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                @{item.owner}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                {item.status === "open"
+                                  ? "Abierto"
+                                  : item.status === "reviewed"
+                                    ? "Revisado"
+                                    : item.status === "dismissed"
+                                      ? "Descartado"
+                                      : "Contenido eliminado"}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                {item.reason}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-500">
+                                {new Date(item.createdAt).toLocaleString(
+                                  "es-AR",
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
                                 {contentItem ? (
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setDeletingContent({
-                                        id: contentItem.id,
-                                        username: contentItem.username,
-                                        reportId: item.id,
-                                      });
-                                      setDeleteReason(item.reason || "");
+                                      setSelectedContent(contentItem);
+                                      setSelectedMediaIndex(0);
                                     }}
-                                    disabled={updatingReportId === item.id || deletingId === contentItem.id}
-                                    className="rounded-[12px] bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
+                                    className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
                                   >
-                                    Eliminar
+                                    Ver contenido
                                   </button>
-                                ) : null}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                                ) : (
+                                  <span className="text-zinc-400">
+                                    No disponible
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateReport(item.id, "reviewed")
+                                    }
+                                    disabled={updatingReportId === item.id}
+                                    className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                                  >
+                                    Revisado
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateReport(item.id, "dismissed")
+                                    }
+                                    disabled={updatingReportId === item.id}
+                                    className="rounded-[12px] bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                                  >
+                                    Descartar
+                                  </button>
+                                  {contentItem ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDeletingContent({
+                                          id: contentItem.id,
+                                          username: contentItem.username,
+                                          reportId: item.id,
+                                        });
+                                        setDeleteReason(item.reason || "");
+                                      }}
+                                      disabled={
+                                        updatingReportId === item.id ||
+                                        deletingId === contentItem.id
+                                      }
+                                      className="rounded-[12px] bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
+                                    >
+                                      Eliminar
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             ) : null}
 
             {reportsView === "history" ? (
-            <>
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-lg font-semibold text-zinc-950">Reportes resueltos</div>
-                  <div className="mt-1 text-sm text-zinc-500">
-                    Reportes ya revisados, descartados o con contenido eliminado.
+              <>
+                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-semibold text-zinc-950">
+                        Reportes resueltos
+                      </div>
+                      <div className="mt-1 text-sm text-zinc-500">
+                        Reportes ya revisados, descartados o con contenido
+                        eliminado.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                      <thead className="bg-zinc-100 text-left text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">
+                            Reportado por
+                          </th>
+                          <th className="px-4 py-3 font-medium">Creador</th>
+                          <th className="px-4 py-3 font-medium">Estado</th>
+                          <th className="px-4 py-3 font-medium">Motivo</th>
+                          <th className="px-4 py-3 font-medium">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 bg-white">
+                        {reviewedReports.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-4 py-6 text-center text-zinc-500"
+                            >
+                              No hay reportes resueltos.
+                            </td>
+                          </tr>
+                        ) : (
+                          reviewedReports.map((item) => (
+                            <tr key={item.id}>
+                              <td className="px-4 py-3 font-medium text-zinc-900">
+                                @{item.reportedBy}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                @{item.owner}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                {item.status === "reviewed"
+                                  ? "Revisado"
+                                  : item.status === "dismissed"
+                                    ? "Descartado"
+                                    : "Contenido eliminado"}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                {item.reason}
+                              </td>
+                              <td className="px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleArchiveReport(item.id)}
+                                  disabled={
+                                    reportActionState.archivingId === item.id
+                                  }
+                                  className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                                >
+                                  {reportActionState.archivingId === item.id
+                                    ? "Archivando..."
+                                    : "Archivar"}
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              </div>
-              <div className="max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Reportado por</th>
-                      <th className="px-4 py-3 font-medium">Creador</th>
-                      <th className="px-4 py-3 font-medium">Estado</th>
-                      <th className="px-4 py-3 font-medium">Motivo</th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {reviewedReports.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
-                          No hay reportes resueltos.
-                        </td>
-                      </tr>
-                    ) : (
-                      reviewedReports.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">@{item.reportedBy}</td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.owner}</td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.status === "reviewed"
-                              ? "Revisado"
-                              : item.status === "dismissed"
-                                ? "Descartado"
-                                : "Contenido eliminado"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">{item.reason}</td>
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => handleArchiveReport(item.id)}
-                              disabled={reportActionState.archivingId === item.id}
-                              className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                            >
-                              {reportActionState.archivingId === item.id
-                                ? "Archivando..."
-                                : "Archivar"}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
 
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Historial de moderación</div>
-              <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Acción</th>
-                      <th className="px-4 py-3 font-medium">Motivo</th>
-                      <th className="px-4 py-3 font-medium">Admin</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.reportHistory.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          No hay acciones de moderación todavía.
-                        </td>
-                      </tr>
-                    ) : (
-                      data.commerce.reportHistory.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            {item.action === "reviewed"
-                              ? "Revisado"
-                              : item.action === "dismissed"
-                                ? "Descartado"
-                                : "Contenido eliminado"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">{item.reason}</td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.actor}</td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.actedAt).toLocaleString("es-AR")}
-                          </td>
+                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                  <div className="text-lg font-semibold text-zinc-950">
+                    Historial de moderación
+                  </div>
+                  <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
+                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                      <thead className="bg-zinc-100 text-left text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Acción</th>
+                          <th className="px-4 py-3 font-medium">Motivo</th>
+                          <th className="px-4 py-3 font-medium">Admin</th>
+                          <th className="px-4 py-3 font-medium">Fecha</th>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            </>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 bg-white">
+                        {data.commerce.reportHistory.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-6 text-center text-zinc-500"
+                            >
+                              No hay acciones de moderación todavía.
+                            </td>
+                          </tr>
+                        ) : (
+                          data.commerce.reportHistory.map((item) => (
+                            <tr key={item.id}>
+                              <td className="px-4 py-3 font-medium text-zinc-900">
+                                {item.action === "reviewed"
+                                  ? "Revisado"
+                                  : item.action === "dismissed"
+                                    ? "Descartado"
+                                    : "Contenido eliminado"}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                {item.reason}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-700">
+                                @{item.actor}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-500">
+                                {new Date(item.actedAt).toLocaleString("es-AR")}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             ) : null}
 
             {reportsView === "archived" ? (
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">Reportes archivados</div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Reportes ya procesados y archivados para limpieza operativa. Puedes restaurarlos.
-              </div>
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Reportado por</th>
-                      <th className="px-4 py-3 font-medium">Creador</th>
-                      <th className="px-4 py-3 font-medium">Estado</th>
-                      <th className="px-4 py-3 font-medium">Motivo</th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {archivedReports.length === 0 ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Reportes archivados
+                </div>
+                <div className="mt-1 text-sm text-zinc-500">
+                  Reportes ya procesados y archivados para limpieza operativa.
+                  Puedes restaurarlos.
+                </div>
+                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
-                          No hay reportes archivados.
-                        </td>
+                        <th className="px-4 py-3 font-medium">Reportado por</th>
+                        <th className="px-4 py-3 font-medium">Creador</th>
+                        <th className="px-4 py-3 font-medium">Estado</th>
+                        <th className="px-4 py-3 font-medium">Motivo</th>
+                        <th className="px-4 py-3 font-medium">Acciones</th>
                       </tr>
-                    ) : (
-                      archivedReports.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">@{item.reportedBy}</td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.owner}</td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.status === "reviewed"
-                              ? "Revisado"
-                              : item.status === "dismissed"
-                                ? "Descartado"
-                                : "Contenido eliminado"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">{item.reason}</td>
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => handleRestoreReport(item.id)}
-                              disabled={reportActionState.restoringId === item.id}
-                              className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                            >
-                              {reportActionState.restoringId === item.id
-                                ? "Restaurando..."
-                                : "Restaurar"}
-                            </button>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {archivedReports.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            No hay reportes archivados.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        archivedReports.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 font-medium text-zinc-900">
+                              @{item.reportedBy}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              @{item.owner}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              {item.status === "reviewed"
+                                ? "Revisado"
+                                : item.status === "dismissed"
+                                  ? "Descartado"
+                                  : "Contenido eliminado"}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              {item.reason}
+                            </td>
+                            <td className="px-4 py-3">
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreReport(item.id)}
+                                disabled={
+                                  reportActionState.restoringId === item.id
+                                }
+                                className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                              >
+                                {reportActionState.restoringId === item.id
+                                  ? "Restaurando..."
+                                  : "Restaurar"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             ) : null}
 
             <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
@@ -2360,7 +2622,10 @@ export default function AdminPage() {
                   <tbody className="divide-y divide-zinc-200 bg-white">
                     {data.commerce.archivedContent.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                        <td
+                          colSpan={5}
+                          className="px-4 py-6 text-center text-zinc-500"
+                        >
                           No hay contenido archivado.
                         </td>
                       </tr>
@@ -2375,7 +2640,9 @@ export default function AdminPage() {
                               {item.description}
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-zinc-700">{item.itemsCount}</td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            {item.itemsCount}
+                          </td>
                           <td className="px-4 py-3 text-zinc-500">
                             {new Date(item.archivedAt).toLocaleString("es-AR")}
                           </td>
@@ -2408,14 +2675,22 @@ export default function AdminPage() {
                     Moderación de contenido
                   </div>
                   <div className="mt-1 text-sm text-zinc-500">
-                    Cola operativa para revisar publicaciones nuevas, priorizar las reportadas y
-                    limpiar rápido lo que ya no necesita tu atención.
+                    Cola operativa para revisar publicaciones nuevas, priorizar
+                    las reportadas y limpiar rápido lo que ya no necesita tu
+                    atención.
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <StatCard label="Activos" value={data.content.length} />
-                  <StatCard label="Reportados" value={reportedContent.length} tone="blue" />
-                  <StatCard label="En cola" value={visibleContentQueue.length} />
+                  <StatCard
+                    label="Reportados"
+                    value={reportedContent.length}
+                    tone="blue"
+                  />
+                  <StatCard
+                    label="En cola"
+                    value={visibleContentQueue.length}
+                  />
                   <StatCard
                     label="Eliminados"
                     value={data.commerce.archivedContent.length}
@@ -2429,9 +2704,21 @@ export default function AdminPage() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { id: "queue", label: "Cola activa", count: visibleContentQueue.length },
-                    { id: "reported", label: "Reportados", count: reportedContent.length },
-                    { id: "resolved", label: "Resueltos", count: resolvedContent.length },
+                    {
+                      id: "queue",
+                      label: "Cola activa",
+                      count: visibleContentQueue.length,
+                    },
+                    {
+                      id: "reported",
+                      label: "Reportados",
+                      count: reportedContent.length,
+                    },
+                    {
+                      id: "resolved",
+                      label: "Resueltos",
+                      count: resolvedContent.length,
+                    },
                     {
                       id: "archived",
                       label: "Eliminados",
@@ -2443,7 +2730,11 @@ export default function AdminPage() {
                       type="button"
                       onClick={() =>
                         setContentView(
-                          section.id as "queue" | "reported" | "resolved" | "archived",
+                          section.id as
+                            | "queue"
+                            | "reported"
+                            | "resolved"
+                            | "archived",
                         )
                       }
                       className={cn(
@@ -2474,7 +2765,9 @@ export default function AdminPage() {
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                       <input
                         value={contentSearch}
-                        onChange={(event) => setContentSearch(event.target.value)}
+                        onChange={(event) =>
+                          setContentSearch(event.target.value)
+                        }
                         placeholder="Buscar por usuario o descripción"
                         className="w-full rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
                       />
@@ -2485,7 +2778,12 @@ export default function AdminPage() {
                         value={contentFilter}
                         onChange={(event) =>
                           setContentFilter(
-                            event.target.value as "all" | "free" | "paid" | "image" | "video",
+                            event.target.value as
+                              | "all"
+                              | "free"
+                              | "paid"
+                              | "image"
+                              | "video",
                           )
                         }
                         className="w-full appearance-none rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-8 text-sm font-medium text-zinc-900 outline-none"
@@ -2548,148 +2846,155 @@ export default function AdminPage() {
                     ? resolvedContent
                     : visibleContentQueue
                 ).map((item) => (
-                <div
-                  key={item.id}
-                  className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-sm"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedContent(item);
-                      setSelectedMediaIndex(0);
-                    }}
-                    className="relative block aspect-square w-full bg-zinc-100 text-left"
+                  <div
+                    key={item.id}
+                    className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-sm"
                   >
-                    {item.mediaUrl ? (
-                      item.mediaType === "video" ? (
-                        <video
-                          src={item.mediaUrl}
-                          className="h-full w-full object-cover"
-                          muted
-                          playsInline
-                        />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedContent(item);
+                        setSelectedMediaIndex(0);
+                      }}
+                      className="relative block aspect-square w-full bg-zinc-100 text-left"
+                    >
+                      {item.mediaUrl ? (
+                        item.mediaType === "video" ? (
+                          <video
+                            src={item.mediaUrl}
+                            className="h-full w-full object-cover"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <img
+                            src={item.mediaUrl}
+                            alt={item.description || item.username}
+                            className="h-full w-full object-cover"
+                          />
+                        )
                       ) : (
-                        <img
-                          src={item.mediaUrl}
-                          alt={item.description || item.username}
-                          className="h-full w-full object-cover"
-                        />
-                      )
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                        Sin preview
-                      </div>
-                    )}
-                    <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-                      {item.moderationState ? (
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-1 text-[10px] font-bold text-white",
-                            item.moderationState === "approved"
-                              ? "bg-emerald-600"
-                              : "bg-zinc-700",
-                          )}
-                        >
-                          {item.moderationState === "approved"
-                            ? "Aprobado"
-                            : "Archivado"}
-                        </span>
-                      ) : null}
-                      {(pendingReportCountByAlbum.get(item.id) ?? 0) > 0 ? (
-                        <span className="rounded-full bg-red-600 px-2 py-1 text-[10px] font-bold text-white">
-                          {pendingReportCountByAlbum.get(item.id)} reporte
-                          {(pendingReportCountByAlbum.get(item.id) ?? 0) > 1 ? "s" : ""}
-                        </span>
-                      ) : null}
-                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                        {item.price > 0 ? "Pago" : "Gratis"}
-                      </span>
-                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                        {item.mediaType === "video" ? "Video" : "Imagen"}
-                      </span>
-                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                        {getContentAudienceLabel(item.contentAudience)}
-                      </span>
-                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                        {getModerationCategoryLabel(item.moderationCategory)}
-                      </span>
-                    </div>
-                  </button>
-
-                  <div className="p-3">
-                    <div className="flex items-center gap-3">
-                      <UserAvatar src={item.avatar} alt={item.username} />
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-semibold text-zinc-950">
-                          @{item.username}
+                        <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+                          Sin preview
                         </div>
-                        <div className="text-xs text-zinc-500">
-                          {new Date(item.createdAt).toLocaleDateString("es-AR")}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 line-clamp-2 min-h-8 text-xs text-zinc-600">
-                      {item.description || "Sin descripción"}
-                    </div>
-                    {item.moderationTags.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {item.moderationTags.slice(0, 3).map((tag) => (
+                      )}
+                      <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
+                        {item.moderationState ? (
                           <span
-                            key={`${item.id}-${tag}`}
-                            className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600"
+                            className={cn(
+                              "rounded-full px-2 py-1 text-[10px] font-bold text-white",
+                              item.moderationState === "approved"
+                                ? "bg-emerald-600"
+                                : "bg-zinc-700",
+                            )}
                           >
-                            #{tag}
+                            {item.moderationState === "approved"
+                              ? "Aprobado"
+                              : "Archivado"}
                           </span>
-                        ))}
+                        ) : null}
+                        {(pendingReportCountByAlbum.get(item.id) ?? 0) > 0 ? (
+                          <span className="rounded-full bg-red-600 px-2 py-1 text-[10px] font-bold text-white">
+                            {pendingReportCountByAlbum.get(item.id)} reporte
+                            {(pendingReportCountByAlbum.get(item.id) ?? 0) > 1
+                              ? "s"
+                              : ""}
+                          </span>
+                        ) : null}
+                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                          {item.price > 0 ? "Pago" : "Gratis"}
+                        </span>
+                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                          {item.mediaType === "video" ? "Video" : "Imagen"}
+                        </span>
+                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                          {getContentAudienceLabel(item.contentAudience)}
+                        </span>
+                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                          {getModerationCategoryLabel(item.moderationCategory)}
+                        </span>
                       </div>
-                    ) : null}
+                    </button>
 
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
-                      <span>{item.itemsCount} archivos</span>
-                      <span>{formatARS(item.price)}</span>
-                    </div>
+                    <div className="p-3">
+                      <div className="flex items-center gap-3">
+                        <UserAvatar src={item.avatar} alt={item.username} />
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-zinc-950">
+                            @{item.username}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {new Date(item.createdAt).toLocaleDateString(
+                              "es-AR",
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-                    <div className="mt-3 flex gap-2">
-                      {contentView !== "resolved" ? (
+                      <div className="mt-2 line-clamp-2 min-h-8 text-xs text-zinc-600">
+                        {item.description || "Sin descripción"}
+                      </div>
+                      {item.moderationTags.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {item.moderationTags.slice(0, 3).map((tag) => (
+                            <span
+                              key={`${item.id}-${tag}`}
+                              className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>{item.itemsCount} archivos</span>
+                        <span>{formatARS(item.price)}</span>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        {contentView !== "resolved" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleReviewContent(item.id, "approved")
+                            }
+                            disabled={updatingContentId === item.id}
+                            className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 disabled:opacity-60"
+                          >
+                            Aprobar
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          onClick={() => handleReviewContent(item.id, "approved")}
-                          disabled={updatingContentId === item.id}
-                          className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 disabled:opacity-60"
+                          onClick={() => {
+                            setSelectedContent(item);
+                            setSelectedMediaIndex(0);
+                          }}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700"
                         >
-                          Aprobar
+                          <Eye className="h-3.5 w-3.5" />
+                          Revisar
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedContent(item);
-                          setSelectedMediaIndex(0);
-                        }}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Revisar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeletingContent({
-                            id: item.id,
-                            username: item.username,
-                            reportId: (reportsByAlbum.get(item.id) ?? [])[0]?.id,
-                          });
-                          setDeleteReason("");
-                        }}
-                        disabled={deletingId === item.id}
-                        className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeletingContent({
+                              id: item.id,
+                              username: item.username,
+                              reportId: (reportsByAlbum.get(item.id) ?? [])[0]
+                                ?.id,
+                            });
+                            setDeleteReason("");
+                          }}
+                          disabled={deletingId === item.id}
+                          className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
                 ))}
                 {(contentView === "reported"
                   ? reportedContent
@@ -2722,7 +3027,10 @@ export default function AdminPage() {
                     <tbody className="divide-y divide-zinc-100 bg-white">
                       {data.commerce.archivedContent.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                          <td
+                            colSpan={5}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
                             No hay contenido archivado.
                           </td>
                         </tr>
@@ -2737,9 +3045,13 @@ export default function AdminPage() {
                                 {item.description}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-zinc-700">{item.itemsCount}</td>
+                            <td className="px-4 py-3 text-zinc-700">
+                              {item.itemsCount}
+                            </td>
                             <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.archivedAt).toLocaleString("es-AR")}
+                              {new Date(item.archivedAt).toLocaleString(
+                                "es-AR",
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               <button
@@ -2784,7 +3096,9 @@ export default function AdminPage() {
                 ) : (
                   <img
                     src={selectedMedia.url}
-                    alt={selectedContent.description || selectedContent.username}
+                    alt={
+                      selectedContent.description || selectedContent.username
+                    }
                     className="max-h-[72vh] w-full object-contain"
                   />
                 )
@@ -2810,8 +3124,9 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setSelectedMediaIndex((prev) =>
-                        (prev + 1) % (selectedContent.media?.length ?? 1),
+                      setSelectedMediaIndex(
+                        (prev) =>
+                          (prev + 1) % (selectedContent.media?.length ?? 1),
                       )
                     }
                     className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-3 text-zinc-900 shadow"
@@ -2825,13 +3140,18 @@ export default function AdminPage() {
             <div className="w-full border-t border-zinc-200 p-5 lg:w-[360px] lg:border-l lg:border-t-0">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <UserAvatar src={selectedContent.avatar} alt={selectedContent.username} />
+                  <UserAvatar
+                    src={selectedContent.avatar}
+                    alt={selectedContent.username}
+                  />
                   <div>
                     <div className="text-sm font-semibold text-zinc-950">
                       @{selectedContent.username}
                     </div>
                     <div className="text-xs text-zinc-500">
-                      {new Date(selectedContent.createdAt).toLocaleString("es-AR")}
+                      {new Date(selectedContent.createdAt).toLocaleString(
+                        "es-AR",
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2862,7 +3182,9 @@ export default function AdminPage() {
                     {getContentAudienceLabel(selectedContent.contentAudience)}
                   </span>
                   <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
-                    {getModerationCategoryLabel(selectedContent.moderationCategory)}
+                    {getModerationCategoryLabel(
+                      selectedContent.moderationCategory,
+                    )}
                   </span>
                   <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-semibold text-zinc-700">
                     {selectedContent.mediaType === "video" ? "Video" : "Imagen"}
@@ -2973,7 +3295,9 @@ export default function AdminPage() {
               <div className="mt-6 grid gap-2">
                 <button
                   type="button"
-                  onClick={() => handleReviewContent(selectedContent.id, "approved")}
+                  onClick={() =>
+                    handleReviewContent(selectedContent.id, "approved")
+                  }
                   disabled={updatingContentId === selectedContent.id}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
                 >
@@ -2997,7 +3321,9 @@ export default function AdminPage() {
                   className="inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 disabled:opacity-60"
                 >
                   <Trash2 className="h-4 w-4" />
-                  {deletingId === selectedContent.id ? "Eliminando..." : "Eliminar contenido"}
+                  {deletingId === selectedContent.id
+                    ? "Eliminando..."
+                    : "Eliminar contenido"}
                 </button>
               </div>
             </div>
@@ -3033,7 +3359,9 @@ export default function AdminPage() {
                     @{selectedUser.username}
                   </div>
                   <div className="mt-1 text-sm text-zinc-500">
-                    {selectedUser.fullName || selectedUser.email || "Sin datos adicionales"}
+                    {selectedUser.fullName ||
+                      selectedUser.email ||
+                      "Sin datos adicionales"}
                   </div>
                 </div>
               </div>
@@ -3054,8 +3382,14 @@ export default function AdminPage() {
                 { id: "overview", label: "Resumen" },
                 { id: "details", label: "Datos" },
                 { id: "posts", label: `Posts (${selectedUser.posts.length})` },
-                { id: "followers", label: `Seguidores (${selectedUser.followersCount})` },
-                { id: "following", label: `Seguidos (${selectedUser.followingCount})` },
+                {
+                  id: "followers",
+                  label: `Seguidores (${selectedUser.followersCount})`,
+                },
+                {
+                  id: "following",
+                  label: `Seguidos (${selectedUser.followingCount})`,
+                },
                 {
                   id: "referrals",
                   label: `Referidos (${selectedUser.referralsCount})`,
@@ -3089,154 +3423,185 @@ export default function AdminPage() {
 
             <div className="overflow-y-auto px-6 py-6">
               {selectedUserView === "overview" ? (
-                <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                <div
+                  className={cn(
+                    "grid gap-6",
+                    selectedUser.role === "author"
+                      ? "lg:grid-cols-[1.15fr_0.85fr]"
+                      : "lg:grid-cols-1",
+                  )}
+                >
                   <div className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                      <StatCard label="Ventas totales" value={formatARS(selectedUser.creatorNet)} tone="emerald" />
-                      <StatCard label="Facturación bruta" value={formatARS(selectedUser.salesGross)} />
-                      <StatCard label="Seguidores" value={selectedUser.followersCount} />
-                      <StatCard label="Seguidos" value={selectedUser.followingCount} />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                      <StatCard label="Posts" value={selectedUser.posts.length} />
-                      <StatCard label="Propinas" value={formatARS(selectedUser.tipsGross)} />
-                      <StatCard label="Compras vendidas" value={formatARS(selectedUser.purchasesGross)} />
-                      <StatCard label="Comisión FanPush" value={formatARS(selectedUser.platformFee)} />
+                    <div className="grid grid-cols-1 gap-4">
+                      {selectedUser.role === "author" ? (
+                        <>
+                          <StatCard
+                            label="Ventas del usuario"
+                            value={formatARS(selectedUser.purchasesGross)}
+                          />
+                          <StatCard
+                            label="Propinas del usuario"
+                            value={formatARS(selectedUser.tipsGross)}
+                          />
+                          <StatCard
+                            label="Total generado"
+                            value={formatARS(selectedUser.salesGross)}
+                          />
+                          <StatCard
+                            label="Comisión FanPush sobre el total"
+                            value={formatARS(selectedUser.platformFee)}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <StatCard
+                            label="Contenido comprado"
+                            value={formatARS(selectedUser.purchaseSpend)}
+                          />
+                          <StatCard
+                            label="Propinas enviadas"
+                            value={formatARS(selectedUser.tipsSent)}
+                          />
+                          <StatCard
+                            label="Total gastado"
+                            value={formatARS(selectedUser.totalSpent)}
+                          />
+                          <StatCard
+                            label="Comisión FanPush"
+                            value={formatARS(selectedUser.spendingPlatformFee)}
+                          />
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  <div className="space-y-6">
-                    <div className="rounded-[24px] border border-zinc-200 p-5">
-                      <div className="text-lg font-semibold text-zinc-950">Acciones del usuario</div>
-                      <div className="mt-1 text-sm text-zinc-500">
-                        Ajusta la comisión individual del creador por acuerdos o marketing.
-                      </div>
-                      <div className="mt-4 rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-sm font-medium text-zinc-600">Tipo de cuenta</div>
-                        <div className="mt-1 text-base font-semibold text-zinc-950">
-                          {selectedUser.role === "author" ? "Autor" : "Usuario normal"}
+                  {selectedUser.role === "author" ? (
+                    <div className="space-y-6">
+                      <div className="rounded-[24px] border border-zinc-200 p-5">
+                        <div className="text-lg font-semibold text-zinc-950">
+                          Acciones del usuario
                         </div>
-                        {selectedUser.role === "author" ? (
+                        <div className="mt-1 text-sm text-zinc-500">
+                          Ajusta la comisión individual del creador por acuerdos
+                          o marketing.
+                        </div>
+                        <div className="mt-4 rounded-[18px] bg-zinc-50 p-4">
+                          <div className="text-sm font-medium text-zinc-600">
+                            Tipo de cuenta
+                          </div>
+                          <div className="mt-1 text-base font-semibold text-zinc-950">
+                            Autor
+                          </div>
                           <button
                             type="button"
                             onClick={() => handleDemoteAuthor(selectedUser.id)}
-                            disabled={updatingUserAuthorStatusId === selectedUser.id}
+                            disabled={
+                              updatingUserAuthorStatusId === selectedUser.id
+                            }
                             className="mt-3 w-full rounded-[14px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-60"
                           >
                             {updatingUserAuthorStatusId === selectedUser.id
                               ? "Quitando acceso de autor..."
                               : "Quitar status de autor"}
                           </button>
-                        ) : null}
-                        <div className="mt-3 text-sm font-medium text-zinc-600">
-                          Comisión actual para el creador
+                          <div className="mt-3 text-sm font-medium text-zinc-600">
+                            Comisión actual para el creador
+                          </div>
+                          <select
+                            value={commissionDraft}
+                            onChange={(event) =>
+                              setCommissionDraft(Number(event.target.value))
+                            }
+                            className="mt-2 w-full rounded-[14px] border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 outline-none"
+                          >
+                            {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(
+                              (value) => (
+                                <option key={value} value={value}>
+                                  {value}% para el creador / {100 - value}%
+                                  FanPush
+                                </option>
+                              ),
+                            )}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUpdateUserCommission(
+                                selectedUser.id,
+                                commissionDraft,
+                              )
+                            }
+                            disabled={
+                              updatingUserCommissionId === selectedUser.id ||
+                              commissionDraft === selectedUser.commissionPercent
+                            }
+                            className="mt-3 w-full rounded-[16px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                          >
+                            {updatingUserCommissionId === selectedUser.id
+                              ? "Guardando comisión..."
+                              : "Guardar comisión"}
+                          </button>
                         </div>
-                        <select
-                          value={commissionDraft}
-                          onChange={(event) => setCommissionDraft(Number(event.target.value))}
-                          className="mt-2 w-full rounded-[14px] border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 outline-none"
-                        >
-                          {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((value) => (
-                            <option key={value} value={value}>
-                              {value}% para el creador / {100 - value}% FanPush
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleUpdateUserCommission(selectedUser.id, commissionDraft)
-                          }
-                          disabled={
-                            updatingUserCommissionId === selectedUser.id ||
-                            commissionDraft === selectedUser.commissionPercent
-                          }
-                          className="mt-3 w-full rounded-[16px] bg-zinc-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                        >
-                          {updatingUserCommissionId === selectedUser.id
-                            ? "Guardando comisión..."
-                            : "Guardar comisión"}
-                        </button>
                       </div>
                     </div>
-
-                    <div className="rounded-[24px] border border-zinc-200 p-5">
-                      <div className="text-lg font-semibold text-zinc-950">Resumen rápido</div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUserView("followers")}
-                          className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-left"
-                        >
-                          <div className="text-sm text-zinc-500">Seguidores</div>
-                          <div className="mt-1 text-2xl font-semibold text-zinc-950">
-                            {selectedUser.followersCount}
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUserView("following")}
-                          className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-left"
-                        >
-                          <div className="text-sm text-zinc-500">Seguidos</div>
-                          <div className="mt-1 text-2xl font-semibold text-zinc-950">
-                            {selectedUser.followingCount}
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUserView("posts")}
-                          className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-left sm:col-span-2"
-                        >
-                          <div className="text-sm text-zinc-500">Posts publicados</div>
-                          <div className="mt-1 text-2xl font-semibold text-zinc-950">
-                            {selectedUser.posts.length}
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
               ) : null}
 
               {selectedUserView === "details" ? (
                 <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
                   <div className="rounded-[24px] border border-zinc-200 p-5">
-                    <div className="text-lg font-semibold text-zinc-950">Datos del usuario</div>
+                    <div className="text-lg font-semibold text-zinc-950">
+                      Datos del usuario
+                    </div>
                     <div className="mt-1 text-sm text-zinc-500">
-                      Información básica del registro y estado actual de la cuenta.
+                      Información básica del registro y estado actual de la
+                      cuenta.
                     </div>
                     <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                        <div className="text-xs font-medium text-zinc-500">Username</div>
+                        <div className="text-xs font-medium text-zinc-500">
+                          Username
+                        </div>
                         <div className="mt-1 text-sm font-semibold text-zinc-950">
                           @{selectedUser.username}
                         </div>
                       </div>
                       <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                        <div className="text-xs font-medium text-zinc-500">Tipo de cuenta</div>
+                        <div className="text-xs font-medium text-zinc-500">
+                          Tipo de cuenta
+                        </div>
                         <div className="mt-1 text-sm font-semibold text-zinc-950">
-                          {selectedUser.role === "author" ? "Autor" : "Usuario común"}
+                          {selectedUser.role === "author"
+                            ? "Autor"
+                            : "Usuario común"}
                         </div>
                       </div>
                       <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
-                        <div className="text-xs font-medium text-zinc-500">Nombre completo</div>
+                        <div className="text-xs font-medium text-zinc-500">
+                          Nombre completo
+                        </div>
                         <div className="mt-1 text-sm font-semibold text-zinc-950">
                           {selectedUser.fullName || "Sin nombre cargado"}
                         </div>
                       </div>
                       <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
-                        <div className="text-xs font-medium text-zinc-500">Email</div>
+                        <div className="text-xs font-medium text-zinc-500">
+                          Email
+                        </div>
                         <div className="mt-1 text-sm font-semibold text-zinc-950">
                           {selectedUser.email || "Sin email disponible"}
                         </div>
                       </div>
                       <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
-                        <div className="text-xs font-medium text-zinc-500">Fecha de registro</div>
+                        <div className="text-xs font-medium text-zinc-500">
+                          Fecha de registro
+                        </div>
                         <div className="mt-1 text-sm font-semibold text-zinc-950">
                           {selectedUser.createdAt
-                            ? new Date(selectedUser.createdAt).toLocaleString("es-AR")
+                            ? new Date(selectedUser.createdAt).toLocaleString(
+                                "es-AR",
+                              )
                             : "Sin fecha disponible"}
                         </div>
                       </div>
@@ -3244,9 +3609,12 @@ export default function AdminPage() {
                   </div>
 
                   <div className="rounded-[24px] border border-zinc-200 p-5">
-                    <div className="text-lg font-semibold text-zinc-950">Documentación y domicilio</div>
+                    <div className="text-lg font-semibold text-zinc-950">
+                      Documentación y domicilio
+                    </div>
                     <div className="mt-1 text-sm text-zinc-500">
-                      Si el usuario es o fue autor, acá ves la última solicitud enviada con todos sus datos.
+                      Si el usuario es o fue autor, acá ves la última solicitud
+                      enviada con todos sus datos.
                     </div>
 
                     {selectedUser.authorApplication ? (
@@ -3254,17 +3622,23 @@ export default function AdminPage() {
                         <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                              <div className="text-xs font-medium text-zinc-500">Estado</div>
+                              <div className="text-xs font-medium text-zinc-500">
+                                Estado
+                              </div>
                               <div className="mt-1 text-sm font-semibold text-zinc-950">
-                                {selectedUser.authorApplication.status === "approved"
+                                {selectedUser.authorApplication.status ===
+                                "approved"
                                   ? "Aprobada"
-                                  : selectedUser.authorApplication.status === "rejected"
+                                  : selectedUser.authorApplication.status ===
+                                      "rejected"
                                     ? "Rechazada"
                                     : "Pendiente"}
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className="text-xs font-medium text-zinc-500">Enviada</div>
+                              <div className="text-xs font-medium text-zinc-500">
+                                Enviada
+                              </div>
                               <div className="mt-1 text-sm font-semibold text-zinc-950">
                                 {new Date(
                                   selectedUser.authorApplication.submittedAt,
@@ -3276,13 +3650,17 @@ export default function AdminPage() {
 
                         <div className="grid gap-4 sm:grid-cols-2">
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                            <div className="text-xs font-medium text-zinc-500">Nombre completo</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              Nombre completo
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {selectedUser.authorApplication.fullName}
                             </div>
                           </div>
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                            <div className="text-xs font-medium text-zinc-500">Nacimiento</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              Nacimiento
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {new Date(
                                 selectedUser.authorApplication.birthDate,
@@ -3290,32 +3668,42 @@ export default function AdminPage() {
                             </div>
                           </div>
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                            <div className="text-xs font-medium text-zinc-500">Documento</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              Documento
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {selectedUser.authorApplication.documentType}{" "}
                               {selectedUser.authorApplication.documentNumber}
                             </div>
                           </div>
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                            <div className="text-xs font-medium text-zinc-500">País</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              País
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {selectedUser.authorApplication.country}
                             </div>
                           </div>
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                            <div className="text-xs font-medium text-zinc-500">Provincia</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              Provincia
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {selectedUser.authorApplication.province}
                             </div>
                           </div>
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4">
-                            <div className="text-xs font-medium text-zinc-500">Ciudad</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              Ciudad
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {selectedUser.authorApplication.city}
                             </div>
                           </div>
                           <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-4 sm:col-span-2">
-                            <div className="text-xs font-medium text-zinc-500">Dirección</div>
+                            <div className="text-xs font-medium text-zinc-500">
+                              Dirección
+                            </div>
                             <div className="mt-1 text-sm font-semibold text-zinc-950">
                               {selectedUser.authorApplication.address}
                             </div>
@@ -3326,11 +3714,13 @@ export default function AdminPage() {
                           {[
                             {
                               label: "Frente del DNI",
-                              url: selectedUser.authorApplication.documentFrontUrl,
+                              url: selectedUser.authorApplication
+                                .documentFrontUrl,
                             },
                             {
                               label: "Dorso del DNI",
-                              url: selectedUser.authorApplication.documentBackUrl,
+                              url: selectedUser.authorApplication
+                                .documentBackUrl,
                             },
                           ].map((item) => (
                             <a
@@ -3356,7 +3746,8 @@ export default function AdminPage() {
                       </div>
                     ) : (
                       <div className="mt-5 rounded-[18px] border border-dashed border-zinc-200 px-4 py-10 text-center text-sm text-zinc-500">
-                        Este usuario no tiene documentación o solicitud de autor cargada.
+                        Este usuario no tiene documentación o solicitud de autor
+                        cargada.
                       </div>
                     )}
                   </div>
@@ -3367,9 +3758,12 @@ export default function AdminPage() {
                 <div className="rounded-[24px] border border-zinc-200 p-5">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <div className="text-lg font-semibold text-zinc-950">Posts del usuario</div>
+                      <div className="text-lg font-semibold text-zinc-950">
+                        Posts del usuario
+                      </div>
                       <div className="mt-1 text-sm text-zinc-500">
-                        Todos los posts con descripción, precio, cantidad de archivos y acceso al detalle.
+                        Todos los posts con descripción, precio, cantidad de
+                        archivos y acceso al detalle.
                       </div>
                     </div>
                     <div className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
@@ -3399,7 +3793,9 @@ export default function AdminPage() {
                               ) : (
                                 <img
                                   src={post.media[0].url}
-                                  alt={post.description || selectedUser.username}
+                                  alt={
+                                    post.description || selectedUser.username
+                                  }
                                   className="h-full w-full object-cover"
                                 />
                               )
@@ -3408,10 +3804,13 @@ export default function AdminPage() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                                {post.visibility === "private" ? "Pago" : "Gratis"}
+                                {post.visibility === "private"
+                                  ? "Pago"
+                                  : "Gratis"}
                               </span>
                               <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                                {post.itemsCount} archivo{post.itemsCount === 1 ? "" : "s"}
+                                {post.itemsCount} archivo
+                                {post.itemsCount === 1 ? "" : "s"}
                               </span>
                               <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
                                 {post.likesCount} me gusta
@@ -3422,7 +3821,11 @@ export default function AdminPage() {
                             </div>
                             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
                               <span>{formatARS(post.price)}</span>
-                              <span>{new Date(post.createdAt).toLocaleDateString("es-AR")}</span>
+                              <span>
+                                {new Date(post.createdAt).toLocaleDateString(
+                                  "es-AR",
+                                )}
+                              </span>
                             </div>
                           </div>
                           <div className="flex items-center md:justify-end">
@@ -3447,19 +3850,28 @@ export default function AdminPage() {
               {selectedUserView === "followers" ? (
                 <div className="rounded-[24px] border border-zinc-200 p-5">
                   <div className="flex items-center justify-between gap-4">
-                    <div className="text-lg font-semibold text-zinc-950">Seguidores</div>
+                    <div className="text-lg font-semibold text-zinc-950">
+                      Seguidores
+                    </div>
                     <div className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
                       {selectedUser.followersCount}
                     </div>
                   </div>
                   <div className="mt-4 max-h-[58vh] space-y-2 overflow-auto pr-1">
                     {selectedUser.followers.length === 0 ? (
-                      <div className="text-sm text-zinc-500">Todavía no tiene seguidores.</div>
+                      <div className="text-sm text-zinc-500">
+                        Todavía no tiene seguidores.
+                      </div>
                     ) : (
                       selectedUser.followers.map((item) => (
-                        <div key={item.id} className="flex items-center gap-3 rounded-[16px] bg-zinc-50 px-3 py-3">
+                        <div
+                          key={item.id}
+                          className="flex items-center gap-3 rounded-[16px] bg-zinc-50 px-3 py-3"
+                        >
                           <UserAvatar src={item.avatar} alt={item.username} />
-                          <span className="text-sm font-medium text-zinc-900">@{item.username}</span>
+                          <span className="text-sm font-medium text-zinc-900">
+                            @{item.username}
+                          </span>
                         </div>
                       ))
                     )}
@@ -3470,19 +3882,28 @@ export default function AdminPage() {
               {selectedUserView === "following" ? (
                 <div className="rounded-[24px] border border-zinc-200 p-5">
                   <div className="flex items-center justify-between gap-4">
-                    <div className="text-lg font-semibold text-zinc-950">Seguidos</div>
+                    <div className="text-lg font-semibold text-zinc-950">
+                      Seguidos
+                    </div>
                     <div className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
                       {selectedUser.followingCount}
                     </div>
                   </div>
                   <div className="mt-4 max-h-[58vh] space-y-2 overflow-auto pr-1">
                     {selectedUser.following.length === 0 ? (
-                      <div className="text-sm text-zinc-500">No sigue a otros usuarios.</div>
+                      <div className="text-sm text-zinc-500">
+                        No sigue a otros usuarios.
+                      </div>
                     ) : (
                       selectedUser.following.map((item) => (
-                        <div key={item.id} className="flex items-center gap-3 rounded-[16px] bg-zinc-50 px-3 py-3">
+                        <div
+                          key={item.id}
+                          className="flex items-center gap-3 rounded-[16px] bg-zinc-50 px-3 py-3"
+                        >
                           <UserAvatar src={item.avatar} alt={item.username} />
-                          <span className="text-sm font-medium text-zinc-900">@{item.username}</span>
+                          <span className="text-sm font-medium text-zinc-900">
+                            @{item.username}
+                          </span>
                         </div>
                       ))
                     )}
@@ -3515,7 +3936,8 @@ export default function AdminPage() {
                           Usuarios referidos
                         </div>
                         <div className="mt-1 text-sm text-zinc-500">
-                          Personas que llegaron a la plataforma usando el link de este usuario.
+                          Personas que llegaron a la plataforma usando el link
+                          de este usuario.
                         </div>
                       </div>
                       <div className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
@@ -3534,7 +3956,10 @@ export default function AdminPage() {
                             className="flex items-center justify-between gap-4 rounded-[18px] bg-zinc-50 px-4 py-3"
                           >
                             <div className="flex items-center gap-3">
-                              <UserAvatar src={item.avatar} alt={item.username} />
+                              <UserAvatar
+                                src={item.avatar}
+                                alt={item.username}
+                              />
                               <div>
                                 <div className="text-sm font-semibold text-zinc-950">
                                   @{item.username}
@@ -3546,7 +3971,9 @@ export default function AdminPage() {
                             </div>
                             <div className="text-right text-sm text-zinc-500">
                               {item.referredAt
-                                ? new Date(item.referredAt).toLocaleString("es-AR")
+                                ? new Date(item.referredAt).toLocaleString(
+                                    "es-AR",
+                                  )
                                 : "Sin fecha"}
                             </div>
                           </div>
@@ -3591,17 +4018,28 @@ export default function AdminPage() {
               <div className="space-y-4">
                 <div className="relative overflow-hidden rounded-[24px] bg-zinc-100">
                   {selectedUserPost.media[selectedUserPostMediaIndex]?.url ? (
-                    selectedUserPost.media[selectedUserPostMediaIndex].type === "video" ? (
+                    selectedUserPost.media[selectedUserPostMediaIndex].type ===
+                    "video" ? (
                       <video
-                        src={selectedUserPost.media[selectedUserPostMediaIndex].url ?? undefined}
+                        src={
+                          selectedUserPost.media[selectedUserPostMediaIndex]
+                            .url ?? undefined
+                        }
                         className="h-[420px] w-full object-contain"
                         controls
                         playsInline
                       />
                     ) : (
                       <img
-                        src={selectedUserPost.media[selectedUserPostMediaIndex].url ?? undefined}
-                        alt={selectedUserPost.description || selectedUser?.username || "Post"}
+                        src={
+                          selectedUserPost.media[selectedUserPostMediaIndex]
+                            .url ?? undefined
+                        }
+                        alt={
+                          selectedUserPost.description ||
+                          selectedUser?.username ||
+                          "Post"
+                        }
                         className="h-[420px] w-full object-contain"
                       />
                     )
@@ -3627,9 +4065,18 @@ export default function AdminPage() {
                       >
                         {media.url ? (
                           media.type === "video" ? (
-                            <video src={media.url} className="h-full w-full object-cover" muted playsInline />
+                            <video
+                              src={media.url}
+                              className="h-full w-full object-cover"
+                              muted
+                              playsInline
+                            />
                           ) : (
-                            <img src={media.url} alt={`Archivo ${index + 1}`} className="h-full w-full object-cover" />
+                            <img
+                              src={media.url}
+                              alt={`Archivo ${index + 1}`}
+                              className="h-full w-full object-cover"
+                            />
                           )
                         ) : null}
                       </button>
@@ -3640,7 +4087,9 @@ export default function AdminPage() {
 
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-zinc-200 p-5">
-                  <div className="text-lg font-semibold text-zinc-950">Detalle del post</div>
+                  <div className="text-lg font-semibold text-zinc-950">
+                    Detalle del post
+                  </div>
                   <div className="mt-4 space-y-4 text-sm text-zinc-700">
                     <div>
                       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
@@ -3656,7 +4105,9 @@ export default function AdminPage() {
                           Acceso
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
-                          {selectedUserPost.visibility === "private" ? "Pago" : "Gratis"}
+                          {selectedUserPost.visibility === "private"
+                            ? "Pago"
+                            : "Gratis"}
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
@@ -3696,10 +4147,12 @@ export default function AdminPage() {
                           >
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-zinc-900">
-                                Archivo {index + 1} · {media.type === "video" ? "Video" : "Imagen"}
+                                Archivo {index + 1} ·{" "}
+                                {media.type === "video" ? "Video" : "Imagen"}
                               </div>
                               <div className="mt-1 text-xs text-zinc-500">
-                                {media.likesCount} me gusta · {media.isLocked ? "Bloqueado" : "Visible"}
+                                {media.likesCount} me gusta ·{" "}
+                                {media.isLocked ? "Bloqueado" : "Visible"}
                               </div>
                               {media.caption ? (
                                 <div className="mt-1 line-clamp-2 text-xs text-zinc-600">
@@ -3709,7 +4162,9 @@ export default function AdminPage() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => setSelectedUserPostMediaIndex(index)}
+                              onClick={() =>
+                                setSelectedUserPostMediaIndex(index)
+                              }
                               className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-800"
                             >
                               Ver
@@ -3743,10 +4198,12 @@ export default function AdminPage() {
               Eliminar publicación
             </div>
             <div className="mt-2 text-sm text-zinc-500">
-              Este contenido se dará de baja del sitio y el usuario recibirá una notificación de FanPush con el motivo.
+              Este contenido se dará de baja del sitio y el usuario recibirá una
+              notificación de FanPush con el motivo.
             </div>
             <div className="mt-5 rounded-[18px] bg-zinc-100 p-4 text-sm text-zinc-700">
-              Usuario: <span className="font-semibold">@{deletingContent.username}</span>
+              Usuario:{" "}
+              <span className="font-semibold">@{deletingContent.username}</span>
             </div>
             <div className="mt-4">
               <label className="mb-2 block text-sm font-semibold text-zinc-900">
@@ -3783,7 +4240,9 @@ export default function AdminPage() {
                 disabled={deletingId === deletingContent.id}
                 className="rounded-[16px] bg-red-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
               >
-                {deletingId === deletingContent.id ? "Eliminando..." : "Eliminar publicación"}
+                {deletingId === deletingContent.id
+                  ? "Eliminando..."
+                  : "Eliminar publicación"}
               </button>
             </div>
           </div>
@@ -3807,10 +4266,14 @@ export default function AdminPage() {
               Rechazar retiro
             </div>
             <div className="mt-2 text-sm text-zinc-500">
-              El usuario recibirá una notificación de FanPush con el motivo del rechazo.
+              El usuario recibirá una notificación de FanPush con el motivo del
+              rechazo.
             </div>
             <div className="mt-5 rounded-[18px] bg-zinc-100 p-4 text-sm text-zinc-700">
-              Usuario: <span className="font-semibold">@{rejectingWithdrawal.username}</span>
+              Usuario:{" "}
+              <span className="font-semibold">
+                @{rejectingWithdrawal.username}
+              </span>
             </div>
             <div className="mt-4">
               <label className="mb-2 block text-sm font-semibold text-zinc-900">
@@ -3818,7 +4281,9 @@ export default function AdminPage() {
               </label>
               <textarea
                 value={withdrawalRejectReason}
-                onChange={(event) => setWithdrawalRejectReason(event.target.value)}
+                onChange={(event) =>
+                  setWithdrawalRejectReason(event.target.value)
+                }
                 rows={5}
                 placeholder="Explica por qué se rechazó el retiro."
                 className="w-full rounded-[18px] border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none ring-0"
@@ -3842,7 +4307,8 @@ export default function AdminPage() {
                   handleUpdateWithdrawal(
                     rejectingWithdrawal.id,
                     "rejected",
-                    withdrawalRejectReason.trim() || "No cumple los requisitos para retiro.",
+                    withdrawalRejectReason.trim() ||
+                      "No cumple los requisitos para retiro.",
                   )
                 }
                 disabled={updatingWithdrawalId === rejectingWithdrawal.id}
@@ -3881,7 +4347,8 @@ export default function AdminPage() {
                   Rechazar a @{authorRejectState.target.username}
                 </h3>
                 <p className="mt-2 text-sm text-zinc-500">
-                  Escribe el motivo que le va a llegar al usuario por notificación.
+                  Escribe el motivo que le va a llegar al usuario por
+                  notificación.
                 </p>
               </div>
               <button

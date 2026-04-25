@@ -11,6 +11,7 @@ type TipCheckoutInput = {
   targetUserId: string;
   amount: number;
   message?: string;
+  threadId?: string;
 };
 
 export type BalanceCheckoutResult = {

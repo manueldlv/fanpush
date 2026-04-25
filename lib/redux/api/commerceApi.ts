@@ -23,6 +23,7 @@ type PurchaseItem = {
   covers: string[];
   media: { url: string; kind: "image" | "video" }[];
   status: string;
+  source?: "post" | "chat";
 };
 
 type SentTipItem = {
@@ -39,6 +40,7 @@ type SaleItem = {
   albumId: string;
   type: string;
   title: string;
+  href?: string;
   count: number;
   total: number;
   createdAt?: string;
@@ -265,139 +267,27 @@ export const commerceApi = createApi({
     getPurchases: builder.query<PurchasesResult, void>({
       async queryFn() {
         try {
-          const supabase = getSupabaseClient();
-          if (!supabase) throw new Error("Falta configurar Supabase.");
-          const { data: authData } = await supabase.auth.getUser();
-          const userId = authData?.user?.id;
-          if (!userId) return { data: { items: [], sentTips: [] } };
-
-          const { data: purchaseRows } = await supabase
-            .from("purchases")
-            .select("id,post_id,amount,status,created_at")
-            .eq("user_id", userId)
-            .order("created_at", { ascending: false });
-
-          const postIds = Array.from(new Set((purchaseRows ?? []).map((row) => row.post_id)));
-          const { data: postRows } = postIds.length
-            ? await supabase
-                .from("posts")
-                .select("id,user_id,media_url,media_type,is_locked,caption,album_posts(album_id)")
-                .in("id", postIds)
-            : { data: [] };
-          const creatorIds = Array.from(new Set((postRows ?? []).map((row) => row.user_id)));
-          const { data: creators } = creatorIds.length
-            ? await supabase
-                .from("users")
-                .select("id,username,avatar_url")
-                .in("id", creatorIds)
-            : { data: [] };
-          const creatorMap = new Map((creators ?? []).map((row) => [row.id, row.username ?? "usuario"]));
-          const postMap = new Map((postRows ?? []).map((row) => [row.id, row]));
-          const albumIds = Array.from(
-            new Set((postRows ?? []).map((row) => row.album_posts?.[0]?.album_id).filter(Boolean) as string[]),
-          );
-          const { data: albumRows } = albumIds.length
-            ? await supabase
-                .from("albums")
-                .select("id,description,price,album_posts(post_id,post:posts(id,media_url,media_type,is_locked))")
-                .in("id", albumIds)
-            : { data: [] };
-          const albumMap = new Map((albumRows ?? []).map((row) => [row.id, row]));
           const accessToken = await getAccessToken();
-          const resolvedAccess = await resolveAccessibleMedia(accessToken, postIds);
-          const mapped = new Map<string, PurchaseItem>();
-
-          (purchaseRows ?? []).forEach((row) => {
-            const post = postMap.get(row.post_id);
-            const albumId = post?.album_posts?.[0]?.album_id ?? row.post_id;
-            const album = albumMap.get(albumId);
-            const albumCovers = (album?.album_posts ?? [])
-              .map((item: any) => (item?.post?.media_url ?? item?.media_url ?? "") as string)
-              .filter(Boolean)
-              .map((value) => resolvePublicUrl(supabase, value) ?? value);
-            const albumMedia = (album?.album_posts ?? [])
-              .map((item: any) => {
-                const postId = item?.post_id ?? item?.post?.id ?? null;
-                const resolved = postId ? resolvedAccess[postId] : null;
-                const rawUrl = item?.post?.media_url ?? item?.media_url ?? null;
-                return {
-                  url: resolved?.url ?? resolvePublicUrl(supabase, rawUrl) ?? "",
-                  kind:
-                    resolved?.kind ??
-                    inferDisplayKind(
-                      rawUrl,
-                      item?.post?.media_type ?? item?.media_type ?? null,
-                      item?.post?.is_locked ?? true,
-                    ),
-                };
-              })
-              .filter((item) => item.url);
-            const date = new Date(row.created_at).toLocaleDateString("es-AR", {
-              day: "2-digit",
-              month: "short",
-            });
-            const fallbackCover = resolvePublicUrl(supabase, post?.media_url ?? null) ?? "";
-            mapped.set(albumId, {
-              id: albumId,
-              title: album?.description || post?.caption || "Publicación",
-              creator: creatorMap.get(post?.user_id ?? "") ?? "usuario",
-              date,
-              price: album?.price ? Number(album.price) : 0,
-              cover: albumCovers[0] ?? fallbackCover,
-              covers: albumCovers.length > 0 ? albumCovers : fallbackCover ? [fallbackCover] : [],
-              media:
-                albumMedia.length > 0
-                  ? albumMedia
-                  : fallbackCover
-                    ? [{ url: fallbackCover, kind: "image" as const }]
-                    : [],
-              status: row.status ?? "Desbloqueado",
-            });
+          const response = await fetch("/api/purchases", {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
           });
 
-          const { data: tipRows } = await supabase
-            .from("notifications")
-            .select("id,user_id,message,created_at")
-            .eq("actor_id", userId)
-            .eq("type", "tip")
-            .order("created_at", { ascending: false });
+          const result = (await response.json()) as PurchasesResult & {
+            error?: string;
+          };
 
-          const recipientIds = Array.from(
-            new Set((tipRows ?? []).map((row) => row.user_id).filter(Boolean)),
-          );
-          const { data: recipientRows } = recipientIds.length
-            ? await supabase
-                .from("users")
-                .select("id,username,avatar_url")
-                .in("id", recipientIds)
-            : { data: [] };
-          const recipientMap = new Map(
-            (recipientRows ?? []).map((row) => [
-              row.id,
-              {
-                username: row.username ?? "usuario",
-                avatar: resolvePublicUrl(supabase, row.avatar_url ?? null),
-              },
-            ]),
-          );
+          if (!response.ok) {
+            throw new Error(result.error ?? "No se pudieron cargar las compras.");
+          }
 
-          const sentTips: SentTipItem[] = (tipRows ?? []).map((row) => {
-            const recipient = recipientMap.get(row.user_id);
-            const amount = parseTipAmountFromMessage(row.message ?? "");
-            return {
-              id: row.id,
-              recipient: recipient?.username ?? "usuario",
-              recipientAvatar: recipient?.avatar ?? null,
-              date: new Date(row.created_at).toLocaleDateString("es-AR", {
-                day: "2-digit",
-                month: "short",
-              }),
-              amount,
-              message: parseTipNoteFromMessage(row.message) || "Sin mensaje",
-            };
-          });
-
-          return { data: { items: Array.from(mapped.values()), sentTips } };
+          return {
+            data: {
+              items: result.items ?? [],
+              sentTips: result.sentTips ?? [],
+            },
+          };
         } catch (error) {
           return { error: buildError(error, "No se pudieron cargar las compras.") };
         }
@@ -513,14 +403,6 @@ export const commerceApi = createApi({
                 .in("post_id", postIds)
                 .order("created_at", { ascending: false })
             : { data: [] };
-          const buyerIds = Array.from(new Set((purchaseRows ?? []).map((row) => row.user_id)));
-          const { data: buyers } = buyerIds.length
-            ? await supabase
-                .from("users")
-                .select("id,username,avatar_url")
-                .in("id", buyerIds)
-            : { data: [] };
-          const buyerMap = new Map((buyers ?? []).map((row) => [row.id, row]));
           const postMap = new Map((postRows ?? []).map((row) => [row.id, row]));
           const albumIds = Array.from(
             new Set((postRows ?? []).map((row) => row.album_posts?.[0]?.album_id).filter(Boolean) as string[]),
@@ -540,6 +422,34 @@ export const commerceApi = createApi({
             const current = albumCountMap.get(row.album_id) ?? 0;
             albumCountMap.set(row.album_id, current + 1);
           });
+          const { data: directMessageRows } = await supabase
+            .from("direct_messages")
+            .select("id,thread_id,metadata,created_at")
+            .eq("sender_id", userId)
+            .eq("kind", "premium");
+          const directMessageIds = Array.from(
+            new Set((directMessageRows ?? []).map((row) => row.id)),
+          );
+          const { data: directPurchaseRows } = directMessageIds.length
+            ? await supabase
+                .from("direct_message_purchases")
+                .select("message_id,buyer_user_id,amount,created_at")
+                .in("message_id", directMessageIds)
+                .order("created_at", { ascending: false })
+            : { data: [] };
+          const buyerIds = Array.from(
+            new Set([
+              ...(purchaseRows ?? []).map((row) => row.user_id),
+              ...(directPurchaseRows ?? []).map((row) => row.buyer_user_id),
+            ]),
+          );
+          const { data: buyers } = buyerIds.length
+            ? await supabase
+                .from("users")
+                .select("id,username,avatar_url")
+                .in("id", buyerIds)
+            : { data: [] };
+          const buyerMap = new Map((buyers ?? []).map((row) => [row.id, row]));
           const resolveAvatar = (value: string | null) => {
             if (!value) return null;
             if (value.startsWith("http")) return value;
@@ -576,6 +486,7 @@ export const commerceApi = createApi({
               albumId,
               type,
               title: buildSaleContentSummary(imageCount, videoCount),
+              href: `/perfil?post=${encodeURIComponent(albumId)}`,
               count: 1,
               total: 0,
               createdAt: row.created_at,
@@ -608,6 +519,7 @@ export const commerceApi = createApi({
               albumId: `tip-${row.id}`,
               type: "Propina",
               title: "Propina directa",
+              href: undefined,
               count: 1,
               total: amount,
               createdAt: row.created_at,
@@ -617,6 +529,47 @@ export const commerceApi = createApi({
                 full: buyer?.username ?? "Usuario",
                 avatar: resolveAvatar(buyer?.avatar_url ?? null),
               },
+            });
+          });
+          const directMessageMap = new Map(
+            (directMessageRows ?? []).map((row) => [row.id, row]),
+          );
+          (directPurchaseRows ?? []).forEach((row) => {
+            const message = directMessageMap.get(row.message_id);
+            if (!message) return;
+            const buyerId = row.buyer_user_id;
+            const buyer = buyerMap.get(buyerId);
+            const groupKey = `chat-${buyerId}`;
+            const current = grouped.get(groupKey);
+            const saleAmount = Number(row.amount || 0);
+            const fallbackUsername = buyer?.username ?? "usuario";
+            const base: SaleItem = current ?? {
+              id: groupKey,
+              albumId: groupKey,
+              type: "Chat",
+              title: `Chat con ${fallbackUsername}`,
+              href: `/mensajes?user=${encodeURIComponent(fallbackUsername)}`,
+              count: 0,
+              total: 0,
+              createdAt: row.created_at ?? message.created_at,
+              buyer: {
+                id: buyerId,
+                name: fallbackUsername,
+                full: buyer?.username ?? "Usuario",
+                avatar: resolveAvatar(buyer?.avatar_url ?? null),
+              },
+            };
+
+            grouped.set(groupKey, {
+              ...base,
+              title: `Chat con ${fallbackUsername}`,
+              href: `/mensajes?user=${encodeURIComponent(fallbackUsername)}`,
+              count: base.count + 1,
+              total: base.total + saleAmount,
+              createdAt:
+                (base.createdAt ?? "") > (row.created_at ?? message.created_at ?? "")
+                  ? base.createdAt
+                  : row.created_at ?? message.created_at,
             });
           });
           const withdrawalRows = await supabase

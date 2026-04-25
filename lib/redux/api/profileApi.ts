@@ -4,7 +4,6 @@ import {
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
 import { parseUploadModerationMeta } from "@/lib/contentClassification";
-import { loadCreatorEarnings } from "@/lib/earnings";
 import { parseProfileDetails } from "@/lib/profileDetails";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import {
@@ -12,6 +11,7 @@ import {
   buildInitialPostMediaState,
   type ResolvedAccessMedia,
 } from "@/lib/postMediaState";
+import { ensureLegacyCreatorBalanceBaseline } from "@/lib/server/repositories/ledger";
 import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
 
@@ -465,7 +465,10 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
     isFollowing = Boolean(followRows?.length);
   }
 
-  const earningsSummary = await loadCreatorEarnings(supabase, viewedUserId);
+  const balanceSnapshot = await ensureLegacyCreatorBalanceBaseline(
+    supabase,
+    viewedUserId,
+  );
 
   return {
     currentUserId,
@@ -478,7 +481,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
       following: followingRowsResult.data?.length ?? 0,
     },
     isFollowing,
-    earnings: earningsSummary.creatorNet,
+    earnings: balanceSnapshot?.cashAvailable ?? 0,
   };
 };
 

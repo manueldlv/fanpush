@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Bell } from "lucide-react";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -62,6 +63,15 @@ function NotificationRow({
   followLoading: boolean;
   onFollow: (item: NotificationActivityItem) => Promise<void>;
 }) {
+  const router = useRouter();
+  const profilePrefix =
+    item.actorUsername && item.text.startsWith(`${item.actorUsername} `)
+      ? `${item.actorUsername} `
+      : null;
+  const profileSuffix = profilePrefix ? item.text.slice(profilePrefix.length) : item.text;
+  const rowHref = item.action?.href ?? (!item.action && item.type === "follow" && item.actorUsername
+    ? buildUserProfileHref(item.actorUsername)
+    : null);
   const content = (
     <div className="flex items-center gap-3 px-5 py-4 transition hover:bg-zinc-50/80">
       <UserAvatar
@@ -73,7 +83,20 @@ function NotificationRow({
 
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-medium leading-[1.4] text-zinc-900">
-          {item.text}
+          {profilePrefix && item.actorUsername ? (
+            <>
+              <Link
+                href={buildUserProfileHref(item.actorUsername)}
+                onClick={(event) => event.stopPropagation()}
+                className="text-[#2563eb] hover:underline"
+              >
+                {item.actorUsername}
+              </Link>{" "}
+              {profileSuffix}
+            </>
+          ) : (
+            item.text
+          )}
           <span className="ml-2 text-[14px] text-zinc-400">{item.dateLabel}</span>
         </p>
       </div>
@@ -105,19 +128,15 @@ function NotificationRow({
     </div>
   );
 
-  if (item.actorUsername) {
+  if (rowHref) {
     return (
-      <Link href={buildUserProfileHref(item.actorUsername)} className="block">
+      <button
+        type="button"
+        onClick={() => router.push(rowHref)}
+        className="block w-full text-left"
+      >
         {content}
-      </Link>
-    );
-  }
-
-  if (item.action) {
-    return (
-      <Link href={item.action.href} className="block">
-        {content}
-      </Link>
+      </button>
     );
   }
 

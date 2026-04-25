@@ -10,6 +10,7 @@ export type ExploreItem = {
   avatar: string | null;
   description: string;
   createdAt: string;
+  isFollowing?: boolean;
 };
 
 type AuthorRoleRow = {
@@ -98,6 +99,9 @@ export const discoveryApi = createApi({
             throw new Error("Falta configurar Supabase.");
           }
 
+          const { data: authData } = await supabase.auth.getUser();
+          const currentUserId = authData?.user?.id ?? null;
+
           const { data: authorRoles, error: authorRolesError } = await supabase
             .from("user_roles")
             .select("user_id, role:roles!inner(code)")
@@ -118,6 +122,22 @@ export const discoveryApi = createApi({
 
           if (authorIds.length === 0) {
             return { data: [] };
+          }
+
+          const followedIds = new Set<string>();
+          if (currentUserId) {
+            const { data: followRows, error: followRowsError } = await supabase
+              .from("follows")
+              .select("following_id")
+              .eq("follower_id", currentUserId);
+
+            if (followRowsError) {
+              throw new Error(followRowsError.message);
+            }
+
+            (followRows ?? []).forEach((row) => {
+              if (row.following_id) followedIds.add(row.following_id);
+            });
           }
 
           const [{ data: users, error: usersError }, { data: albums, error: albumsError }] =
@@ -184,6 +204,7 @@ export const discoveryApi = createApi({
             .map((user) => {
               const userId = user.id ?? "";
               if (!userId || !user.username?.trim()) return null;
+              if (currentUserId && userId === currentUserId) return null;
 
               const userAlbums = albumsByUserId.get(userId) ?? [];
               const postCandidates = userAlbums.flatMap((album) =>
@@ -192,6 +213,7 @@ export const discoveryApi = createApi({
                     const post = normalizeAlbumPost(item.post);
                     const postId = post?.id ?? item.post_id ?? null;
                     if (!postId || !post?.media_url) return null;
+                    if (post.is_locked) return null;
                     return {
                       postId,
                       mediaUrl: post.media_url,
@@ -243,6 +265,7 @@ export const discoveryApi = createApi({
                 avatar: resolvePublicUrl(supabase, user.avatar_url ?? null),
                 description: coverPost.description,
                 createdAt: coverPost.createdAt,
+                isFollowing: followedIds.has(userId),
               };
             })
             .filter(Boolean) as ExploreItem[];

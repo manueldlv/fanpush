@@ -3,6 +3,7 @@ import {
   getAdminSupabase,
   getAuthenticatedUser,
 } from "@/lib/server/auth/session";
+import { MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import {
   creditApprovedAlbumPurchase,
   creditApprovedTip,
@@ -155,6 +156,9 @@ export const finalizeMercadoPagoPayment = async ({
   if (reference.kind === "tip") {
     const targetUserId = reference.targetId;
     const amount = Number(reference.amount || 0);
+    if (!Number.isFinite(amount) || amount < MIN_CONTENT_PRICE_ARS) {
+      throw new Error("La propina recibida no tiene un monto válido.");
+    }
     const paymentWithMetadata = payment as {
       metadata?: { tipMessage?: string | null };
     };

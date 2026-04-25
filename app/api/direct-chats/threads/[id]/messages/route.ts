@@ -15,6 +15,7 @@ import {
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 
 const ensureMediaBuckets = async (
   admin: SupabaseClient,
@@ -140,6 +141,10 @@ export async function POST(
                 id: `${token}-${index}`,
                 name: originalFile.name || `archivo-${index + 1}`,
                 kind: originalKind === "video" ? "video" : "foto",
+                previewMode:
+                  String(formData.get(`preview_mode_${index}`) ?? "preview") === "locked"
+                    ? "locked"
+                    : "preview",
                 previewPath,
                 premiumPath,
               };
@@ -184,7 +189,10 @@ export async function POST(
         threadId: params.id,
         kind,
         title: String(formData.get("title") ?? "Contenido privado"),
-        price: Number(formData.get("price") ?? 0),
+        price: Math.min(
+          Math.max(Number(formData.get("price") ?? 0), MIN_CONTENT_PRICE_ARS),
+          MAX_CONTENT_PRICE_ARS,
+        ),
         attachments: normalizedAttachments,
       });
     } else {

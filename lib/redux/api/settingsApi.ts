@@ -30,6 +30,7 @@ import {
   USER_META_KEYS,
 } from "@/lib/userMeta";
 import { getSupabaseClient } from "@/lib/supabase";
+import { getReservedUsernameError } from "@/lib/usernames";
 import {
   getCreatorShareFromProfile,
   getPlatformShareFromProfile,
@@ -280,6 +281,11 @@ export const settingsApi = createApi({
         try {
           const supabase = getSupabaseClient();
           if (!supabase) throw new Error("Falta configurar Supabase.");
+
+          const reservedUsernameError = getReservedUsernameError(arg.username);
+          if (reservedUsernameError) {
+            throw new Error(reservedUsernameError);
+          }
 
           const { error: userError } = await supabase.from("users").upsert(
             {

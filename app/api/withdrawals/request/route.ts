@@ -4,6 +4,7 @@ import {
   createWithdrawalRequest,
   listWithdrawalRequestsByUserId,
 } from "@/lib/server/repositories/withdrawals";
+import { getDefaultPayoutProfile } from "@/lib/payoutMeta";
 import { parsePayoutProfile } from "@/lib/payouts";
 import {
   ensureLegacyCreatorBalanceBaseline,
@@ -36,16 +37,7 @@ export async function POST(request: Request) {
       amount?: number | string;
     };
     const requestedAmount = Number(body.amount ?? 0);
-    const { data: payoutRow } = await admin
-      .from("notifications")
-      .select("message")
-      .eq("user_id", user.id)
-      .eq("type", "payout_profile")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const payoutProfile = parsePayoutProfile(payoutRow?.message);
+    const payoutProfile = await getDefaultPayoutProfile(admin, user.id);
     if (!payoutProfile) {
       return NextResponse.json(
         {

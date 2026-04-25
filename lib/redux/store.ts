@@ -17,7 +17,6 @@ import notificationsReducer from "@/lib/redux/slices/notificationsSlice";
 import postsReducer from "@/lib/redux/slices/postsSlice";
 import searchReducer from "@/lib/redux/slices/searchSlice";
 import uiReducer from "@/lib/redux/slices/uiSlice";
-import viewerReducer from "@/lib/redux/slices/viewerSlice";
 
 export const makeStore = () =>
   configureStore({
@@ -28,7 +27,6 @@ export const makeStore = () =>
       ui: uiReducer,
       search: searchReducer,
       posts: postsReducer,
-      viewer: viewerReducer,
       notifications: notificationsReducer,
       [authApi.reducerPath]: authApi.reducer,
       [commerceApi.reducerPath]: commerceApi.reducer,

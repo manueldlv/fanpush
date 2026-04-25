@@ -28,6 +28,7 @@ import {
 } from "@/lib/postMediaState";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { useGetFeedQuery } from "@/lib/redux/api/feedApi";
+import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { socialApi } from "@/lib/redux/api/socialApi";
 import { setFeedPosts } from "@/lib/redux/slices/postsSlice";
 import { buildPostSharePath } from "@/lib/postShare";
@@ -162,7 +163,8 @@ export default function FeedLayout() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
-  const viewerBalance = useAppSelector((state) => state.viewer.commerce.balance);
+  const { data: viewer } = useGetViewerQuery();
+  const viewerBalance = viewer?.commerce.balance ?? 0;
   const {
     data: feedData,
     isLoading: feedLoading,

@@ -5,7 +5,6 @@ import { setDeviceRuntime } from "@/lib/redux/slices/deviceSlice";
 import { notificationsApi } from "@/lib/redux/api/notificationsApi";
 import { profileApi } from "@/lib/redux/api/profileApi";
 import { sessionApi } from "@/lib/redux/api/sessionApi";
-import { hydrateViewerState } from "@/lib/redux/slices/viewerSlice";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { getSupabaseClient } from "@/lib/supabase";
 
@@ -104,7 +103,6 @@ export default function AppStateBootstrap() {
     };
 
     const refreshViewer = () => {
-      void dispatch(hydrateViewerState());
       dispatch(sessionApi.util.invalidateTags(["Session", "Viewer", "AdminAccess"]));
       dispatch(profileApi.util.invalidateTags(["ProfileView"]));
     };

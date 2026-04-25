@@ -36,7 +36,7 @@ import {
   useGetProfileViewQuery,
 } from "@/lib/redux/api/profileApi";
 import { sessionApi, useGetViewerQuery } from "@/lib/redux/api/sessionApi";
-import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import { useAppDispatch } from "@/lib/redux/hooks";
 import { buildPostSharePath } from "@/lib/postShare";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -193,9 +193,7 @@ export default function PerfilPage({
   const searchParams = useSearchParams();
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const availableBalance = useAppSelector(
-    (state) => state.viewer.commerce.balance,
-  );
+  const availableBalance = viewer?.commerce.balance ?? 0;
   const routeUsername =
     forcedUsername ??
     searchParams.get("user") ??

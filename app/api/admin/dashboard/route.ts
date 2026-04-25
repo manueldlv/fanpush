@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { parseTipAmountFromMessage } from "@/lib/earnings";
+import { resolveTipAmountMap } from "@/lib/earnings";
+import { PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
   buildPremiumMediaPath,
@@ -8,6 +9,7 @@ import {
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
 import { parsePayoutProfile } from "@/lib/payouts";
+import { coercePayoutProfile } from "@/lib/payouts";
 import { parseUploadModerationMeta } from "@/lib/contentClassification";
 import {
   parseModerationAction,
@@ -58,7 +60,7 @@ export async function GET(request: Request) {
       recentPurchasesResult,
       recentAlbumsResult,
       withdrawalRowsResult,
-      payoutRowsResult,
+      payoutMetaRowsResult,
       reportRowsResult,
       authorApplicationRowsResult,
       authorApplicationHistoryRowsResult,
@@ -82,7 +84,7 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false }),
       admin
         .from("notifications")
-        .select("id, actor_id, user_id, message, created_at")
+        .select("id, actor_id, user_id, entity_id, message, created_at")
         .eq("type", "tip")
         .order("created_at", { ascending: false }),
       admin
@@ -98,16 +100,11 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(30),
       admin
-        .from("notifications")
-        .select("id,user_id,message,created_at")
-        .eq("type", "withdrawal_request")
-        .order("created_at", { ascending: false })
+        .from("withdrawal_requests")
+        .select("id,user_id,amount,status,requested_at,month_key")
+        .order("requested_at", { ascending: false })
         .limit(30),
-      admin
-        .from("notifications")
-        .select("user_id,message,created_at")
-        .eq("type", "payout_profile")
-        .order("created_at", { ascending: false }),
+      admin.from("payouts_meta").select("user_id,meta_key,meta_value,updated_at"),
       admin
         .from("notifications")
         .select("id,user_id,actor_id,entity_id,message,created_at")
@@ -189,9 +186,10 @@ export async function GET(request: Request) {
     const postOwnerMap = new Map(
       (postOwnerRows ?? []).map((row) => [row.id, row.user_id]),
     );
-    const payoutMap = new Map(
-      (payoutRowsResult.data ?? [])
-        .map((row) => [row.user_id, parsePayoutProfile(row.message)] as const)
+    const payoutMetaMap = new Map(
+      (payoutMetaRowsResult.data ?? [])
+        .filter((row) => row.meta_key === PAYOUT_META_KEYS.defaultAccount)
+        .map((row) => [row.user_id, coercePayoutProfile(row.meta_value)] as const)
         .filter((entry) => Boolean(entry[1])),
     );
     const referralRows = userReferralsRowsResult.data ?? [];
@@ -297,8 +295,14 @@ export async function GET(request: Request) {
       purchasePlatformFeeTotal += platformFee;
     });
 
+    const tipAmountMap = await resolveTipAmountMap(admin, allTips as Array<{
+      id: string;
+      entity_id?: string | null;
+      message?: string | null;
+    }>);
+
     allTips.forEach((row) => {
-      const amount = parseTipAmountFromMessage(row.message);
+      const amount = Number(tipAmountMap.get(row.id) || 0);
       const commissionProfile = commissionMap.get(row.user_id) ?? null;
       const creatorShare = getCreatorShareFromProfile(commissionProfile);
       const platformFee = amount - amount * creatorShare;
@@ -604,23 +608,27 @@ export async function GET(request: Request) {
         recentPurchases,
         recentTips: (tipRowsResult.data ?? []).slice(0, 20).map((row) => ({
           id: row.id,
-          amount: parseTipAmountFromMessage(row.message),
+          amount: Number(tipAmountMap.get(row.id) || 0),
           actor: userMap.get(row.actor_id)?.username ?? "usuario",
           receiver: userMap.get(row.user_id)?.username ?? "usuario",
           createdAt: row.created_at,
         })),
         withdrawals: (withdrawalRowsResult.data ?? [])
           .map((row) => {
-            const parsed = parseWithdrawalRecord(row.message);
-            if (!parsed) return null;
-            const payoutProfile = payoutMap.get(row.user_id);
+            const payoutProfile = payoutMetaMap.get(row.user_id);
+            const status =
+              row.status === "paid"
+                ? ("sent" as const)
+                : row.status === "rejected" || row.status === "cancelled"
+                  ? ("rejected" as const)
+                  : ("requested" as const);
             return {
               id: row.id,
               username: userMap.get(row.user_id)?.username ?? "usuario",
-              amount: parsed.amount,
-              status: parsed.status,
-              statusLabel: getWithdrawalStatusLabel(parsed.status),
-              createdAt: row.created_at,
+              amount: Number(row.amount || 0),
+              status,
+              statusLabel: getWithdrawalStatusLabel(status),
+              createdAt: row.requested_at,
               payoutAlias: payoutProfile?.alias ?? null,
               payoutHolder: payoutProfile?.holderName ?? null,
               payoutDocument: payoutProfile?.holderDocument ?? null,

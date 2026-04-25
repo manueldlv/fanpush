@@ -5,7 +5,6 @@ import {
   settleWithdrawalAsPaid,
 } from "@/lib/server/repositories/ledger";
 import {
-  parseWithdrawalRecord,
   serializeWithdrawalHistory,
   serializeWithdrawalRecord,
   type WithdrawalRecord,
@@ -55,26 +54,7 @@ export const getWithdrawalRequestById = async (
       } satisfies WithdrawalRecord,
     };
   }
-
-  const { data, error } = await admin
-    .from("notifications")
-    .select("id,user_id,message,created_at")
-    .eq("id", id)
-    .eq("type", "withdrawal_request")
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`No se pudo leer la solicitud de retiro: ${error.message}`);
-  }
-
-  return data
-    ? {
-        id: data.id,
-        userId: data.user_id,
-        createdAt: data.created_at,
-        record: parseWithdrawalRecord(data.message),
-      }
-    : null;
+  return null;
 };
 
 export const listWithdrawalRequestsByUserId = async (
@@ -91,18 +71,7 @@ export const listWithdrawalRequestsByUserId = async (
     throw new Error(`No se pudieron leer los retiros: ${tableError.message}`);
   }
 
-  const { data, error } = await admin
-    .from("notifications")
-    .select("id,message,created_at")
-    .eq("user_id", userId)
-    .eq("type", "withdrawal_request")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`No se pudieron leer los retiros: ${error.message}`);
-  }
-
-  const tableItems = (tableRows ?? []).map((row) => ({
+  return (tableRows ?? []).map((row) => ({
     id: row.id,
     createdAt: row.requested_at,
     record: {
@@ -111,33 +80,7 @@ export const listWithdrawalRequestsByUserId = async (
       requestedAt: row.requested_at,
       monthKey: row.month_key || "",
     } satisfies WithdrawalRecord,
-  }));
-
-  const legacyItems = (data ?? [])
-    .map((row) => {
-      const parsed = parseWithdrawalRecord(row.message);
-      return parsed ? { id: row.id, createdAt: row.created_at, record: parsed } : null;
-    })
-    .filter(
-      (
-        value,
-      ): value is {
-        id: string;
-        createdAt: string;
-        record: WithdrawalRecord;
-      } => Boolean(value),
-    );
-
-  const deduped = new Map<string, { id: string; createdAt: string; record: WithdrawalRecord }>();
-  [...tableItems, ...legacyItems].forEach((item) => {
-    if (!deduped.has(item.id)) {
-      deduped.set(item.id, item);
-    }
-  });
-
-  return Array.from(deduped.values()).sort((a, b) =>
-    (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
-  );
+  })).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 };
 
 export const createWithdrawalRequest = async ({

@@ -25,9 +25,21 @@ export const parseWithdrawalRecord = (message?: string | null) => {
   }
 };
 
+export const isWithdrawalReservedStatus = (status: WithdrawalStatus) =>
+  status === "requested";
+
+export const isWithdrawalPaidStatus = (status: WithdrawalStatus) =>
+  status === "sent";
+
 export const getWithdrawalReservedAmount = (records: WithdrawalRecord[]) =>
   records.reduce((sum, record) => {
-    if (record.status === "rejected") return sum;
+    if (!isWithdrawalReservedStatus(record.status)) return sum;
+    return sum + Number(record.amount || 0);
+  }, 0);
+
+export const getWithdrawalPaidAmount = (records: WithdrawalRecord[]) =>
+  records.reduce((sum, record) => {
+    if (!isWithdrawalPaidStatus(record.status)) return sum;
     return sum + Number(record.amount || 0);
   }, 0);
 

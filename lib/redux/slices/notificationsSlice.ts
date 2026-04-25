@@ -6,6 +6,7 @@ import {
 } from "@/lib/notificationPreferences";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 
 export type AppNotificationItem = {
   id: string;
@@ -70,17 +71,14 @@ export const hydrateNotificationsState = createAsyncThunk<
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(20);
-  const { data: notificationPrefsRow } = await supabase
-    .from("notifications")
-    .select("message")
-    .eq("user_id", userId)
-    .eq("type", "notification_preferences")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const userMetaResult = await getUserMetaEntries(supabase, userId, [
+    USER_META_KEYS.notificationPreferences,
+  ]);
 
   const notificationPreferences =
-    parseNotificationPreferences(notificationPrefsRow?.message) ??
+    (userMetaResult.entries.get(USER_META_KEYS.notificationPreferences) as
+      | ReturnType<typeof buildDefaultNotificationPreferences>
+      | undefined) ??
     buildDefaultNotificationPreferences();
 
   const actorIds = Array.from(

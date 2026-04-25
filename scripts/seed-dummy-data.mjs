@@ -214,17 +214,6 @@ const serializeProfileDetails = (value) =>
     updatedAt: value.updatedAt,
   });
 
-const serializePayoutProfile = (profile) =>
-  `payout_profile:${JSON.stringify({
-    alias: profile.alias,
-    holderName: profile.holderName,
-    holderDocument: profile.holderDocument,
-    notes: profile.notes ?? "",
-    updatedAt: profile.updatedAt,
-  })}`;
-
-const serializeNotificationPreferences = (preferences) => JSON.stringify(preferences);
-
 const serializeAuthorApplication = (record) =>
   `author_application:${JSON.stringify(record)}`;
 
@@ -471,51 +460,20 @@ const createUserMetaRows = async ({ userId, userConfig, payoutProfile }) => {
     .upsert(metaRows, { onConflict: "user_id,meta_key" });
   throwIfError(error, "No se pudo guardar user_meta");
 
-  return { updatedAt, profileDetails, preferences, accountState };
-};
-
-const createLegacyMetaNotifications = async ({
-  userId,
-  profileDetails,
-  preferences,
-  payoutProfile,
-  createdAt,
-}) => {
-  const rows = [
-    {
-      user_id: userId,
-      actor_id: userId,
-      entity_id: userId,
-      type: "profile_meta",
-      message: serializeProfileDetails(profileDetails),
-      is_read: true,
-      created_at: createdAt,
-    },
-    {
-      user_id: userId,
-      actor_id: userId,
-      entity_id: userId,
-      type: "notification_preferences",
-      message: serializeNotificationPreferences(preferences),
-      is_read: true,
-      created_at: createdAt,
-    },
-  ];
-
   if (payoutProfile) {
-    rows.push({
-      user_id: userId,
-      actor_id: userId,
-      entity_id: userId,
-      type: "payout_profile",
-      message: serializePayoutProfile(payoutProfile),
-      is_read: true,
-      created_at: createdAt,
-    });
+    const { error: payoutsMetaError } = await admin.from("payouts_meta").upsert(
+      {
+        user_id: userId,
+        meta_key: "accounts.default",
+        meta_value: payoutProfile,
+        updated_at: updatedAt,
+      },
+      { onConflict: "user_id,meta_key" },
+    );
+    throwIfError(payoutsMetaError, "No se pudo guardar payouts_meta");
   }
 
-  const { error } = await admin.from("notifications").insert(rows);
-  throwIfError(error, "No se pudieron guardar las notificaciones meta");
+  return { updatedAt, profileDetails, preferences, accountState };
 };
 
 const getRoleIdMap = async () => {
@@ -1054,31 +1012,6 @@ const createSeedData = async ({ cleanFirst = true } = {}) => {
     userId: buyerAuthUser.id,
     userConfig: USERS.buyer,
     payoutProfile: null,
-  });
-
-  await createLegacyMetaNotifications({
-    userId: adminAuthUser.id,
-    profileDetails: adminMeta.profileDetails,
-    preferences: adminMeta.preferences,
-    payoutProfile: null,
-    createdAt: isoAt(-8 * DAY_MS),
-  });
-  await createLegacyMetaNotifications({
-    userId: authorAuthUser.id,
-    profileDetails: authorMeta.profileDetails,
-    preferences: authorMeta.preferences,
-    payoutProfile: {
-      ...USERS.author.payoutProfile,
-      updatedAt: isoAt(-5 * DAY_MS),
-    },
-    createdAt: isoAt(-8 * DAY_MS),
-  });
-  await createLegacyMetaNotifications({
-    userId: buyerAuthUser.id,
-    profileDetails: buyerMeta.profileDetails,
-    preferences: buyerMeta.preferences,
-    payoutProfile: null,
-    createdAt: isoAt(-8 * DAY_MS),
   });
 
   log("Asignando roles y comision del autor...");
@@ -1951,6 +1884,12 @@ async function cleanSeedData() {
     .delete()
     .in("user_id", userIds);
   throwIfError(userMetaError, "No se pudo limpiar user_meta dummy");
+
+  const { error: payoutsMetaError } = await admin
+    .from("payouts_meta")
+    .delete()
+    .in("user_id", userIds);
+  throwIfError(payoutsMetaError, "No se pudo limpiar payouts_meta dummy");
 
   const { error: userRolesError } = await admin
     .from("user_roles")

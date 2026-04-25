@@ -5,7 +5,10 @@ import {
   getLatestUserCommissionProfile,
   getPlatformShareFromProfile,
 } from "@/lib/userCommission";
-import { getWithdrawalReservedAmount, parseWithdrawalRecord } from "@/lib/withdrawals";
+import {
+  getWithdrawalPaidAmount,
+  getWithdrawalReservedAmount,
+} from "@/lib/withdrawals";
 
 type UserBalanceRow = {
   user_id: string;
@@ -149,23 +152,46 @@ export const ensureLegacyCreatorBalanceBaseline = async (
     await Promise.all([
       loadCreatorEarnings(admin, userId),
       admin
-        .from("notifications")
-        .select("message")
+        .from("withdrawal_requests")
+        .select("amount,status,requested_at,month_key")
         .eq("user_id", userId)
-        .eq("type", "withdrawal_request"),
     ]);
 
-  throwRepositoryError(withdrawalError, "No se pudieron leer los retiros legacy");
+  throwRepositoryError(withdrawalError, "No se pudieron leer los retiros");
 
   const reserved = getWithdrawalReservedAmount(
     (withdrawalRows ?? [])
-      .map((row) => parseWithdrawalRecord(row.message))
-      .filter((value): value is NonNullable<typeof value> => Boolean(value)),
+      .map((row) => ({
+        amount: Number(row.amount || 0),
+        status:
+          row.status === "paid"
+            ? ("sent" as const)
+            : row.status === "rejected" || row.status === "cancelled"
+              ? ("rejected" as const)
+              : ("requested" as const),
+        requestedAt: row.requested_at,
+        monthKey: row.month_key || "",
+      })),
+  );
+  const withdrawn = getWithdrawalPaidAmount(
+    (withdrawalRows ?? [])
+      .map((row) => ({
+        amount: Number(row.amount || 0),
+        status:
+          row.status === "paid"
+            ? ("sent" as const)
+            : row.status === "rejected" || row.status === "cancelled"
+              ? ("rejected" as const)
+              : ("requested" as const),
+        requestedAt: row.requested_at,
+        monthKey: row.month_key || "",
+      })),
   );
 
-  const cashAvailable = roundMoney(Math.max(earnings.creatorNet - reserved, 0));
+  const cashAvailable = roundMoney(Math.max(earnings.creatorNet - reserved - withdrawn, 0));
   const cashReserved = roundMoney(reserved);
   const lifetimeEarned = roundMoney(earnings.creatorNet);
+  const lifetimeWithdrawn = roundMoney(withdrawn);
 
   const { error: upsertError } = await admin.from("user_balances").upsert(
     {
@@ -173,6 +199,7 @@ export const ensureLegacyCreatorBalanceBaseline = async (
       cash_available: cashAvailable,
       cash_reserved: cashReserved,
       lifetime_earned: lifetimeEarned,
+      lifetime_withdrawn: lifetimeWithdrawn,
     },
     { onConflict: "user_id" },
   );

@@ -136,6 +136,7 @@ export async function POST(request: Request) {
       user_id: body.targetUserId,
       actor_id: user.id,
       type: "tip",
+      entity_id: result.transactionId,
       message: tipMessage,
       is_read: false,
     });

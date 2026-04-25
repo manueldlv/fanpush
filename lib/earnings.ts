@@ -16,6 +16,63 @@ export const parseTipNoteFromMessage = (message?: string | null) => {
   return match ? match[1].trim() : "";
 };
 
+type TipReferenceRow = {
+  id: string;
+  entity_id?: string | null;
+  message?: string | null;
+};
+
+export const resolveTipAmountMap = async (
+  supabase: SupabaseClient,
+  rows: TipReferenceRow[],
+) => {
+  const referenceIds = Array.from(
+    new Set(rows.map((row) => row.entity_id?.trim()).filter(Boolean) as string[]),
+  );
+
+  let byProviderPaymentId = new Map<string, number>();
+  let byTransactionId = new Map<string, number>();
+
+  if (referenceIds.length > 0) {
+    const [{ data: providerRows, error: providerError }, { data: txRows, error: txError }] =
+      await Promise.all([
+        supabase
+          .from("ledger_transactions")
+          .select("provider_payment_id,transaction_amount")
+          .in("provider_payment_id", referenceIds),
+        supabase
+          .from("ledger_transactions")
+          .select("id,transaction_amount")
+          .in("id", referenceIds),
+      ]);
+
+    if (providerError) {
+      throw new Error(`No se pudieron leer las propinas desde ledger: ${providerError.message}`);
+    }
+    if (txError) {
+      throw new Error(`No se pudieron leer las propinas desde ledger: ${txError.message}`);
+    }
+
+    byProviderPaymentId = new Map(
+      (providerRows ?? [])
+        .filter((row) => row.provider_payment_id)
+        .map((row) => [row.provider_payment_id as string, Number(row.transaction_amount || 0)]),
+    );
+    byTransactionId = new Map(
+      (txRows ?? []).map((row) => [row.id as string, Number(row.transaction_amount || 0)]),
+    );
+  }
+
+  return new Map<string, number>(
+    rows.map((row) => {
+      const referenceId = row.entity_id?.trim() ?? "";
+      const amountFromLedger =
+        byProviderPaymentId.get(referenceId) ?? byTransactionId.get(referenceId) ?? null;
+      return [row.id, amountFromLedger ?? parseTipAmountFromMessage(row.message)];
+    }),
+  );
+};
+
 export const loadCreatorEarnings = async (
   supabase: SupabaseClient,
   userId: string,
@@ -67,13 +124,16 @@ export const loadCreatorEarnings = async (
 
   const { data: tipRows } = await supabase
     .from("notifications")
-    .select("message")
+    .select("id,entity_id,message")
     .eq("user_id", userId)
     .eq("type", "tip");
 
+  const tipAmountMap = await resolveTipAmountMap(
+    supabase,
+    (tipRows ?? []) as TipReferenceRow[],
+  );
   const tipGross = (tipRows ?? []).reduce(
-    (sum: number, row: { message?: string | null }) =>
-      sum + parseTipAmountFromMessage(row.message),
+    (sum: number, row: { id: string }) => sum + Number(tipAmountMap.get(row.id) || 0),
     0,
   );
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET, PREMIUM_MEDIA_BUCKET } from "@/lib/media";
-import { parseTipAmountFromMessage, parseTipNoteFromMessage } from "@/lib/earnings";
+import { parseTipNoteFromMessage, resolveTipAmountMap } from "@/lib/earnings";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
 
 type PurchaseResponseItem = {
@@ -282,7 +282,7 @@ export async function GET(request: Request) {
 
     const { data: tipRows, error: tipRowsError } = await admin
       .from("notifications")
-      .select("id,user_id,message,created_at")
+      .select("id,user_id,entity_id,message,created_at")
       .eq("actor_id", user.id)
       .eq("type", "tip")
       .order("created_at", { ascending: false });
@@ -311,6 +311,7 @@ export async function GET(request: Request) {
         },
       ]),
     );
+    const tipAmountMap = await resolveTipAmountMap(admin, tipRows ?? []);
 
     const sentTips: SentTipResponseItem[] = (tipRows ?? []).map((row) => {
       const recipient = recipientMap.get(row.user_id);
@@ -322,7 +323,7 @@ export async function GET(request: Request) {
           day: "2-digit",
           month: "short",
         }),
-        amount: parseTipAmountFromMessage(row.message ?? ""),
+        amount: Number(tipAmountMap.get(row.id) || 0),
         message: parseTipNoteFromMessage(row.message) || "Sin mensaje",
         createdAt: row.created_at,
       };

@@ -5,3 +5,5 @@
 - El objetivo es poder ejecutar el proyecto entero por lotes y retomarlo si una sesión se corta a mitad de camino.
 - El roadmap fue expandido con un documento detallado por fase.
 - Cada fase ahora incluye fuentes a revisar, reglas de negocio a preservar, manejo de ambigüedades, validación y modo de reanudación.
+- Se agregaron execution docs para las fases 00, 01, 03 y 04.
+- El índice maestro ahora refleja progreso real de ejecución y punto de reanudación.

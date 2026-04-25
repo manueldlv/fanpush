@@ -131,30 +131,30 @@ Estado permitido por etapa:
 
 | Phase | Status | Execution Doc | Depends On | Goal |
 | --- | --- | --- | --- | --- |
-| 00 | `ready` | `pending` | none | Preparar guardrails, validación y trazabilidad |
-| 01 | `pending` | `pending` | 00 | Cerrar P0 de webhook y endurecer límites API |
-| 02 | `pending` | `pending` | 01 | Dejar admin solo sobre roles persistidos |
-| 03 | `pending` | `pending` | 02 | Canonicalizar payout data en `payouts_meta` |
-| 04 | `pending` | `pending` | 03 | Rehacer retiros sobre workflow + reserva + payout real |
-| 05 | `pending` | `pending` | 04 | Sacar earnings/tips de texto libre y llevarlos a fuente estructurada |
-| 06 | `pending` | `pending` | 05 | Unificar compras internas y externas en un core canónico |
-| 07 | `pending` | `pending` | 06 | Unificar viewer/session y contratos de estado cliente |
-| 08 | `pending` | `pending` | 07 | Mover ventas/retiros a lectura server-driven consistente |
-| 09 | `pending` | `pending` | 08 | Reparar integridad de publicación de contenido y chat uploads |
-| 10 | `pending` | `pending` | 09 | Rehacer archivado de cuenta con secuencia segura |
-| 11 | `pending` | `pending` | 10 | Limpiar legado: notifications/user_meta fallbacks y commission normalization dispersa |
+| 00 | `done` | `vibe-coding/executions/2026-04-25-03-phase-00-setup.md` | none | Preparar guardrails, validación y trazabilidad |
+| 01 | `in_progress` | `vibe-coding/executions/2026-04-25-03-phase-01-security-and-admin.md` | 00 | Cerrar P0 de webhook y endurecer límites API |
+| 02 | `in_progress` | `vibe-coding/executions/2026-04-25-03-phase-01-security-and-admin.md` | 01 | Dejar admin solo sobre roles persistidos |
+| 03 | `in_progress` | `vibe-coding/executions/2026-04-25-03-phase-03-payouts-meta.md` | 02 | Canonicalizar payout data en `payouts_meta` |
+| 04 | `in_progress` | `vibe-coding/executions/2026-04-25-03-phase-04-withdrawals-and-ledger.md` | 03 | Rehacer retiros sobre workflow + reserva + payout real |
+| 05 | `done` | `vibe-coding/executions/2026-04-25-03-phase-04-withdrawals-and-ledger.md` | 04 | Sacar earnings/tips de texto libre y llevarlos a fuente estructurada |
+| 06 | `done` | `vibe-coding/executions/2026-04-25-03-phase-06-purchases-core.md` | 05 | Unificar compras internas y externas en un core canónico |
+| 07 | `done` | `vibe-coding/executions/2026-04-25-03-phase-07-viewer-session.md` | 06 | Unificar viewer/session y contratos de estado cliente |
+| 08 | `done` | `vibe-coding/executions/2026-04-25-03-phase-08-sales-and-withdrawals-server-driven.md` | 07 | Mover ventas/retiros a lectura server-driven consistente |
+| 09 | `done` | `vibe-coding/executions/2026-04-25-03-phase-09-content-and-chat-persistence.md` | 08 | Reparar integridad de publicación de contenido y chat uploads |
+| 10 | `in_progress` | `vibe-coding/executions/2026-04-25-03-phase-10-account-archive.md` | 09 | Rehacer archivado de cuenta con secuencia segura |
+| 11 | `in_progress` | `vibe-coding/executions/2026-04-25-03-phase-11-legacy-cleanup.md` | 10 | Limpiar legado: notifications/user_meta fallbacks y commission normalization dispersa |
 
 ## Current Phase
 
-- `current_phase`: `00`
-- `current_status`: `ready`
+- `current_phase`: `10`
+- `current_status`: `in_progress`
 - `last_updated`: `2026-04-25`
 
 ## Last Resume Point
 
-- `phase`: `00`
-- `subtask`: `00.1`
-- `note`: `Empezar creando documentos de ejecución por fase y checklist de validación transversal antes de tocar código de producto.`
+- `phase`: `10`
+- `subtask`: `10.1`
+- `note`: `Si se quiere endurecer más el archivado, decidir explícitamente si debe bloquearse con saldo o retiros abiertos.`
 
 ## Global Completion Checklist
 
@@ -171,6 +171,20 @@ Estado permitido por etapa:
 ## Execution Log
 
 - `2026-04-25`: el roadmap fue expandido con documentos detallados por fase para incluir alcance exacto, fuentes de reglas, protocolo de ambigüedad y reanudación segura.
+- `2026-04-25`: fase 00 cerrada; fase 01 inició con hardening de webhook Mercado Pago, token opcional de notificación y validación por firma si existe secret.
+- `2026-04-25`: fase 02 quedó encaminada al resolver admin exclusivamente desde roles persistidos y remover fallback legacy del helper central.
+- `2026-04-25`: fase 03 inició con migración `payouts_meta`, helper dedicado y dual-read en `/api/me`, `settings`, `ventas`, `withdrawals/request` y `admin/dashboard`.
+- `2026-04-25`: fase 04 inició corrigiendo la baseline legacy para distinguir retiros reservados de retiros ya pagados.
+- `2026-04-25`: `ventas`, `compras` y `admin/dashboard` dejaron de depender exclusivamente del texto de notificaciones para montos de propinas cuando el ledger ya tiene la referencia estructurada.
+- `2026-04-25`: `ventas` y `admin/dashboard` pasaron a leer retiros desde `withdrawal_requests` como fuente primaria.
+- `2026-04-25`: `FeedLayout`, `PerfilPageClient` y `AppStateBootstrap` redujeron dependencia activa del `viewerSlice`; `sessionApi` quedó más cerca de ser la fuente primaria del viewer.
+- `2026-04-25`: el reducer `viewer` salió del store; no quedaron consumers activos de `state.viewer` en runtime.
+- `2026-04-25`: `settings` dejó de dual-write a `notifications` para `profile_meta`, `payout_profile` y `notification_preferences`; las lecturas faltantes migraron a `user_meta`.
+- `2026-04-25`: `ventas` pasó a un endpoint server-driven (`/api/sales`) y dejó de reconstruir finanzas críticas desde Supabase directo en cliente.
+- `2026-04-25`: publicaciones y mensajes con adjuntos ahora tienen cleanup compensatorio de uploads si falla la persistencia.
+- `2026-04-25`: archivado de cuenta limpia `payouts_meta` y `direct_user_blocks` sin tocar historial financiero.
+- `2026-04-25`: compras internas y externas de álbum comparten helpers de persistencia y notificación para reducir drift del core de compra.
+- `2026-04-25`: cierre de cuenta fue redefinido como deshabilitación de presencia pública con acceso financiero restringido, no como borrado duro automático.
 
 ## Phase 00
 

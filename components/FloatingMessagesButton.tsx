@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { getSessionAccessTokenWithRetry } from "@/lib/auth";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { getSupabaseClient } from "@/lib/supabase";
 
 type DirectThreadPreview = {
@@ -15,6 +17,7 @@ type DirectThreadPreview = {
 
 export default function FloatingMessagesButton() {
   const pathname = usePathname();
+  const { isAuthenticated } = useViewerSession();
   const [threads, setThreads] = useState<DirectThreadPreview[]>([]);
   const [hasUnread, setHasUnread] = useState(false);
 
@@ -36,14 +39,12 @@ export default function FloatingMessagesButton() {
     const loadThreads = async () => {
       try {
         const supabase = getSupabaseClient();
-        const session = supabase
-          ? await supabase.auth.getSession().then((result) => result.data.session)
+        const accessToken = supabase
+          ? await getSessionAccessTokenWithRetry(supabase)
           : null;
         const response = await fetch("/api/direct-chats", {
           credentials: "include",
-          headers: session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : undefined,
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         });
         const result = (await response.json()) as {
           threads?: DirectThreadPreview[];
@@ -70,7 +71,7 @@ export default function FloatingMessagesButton() {
       window.removeEventListener("focus", loadThreads);
       window.removeEventListener("purchases-updated", loadThreads);
     };
-  }, [hidden]);
+  }, [hidden, isAuthenticated]);
 
   const stackedAvatars = useMemo(
     () => threads.filter((thread) => thread.avatarUrl).slice(0, 3),
@@ -96,7 +97,7 @@ export default function FloatingMessagesButton() {
           aria-hidden="true"
         />
         {hasUnread ? (
-          <span className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-white bg-[#ff334b]" />
+          <span className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-white bg-[#5A3EE7]" />
         ) : null}
       </span>
 

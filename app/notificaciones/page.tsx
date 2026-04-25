@@ -11,6 +11,7 @@ import {
   useGetNotificationCenterQuery,
   useMarkNotificationsAsReadMutation,
 } from "@/lib/redux/api/notificationsApi";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { NotificationActivityItem } from "@/lib/server/repositories/notification-center";
 import { cn } from "@/lib/utils";
@@ -144,6 +145,7 @@ function NotificationRow({
 }
 
 export default function NotificacionesPage() {
+  const { userId: currentUserId } = useViewerSession();
   const {
     data: centerData,
     isLoading,
@@ -182,9 +184,7 @@ export default function NotificacionesPage() {
       }
 
       const supabase = getSupabaseClient();
-      if (!supabase) return;
-      const { data: authData } = await supabase.auth.getUser();
-      const currentUserId = authData?.user?.id;
+      if (!supabase || !currentUserId) return;
       if (!currentUserId) return;
 
       const { data } = await supabase
@@ -206,7 +206,7 @@ export default function NotificacionesPage() {
     };
 
     void loadFollowState();
-  }, [followActorIdsKey]);
+  }, [currentUserId, followActorIdsKey]);
 
   useEffect(() => {
     if (unreadIds.length > 0) {
@@ -250,8 +250,6 @@ export default function NotificacionesPage() {
     if (!item.actorId) return;
     const supabase = getSupabaseClient();
     if (!supabase) return;
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUserId = authData?.user?.id;
     if (!currentUserId || currentUserId === item.actorId) return;
 
     setFollowPendingIds((prev) => new Set(prev).add(item.actorId as string));

@@ -7,6 +7,7 @@ import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import { FOLLOW_UPDATED_EVENT } from "@/lib/followSync";
 import { useGetExploreFeedQuery, type ExploreItem } from "@/lib/redux/api/discoveryApi";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 
@@ -27,6 +28,7 @@ function ExploreCardSkeleton() {
 
 export default function ExplorarPage() {
   const { data: items = [], isLoading: loading } = useGetExploreFeedQuery();
+  const { userId: currentUserId } = useViewerSession();
   const [followState, setFollowState] = useState<Record<string, boolean>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -43,8 +45,6 @@ export default function ExplorarPage() {
     const supabase = getSupabaseClient();
     if (!supabase || pendingId === item.id) return;
 
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUserId = authData?.user?.id ?? null;
     if (!currentUserId || currentUserId === item.id) return;
 
     setPendingId(item.id);

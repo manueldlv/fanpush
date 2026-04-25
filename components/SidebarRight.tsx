@@ -18,11 +18,13 @@ import {
   FOLLOW_UPDATED_EVENT,
   type FollowUpdatedDetail,
 } from "@/lib/followSync";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 
 export default function SidebarRight() {
   const router = useRouter();
   const dispatch = useAppDispatch();
   const { data: viewer } = useGetViewerQuery();
+  const { userId: currentUserId } = useViewerSession();
   const { data: suggestions = [], isLoading: loading } = useGetSuggestionsQuery();
   const [localSuggestions, setLocalSuggestions] = useState(suggestions);
   const [pendingFollowId, setPendingFollowId] = useState<string | null>(null);
@@ -64,8 +66,6 @@ export default function SidebarRight() {
     if (!supabase) return;
     if (pendingFollowId === profileId) return;
 
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUserId = authData?.user?.id;
     if (!currentUserId || currentUserId === profileId) return;
     setPendingFollowId(profileId);
 

@@ -120,29 +120,90 @@ const buildError = (error: unknown, fallback: string) => ({
   error: error instanceof Error ? error.message : fallback,
 });
 
+const SESSION_STORAGE_KEY = "fanpush-user-auth";
+const SESSION_TIMEOUT_MS = 1500;
+
+const readStoredSessionSummary = (): SessionSummary | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as {
+      access_token?: unknown;
+      user?: { id?: unknown; email?: unknown } | null;
+    };
+
+    if (!parsed?.access_token || !parsed.user?.id) {
+      return null;
+    }
+
+    return {
+      isAuthenticated: true,
+      userId: typeof parsed.user.id === "string" ? parsed.user.id : null,
+      email: typeof parsed.user.email === "string" ? parsed.user.email : null,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number) => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("session_timeout"));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
 const loadSessionSummary = async (): Promise<SessionSummary> => {
   const supabase = getSupabaseClient();
   if (!supabase) {
     throw new Error("Falta configurar Supabase.");
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  try {
+    const {
+      data: { session },
+    } = await withTimeout(supabase.auth.getSession(), SESSION_TIMEOUT_MS);
 
-  if (!session?.user) {
+    if (!session?.user) {
+      return {
+        isAuthenticated: false,
+        userId: null,
+        email: null,
+      };
+    }
+
     return {
-      isAuthenticated: false,
-      userId: null,
-      email: null,
+      isAuthenticated: true,
+      userId: session.user.id,
+      email: session.user.email ?? null,
     };
-  }
+  } catch (error) {
+    if (error instanceof Error && error.message === "session_timeout") {
+      return (
+        readStoredSessionSummary() ?? {
+          isAuthenticated: false,
+          userId: null,
+          email: null,
+        }
+      );
+    }
 
-  return {
-    isAuthenticated: true,
-    userId: session.user.id,
-    email: session.user.email ?? null,
-  };
+    throw error;
+  }
 };
 
 const loadViewer = async (): Promise<ViewerPayload> => {

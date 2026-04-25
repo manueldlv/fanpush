@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import UserAvatar from "@/components/UserAvatar";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
-import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient } from "@/lib/supabase";
 
 type Props = {
   forcedUsername?: string;
@@ -31,6 +32,7 @@ export default function ProfileConnectionsPageClient({
   forcedUsername,
 }: Props) {
   const searchParams = useSearchParams();
+  const { userId: currentUserId, username: viewerUsername } = useViewerSession();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profileName, setProfileName] = useState("usuario");
@@ -54,10 +56,6 @@ export default function ProfileConnectionsPageClient({
           throw new Error("Falta configurar Supabase.");
         }
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
         let viewedUserId: string | null = null;
         let viewedUsername = forcedUsername?.trim() || null;
 
@@ -72,25 +70,15 @@ export default function ProfileConnectionsPageClient({
           viewedUserId = data?.id ?? null;
           viewedUsername = data?.username ?? viewedUsername;
         } else {
-          if (!user?.id) {
+          if (!currentUserId) {
             throw new Error("No encontramos la sesión del usuario para continuar.");
           }
 
-          await ensureUserRow(supabase, user);
-          viewedUserId = user.id;
+          viewedUserId = currentUserId;
 
-          const { data, error: selfError } = await supabase
-            .from("users")
-            .select("username")
-            .eq("id", viewedUserId)
-            .maybeSingle();
-
-          if (selfError) throw selfError;
           viewedUsername =
-            data?.username ??
-            (typeof user.user_metadata?.username === "string"
-              ? user.user_metadata.username
-              : user.email?.split("@")[0] ?? "usuario");
+            viewerUsername ??
+            "usuario";
         }
 
         if (!viewedUserId) {
@@ -161,7 +149,7 @@ export default function ProfileConnectionsPageClient({
     return () => {
       cancelled = true;
     };
-  }, [forcedUsername, tab]);
+  }, [currentUserId, forcedUsername, tab, viewerUsername]);
 
   const title = tab === "followers" ? "Seguidores" : "Seguidos";
   const subtitle =

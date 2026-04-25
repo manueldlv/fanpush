@@ -21,6 +21,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const inPublicPrivacy = pathname?.startsWith("/privacidad");
   const inPublicHelp = pathname?.startsWith("/ayuda");
   const inPublicFaq = pathname?.startsWith("/faq");
+  const inPublicExplore = pathname?.startsWith("/explorar");
+  const inPublicHashtag = pathname?.startsWith("/hashtags/");
+  const inPublicUserProfile = pathname?.startsWith("/user/");
   const allowWithoutSession = Boolean(
     inAuth ||
     inAdminLogin ||
@@ -29,7 +32,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     inPublicTerms ||
     inPublicPrivacy ||
     inPublicHelp ||
-    inPublicFaq,
+    inPublicFaq ||
+    inPublicExplore ||
+    inPublicHashtag ||
+    inPublicUserProfile,
   );
   const {
     data: session,

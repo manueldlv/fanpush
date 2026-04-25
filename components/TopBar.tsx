@@ -17,6 +17,7 @@ import {
   useGetViewerQuery,
   useSignOutMutation,
 } from "@/lib/redux/api/sessionApi";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { NotificationActivityItem } from "@/lib/server/repositories/notification-center";
 import { cn } from "@/lib/utils";
@@ -141,6 +142,7 @@ export default function TopBar() {
   const searchRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const { data: viewer, isLoading: viewerLoading } = useGetViewerQuery();
+  const { userId: currentUserId } = useViewerSession();
   const { data: notificationsData } = useGetNotificationCenterQuery();
   const [signOut] = useSignOutMutation();
   const { data: results = [], isFetching: searchLoading } = useSearchUsersQuery(
@@ -179,9 +181,7 @@ export default function TopBar() {
       }
 
       const supabase = getSupabaseClient();
-      if (!supabase) return;
-      const { data: authData } = await supabase.auth.getUser();
-      const currentUserId = authData?.user?.id;
+      if (!supabase || !currentUserId) return;
       if (!currentUserId) return;
 
       const { data } = await supabase
@@ -203,14 +203,12 @@ export default function TopBar() {
     };
 
     void loadFollowState();
-  }, [followActorIdsKey]);
+  }, [currentUserId, followActorIdsKey]);
 
   const handleFollowFromNotifications = async (item: NotificationActivityItem) => {
     if (!item.actorId) return;
     const supabase = getSupabaseClient();
     if (!supabase) return;
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUserId = authData?.user?.id;
     if (!currentUserId || currentUserId === item.actorId) return;
 
     setFollowPendingIds((prev) => new Set(prev).add(item.actorId as string));
@@ -309,7 +307,15 @@ export default function TopBar() {
     <header className="fixed left-0 top-0 z-[140] h-16 w-full border-b border-zinc-200 bg-white/95 backdrop-blur">
       <div className="flex h-full items-center justify-between gap-4 px-4 md:px-6">
         <div className="flex min-w-0 items-center gap-6">
-          <Link href="/" className="flex items-center">
+          <a
+            href="/"
+            onClick={(event) => {
+              event.preventDefault();
+              window.location.assign("/");
+            }}
+            className="flex shrink-0 items-center"
+            aria-label="Ir al inicio"
+          >
             <Image
               src="/fanpush-logo.png"
               alt="FanPush"
@@ -318,15 +324,19 @@ export default function TopBar() {
               priority
               className="h-10 w-auto"
             />
-          </Link>
+          </a>
 
           <nav className="hidden items-center gap-5 text-[14px] font-semibold text-zinc-500 sm:flex">
-            <Link
+            <a
               href="/"
+              onClick={(event) => {
+                event.preventDefault();
+                window.location.assign("/");
+              }}
               className={pathname === "/" ? "text-[#5A3EE7]" : "hover:text-zinc-900"}
             >
               Feed
-            </Link>
+            </a>
             <Link
               href="/explorar"
               className={
@@ -342,14 +352,14 @@ export default function TopBar() {
 
         <div className="flex items-center gap-4">
           <div className="relative hidden md:block" ref={searchRef}>
-            <div className="flex h-[50px] w-[360px] items-center gap-3 rounded-full border border-zinc-200 bg-white px-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-              <Search className="h-[22px] w-[22px] text-zinc-400" />
+            <div className="flex h-[42px] w-[360px] items-center gap-2.5 rounded-full border border-zinc-200 bg-white px-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <Search className="h-5 w-5 text-zinc-400" />
               <input
                 value={query}
                 onFocus={() => setSearchOpen(true)}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Buscar usuarios"
-                className="w-full bg-transparent text-[15px] font-medium text-zinc-800 outline-none placeholder:text-zinc-400"
+                className="w-full bg-transparent text-[14px] font-medium text-zinc-800 outline-none placeholder:text-zinc-400"
               />
               {query ? (
                 <button
@@ -418,12 +428,12 @@ export default function TopBar() {
             <button
               type="button"
               onClick={() => setNotificationsOpen((prev) => !prev)}
-              className="relative inline-flex h-[50px] w-[50px] items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-zinc-50 hover:text-zinc-900"
+              className="relative inline-flex h-[42px] w-[42px] items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-zinc-50 hover:text-zinc-900"
               aria-label="Notificaciones"
             >
-              <Bell className="h-[23px] w-[23px]" />
+              <Bell className="h-5 w-5" />
               {unreadCount > 0 ? (
-                <span className="absolute right-[13px] top-[13px] h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
+                <span className="absolute right-[10px] top-[10px] h-2.5 w-2.5 rounded-full bg-[#ff334b]" />
               ) : null}
             </button>
 
@@ -482,7 +492,7 @@ export default function TopBar() {
             <button
               type="button"
               onClick={() => router.push(isAuthor && balance > 0 ? "/ventas" : "/saldo")}
-              className="inline-flex h-[50px] items-center gap-2.5 rounded-full border border-[#5A3EE7] bg-white px-5 text-[#5A3EE7] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#faf8ff]"
+              className="inline-flex h-[42px] items-center gap-2 rounded-full border border-[#5A3EE7] bg-white px-4 text-[#5A3EE7] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#faf8ff]"
               aria-label={
                 isAuthor && balance > 0
                   ? "Ir a mis ventas"
@@ -495,9 +505,9 @@ export default function TopBar() {
                 width={17}
                 height={21}
                 aria-hidden="true"
-                className="h-[21px] w-auto"
+                className="h-[18px] w-auto"
               />
-              <span className="text-[16px] font-bold tracking-[-0.01em]">
+              <span className="text-[15px] font-bold tracking-[-0.01em]">
                 {Number.isFinite(balance) ? formatBalanceUnits(balance) : "0"}
               </span>
             </button>
@@ -507,17 +517,17 @@ export default function TopBar() {
             <button
               type="button"
               onClick={() => setProfileOpen((prev) => !prev)}
-              className="rounded-full"
+              className="inline-flex h-[42px] w-[42px] items-center justify-center rounded-full align-middle"
               aria-label="Abrir menu de perfil"
             >
               {viewerLoading ? (
-                <div className="fanpush-skeleton h-[50px] w-[50px] rounded-full" />
+                <div className="fanpush-skeleton h-[42px] w-[42px] rounded-full" />
               ) : (
                 <UserAvatar
                   src={profile?.avatarUrl}
                   alt={profile?.username ?? "Perfil"}
-                  sizeClassName="h-[50px] w-[50px]"
-                  iconClassName="h-5 w-5"
+                  sizeClassName="h-[42px] w-[42px]"
+                  iconClassName="h-[18px] w-[18px]"
                 />
               )}
             </button>

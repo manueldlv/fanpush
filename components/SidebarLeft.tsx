@@ -20,7 +20,11 @@ import { useGetViewerQuery, useSignOutMutation } from "@/lib/redux/api/sessionAp
 import { useGetNotificationCenterQuery } from "@/lib/redux/api/notificationsApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import { openSearchPanel } from "@/lib/redux/slices/uiSlice";
-import { EARNINGS_REFRESH_FLAG, PURCHASE_REFRESH_FLAG } from "@/lib/auth";
+import {
+  EARNINGS_REFRESH_FLAG,
+  getSessionAccessTokenWithRetry,
+  PURCHASE_REFRESH_FLAG,
+} from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SidebarLeft() {
@@ -48,14 +52,12 @@ export default function SidebarLeft() {
     const loadDirectChatUnread = async () => {
       try {
         const supabase = getSupabaseClient();
-        const session = supabase
-          ? await supabase.auth.getSession().then((result) => result.data.session)
+        const accessToken = supabase
+          ? await getSessionAccessTokenWithRetry(supabase)
           : null;
         const response = await fetch("/api/direct-chats", {
           credentials: "include",
-          headers: session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : undefined,
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         });
         const result = (await response.json()) as {
           error?: string;
@@ -135,7 +137,7 @@ export default function SidebarLeft() {
       <span className="relative">
         {icon}
         {badgeCount > 0 ? (
-          <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#ff334b] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+          <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#5A3EE7] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
             {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         ) : null}
@@ -166,7 +168,7 @@ export default function SidebarLeft() {
 
   const mobileBadge = (count: number) =>
     count > 0 ? (
-      <span className="absolute right-0 top-0 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#ff334b] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+      <span className="absolute right-0 top-0 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#5A3EE7] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
         {count > 99 ? "99+" : count}
       </span>
     ) : null;
@@ -178,13 +180,17 @@ export default function SidebarLeft() {
           <nav className="mt-2 flex flex-1 flex-col gap-0.5">
             {!financeOnlyAccess ? (
               <>
-                <Link
+                <a
                   href="/"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    window.location.assign("/");
+                  }}
                   className={itemClass(pathname === "/")}
                 >
                   <Home className={iconClass(pathname === "/")} />
                   <span>Inicio</span>
-                </Link>
+                </a>
                 <button
                   type="button"
                   onClick={() => dispatch(openSearchPanel())}

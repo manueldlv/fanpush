@@ -33,6 +33,11 @@ export default function SidebarLeft() {
   const [purchaseBadge, setPurchaseBadge] = useState(false);
   const [salesBadge, setSalesBadge] = useState(false);
   const [messagesBadgeCount, setMessagesBadgeCount] = useState(0);
+  const isBlocked = viewer?.access.isBlocked ?? false;
+  const blockedReason = viewer?.access.blockedReason ?? null;
+  const financeOnlyAccess =
+    isBlocked &&
+    (blockedReason === "account_closed" || blockedReason === "account_deleted");
   const canCreate = viewer?.access.canCreate ?? false;
   const isAuthor = viewer?.access.isAuthor ?? false;
   const createHref = canCreate ? "/crear" : "/autor/solicitud";
@@ -171,83 +176,91 @@ export default function SidebarLeft() {
       <aside className="fixed left-0 top-16 z-40 hidden h-[calc(100vh-4rem)] w-60 border-r border-black/8 bg-white px-4 py-6 md:block">
         <div className="flex h-full flex-col">
           <nav className="mt-2 flex flex-1 flex-col gap-0.5">
-            <Link
-              href="/"
-              className={itemClass(pathname === "/")}
-            >
-              <Home className={iconClass(pathname === "/")} />
-              <span>Inicio</span>
-            </Link>
-            <button
-              type="button"
-              onClick={() => dispatch(openSearchPanel())}
-              className={`group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold leading-none tracking-[-0.01em] transition ${
-                searchOpen
-                  ? "text-[#5A3EE7]"
-                  : "text-[#161823] hover:bg-black/[0.035] hover:text-[#161823]"
-              }`}
-            >
-              <Search className={`h-6 w-6 transition ${searchOpen ? "text-[#5A3EE7]" : "text-[#161823]"}`} />
-              <span>Búsqueda</span>
-            </button>
-            <Link
-              href="/explorar"
-              className={itemClass(pathname === "/explorar")}
-            >
-              <Compass className={iconClass(pathname === "/explorar")} />
-              <span>Explorar</span>
-            </Link>
-            <Link
-              href="/mensajes"
-              className={itemClass(pathname === "/mensajes")}
-            >
-              {showBadge(
-                pathname === "/mensajes",
-                messagesBadgeCount,
-                messagesNavIcon(pathname === "/mensajes"),
-                "Mensajes",
-              )}
-            </Link>
-            <Link
-              href="/notificaciones"
-              className={itemClass(pathname === "/notificaciones")}
-            >
-              {showBadge(
-                pathname === "/notificaciones",
-                unreadNotifications ? 1 : 0,
-                <Bell className={iconClass(pathname === "/notificaciones")} />,
-                "Notificaciones",
-              )}
-            </Link>
-            <Link
-              href={createHref}
-              className={itemClass(pathname === "/crear" || pathname === "/autor/solicitud")}
-            >
-              <SquarePlus
-                className={iconClass(
-                  pathname === "/crear" || pathname === "/autor/solicitud",
-                )}
-              />
-              <span>Crear</span>
-            </Link>
-            <Link
-              href="/compras"
-              className={itemClass(pathname === "/compras")}
-            >
-              {showBadge(
-                pathname === "/compras",
-                purchaseBadge ? 1 : 0,
-                <ShoppingBag className={iconClass(pathname === "/compras")} />,
-                "Mis compras",
-              )}
-            </Link>
-            <Link
-              href="/favoritos"
-              className={itemClass(pathname === "/favoritos")}
-            >
-              <Bookmark className={iconClass(pathname === "/favoritos")} />
-              <span>Favoritos</span>
-            </Link>
+            {!financeOnlyAccess ? (
+              <>
+                <Link
+                  href="/"
+                  className={itemClass(pathname === "/")}
+                >
+                  <Home className={iconClass(pathname === "/")} />
+                  <span>Inicio</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => dispatch(openSearchPanel())}
+                  className={`group flex items-center gap-3 rounded-[14px] px-3 py-3 text-[15px] font-semibold leading-none tracking-[-0.01em] transition ${
+                    searchOpen
+                      ? "text-[#5A3EE7]"
+                      : "text-[#161823] hover:bg-black/[0.035] hover:text-[#161823]"
+                  }`}
+                >
+                  <Search className={`h-6 w-6 transition ${searchOpen ? "text-[#5A3EE7]" : "text-[#161823]"}`} />
+                  <span>Búsqueda</span>
+                </button>
+                <Link
+                  href="/explorar"
+                  className={itemClass(pathname === "/explorar")}
+                >
+                  <Compass className={iconClass(pathname === "/explorar")} />
+                  <span>Explorar</span>
+                </Link>
+                <Link
+                  href="/mensajes"
+                  className={itemClass(pathname === "/mensajes")}
+                >
+                  {showBadge(
+                    pathname === "/mensajes",
+                    messagesBadgeCount,
+                    messagesNavIcon(pathname === "/mensajes"),
+                    "Mensajes",
+                  )}
+                </Link>
+                <Link
+                  href="/notificaciones"
+                  className={itemClass(pathname === "/notificaciones")}
+                >
+                  {showBadge(
+                    pathname === "/notificaciones",
+                    unreadNotifications ? 1 : 0,
+                    <Bell className={iconClass(pathname === "/notificaciones")} />,
+                    "Notificaciones",
+                  )}
+                </Link>
+                <Link
+                  href={createHref}
+                  className={itemClass(pathname === "/crear" || pathname === "/autor/solicitud")}
+                >
+                  <SquarePlus
+                    className={iconClass(
+                      pathname === "/crear" || pathname === "/autor/solicitud",
+                    )}
+                  />
+                  <span>Crear</span>
+                </Link>
+                <Link
+                  href="/compras"
+                  className={itemClass(pathname === "/compras")}
+                >
+                  {showBadge(
+                    pathname === "/compras",
+                    purchaseBadge ? 1 : 0,
+                    <ShoppingBag className={iconClass(pathname === "/compras")} />,
+                    "Mis compras",
+                  )}
+                </Link>
+                <Link
+                  href="/favoritos"
+                  className={itemClass(pathname === "/favoritos")}
+                >
+                  <Bookmark className={iconClass(pathname === "/favoritos")} />
+                  <span>Favoritos</span>
+                </Link>
+              </>
+            ) : (
+              <div className="rounded-[14px] border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                Tu cuenta está cerrada. Solo puedes acceder a saldo, retiros y configuración.
+              </div>
+            )}
             {isAuthor ? (
               <Link
                 href="/ventas"
@@ -285,26 +298,28 @@ export default function SidebarLeft() {
             </Link>
           </nav>
 
-          <div className="mt-6 rounded-[16px] border border-black/8 bg-black/[0.02] p-4 text-xs text-zinc-600">
-            <div className="font-semibold text-zinc-900">FanPush guía rápida</div>
-            <div className="mt-2">
-              Compra contenido al instante, deja propinas y, si quieres vender, solicita tu verificación de autor.
+          {!financeOnlyAccess ? (
+            <div className="mt-6 rounded-[16px] border border-black/8 bg-black/[0.02] p-4 text-xs text-zinc-600">
+              <div className="font-semibold text-zinc-900">FanPush guía rápida</div>
+              <div className="mt-2">
+                Compra contenido al instante, deja propinas y, si quieres vender, solicita tu verificación de autor.
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href="/ayuda"
+                  className="rounded-[5px] border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700"
+                >
+                  Centro de ayuda
+                </Link>
+                <Link
+                  href="/faq"
+                  className="rounded-[5px] border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700"
+                >
+                  FAQ
+                </Link>
+              </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Link
-                href="/ayuda"
-                className="rounded-[5px] border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700"
-              >
-                Centro de ayuda
-              </Link>
-              <Link
-                href="/faq"
-                className="rounded-[5px] border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700"
-              >
-                FAQ
-              </Link>
-            </div>
-          </div>
+          ) : null}
 
         <div className="mt-auto border-t border-black/8 pt-4">
             <button
@@ -323,69 +338,73 @@ export default function SidebarLeft() {
       </aside>
 
       <nav className="fixed bottom-0 left-0 z-50 flex w-full items-center justify-around border-t border-zinc-200 bg-white px-2 py-2 md:hidden">
-        <Link
-          href="/"
-          className={mobileIconWrapClass}
-          aria-label="Inicio"
-        >
-          <Home className="h-5 w-5" />
-        </Link>
-        <button
-          type="button"
-          onClick={() => dispatch(openSearchPanel())}
-          className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
-            searchOpen ? "bg-zinc-100 text-zinc-900" : "text-zinc-700"
-          }`}
-          aria-label="Búsqueda"
-        >
-          <Search className="h-5 w-5" />
-        </button>
-        <Link
-          href="/explorar"
-          className={mobileIconWrapClass}
-          aria-label="Explorar"
-        >
-          <Compass className="h-5 w-5" />
-        </Link>
-        <Link
-          href="/mensajes"
-          className={mobileIconWrapClass}
-          aria-label="Mensajes"
-        >
-          {mobileBadge(messagesBadgeCount)}
-          <Image
-            src="/messages-nav-icon.png"
-            alt=""
-            width={20}
-            height={16}
-            className="h-4 w-5 object-contain brightness-0 saturate-100"
-            unoptimized
-            aria-hidden="true"
-          />
-        </Link>
-        <Link
-          href={createHref}
-          className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
-          aria-label="Crear"
-        >
-          <SquarePlus className="h-5 w-5" />
-        </Link>
-        <Link
-          href="/notificaciones"
-          className={mobileIconWrapClass}
-          aria-label="Notificaciones"
-        >
-          {mobileBadge(unreadNotifications ? 1 : 0)}
-          <Bell className="h-5 w-5" />
-        </Link>
-        <Link
-          href="/compras"
-          className={mobileIconWrapClass}
-          aria-label="Mis compras"
-        >
-          {mobileBadge(purchaseBadge ? 1 : 0)}
-          <ShoppingBag className="h-5 w-5" />
-        </Link>
+        {!financeOnlyAccess ? (
+          <>
+            <Link
+              href="/"
+              className={mobileIconWrapClass}
+              aria-label="Inicio"
+            >
+              <Home className="h-5 w-5" />
+            </Link>
+            <button
+              type="button"
+              onClick={() => dispatch(openSearchPanel())}
+              className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
+                searchOpen ? "bg-zinc-100 text-zinc-900" : "text-zinc-700"
+              }`}
+              aria-label="Búsqueda"
+            >
+              <Search className="h-5 w-5" />
+            </button>
+            <Link
+              href="/explorar"
+              className={mobileIconWrapClass}
+              aria-label="Explorar"
+            >
+              <Compass className="h-5 w-5" />
+            </Link>
+            <Link
+              href="/mensajes"
+              className={mobileIconWrapClass}
+              aria-label="Mensajes"
+            >
+              {mobileBadge(messagesBadgeCount)}
+              <Image
+                src="/messages-nav-icon.png"
+                alt=""
+                width={20}
+                height={16}
+                className="h-4 w-5 object-contain brightness-0 saturate-100"
+                unoptimized
+                aria-hidden="true"
+              />
+            </Link>
+            <Link
+              href={createHref}
+              className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+              aria-label="Crear"
+            >
+              <SquarePlus className="h-5 w-5" />
+            </Link>
+            <Link
+              href="/notificaciones"
+              className={mobileIconWrapClass}
+              aria-label="Notificaciones"
+            >
+              {mobileBadge(unreadNotifications ? 1 : 0)}
+              <Bell className="h-5 w-5" />
+            </Link>
+            <Link
+              href="/compras"
+              className={mobileIconWrapClass}
+              aria-label="Mis compras"
+            >
+              {mobileBadge(purchaseBadge ? 1 : 0)}
+              <ShoppingBag className="h-5 w-5" />
+            </Link>
+          </>
+        ) : null}
         {isAuthor ? (
           <Link
             href="/ventas"

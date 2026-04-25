@@ -1,10 +1,15 @@
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
 import {
+  canAccessFinanceWhileBlocked,
+  coerceAccountState,
+} from "@/lib/accountState";
+import {
   grantRoleByCode,
   hasPermission,
   revokeRoleByCode,
 } from "@/lib/server/auth/roles";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
+import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 
 export const requireAdminAccess = async (
   request: Request,
@@ -75,6 +80,27 @@ export const requireAuthorPermission = async (
       ...result,
       isAuthor: false,
     };
+  }
+
+  const accountStateResult = await getUserMetaEntries(result.admin, result.user.id, [
+    USER_META_KEYS.accountState,
+  ]);
+  const accountState = coerceAccountState(
+    accountStateResult.entries.get(USER_META_KEYS.accountState),
+  );
+
+  if (accountState.isBlocked) {
+    const allowFinanceAccess =
+      permissionCode === "withdrawals.request" &&
+      canAccessFinanceWhileBlocked(accountState);
+
+    if (!allowFinanceAccess) {
+      return {
+        ...result,
+        isAuthor: false,
+        error: deniedError,
+      };
+    }
   }
 
   const allowedByRole = await hasPermission(result.admin, result.user, permissionCode);

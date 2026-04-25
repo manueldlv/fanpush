@@ -8,20 +8,22 @@ import {
 import {
   buildDefaultNotificationPreferences,
   parseNotificationPreferences,
-  serializeNotificationPreferences,
   type NotificationPreferences,
 } from "@/lib/notificationPreferences";
 import {
   coercePayoutProfile,
   parsePayoutProfile,
-  serializePayoutProfile,
   toPayoutProfileMetaValue,
 } from "@/lib/payouts";
+import {
+  getPayoutMetaEntries,
+  PAYOUT_META_KEYS,
+  upsertPayoutMetaValue,
+} from "@/lib/payoutMeta";
 import {
   coerceProfileDetails,
   normalizeWebsite,
   parseProfileDetails,
-  serializeProfileDetails,
   toProfileDetailsMetaValue,
 } from "@/lib/profileDetails";
 import {
@@ -147,44 +149,21 @@ const loadSettings = async (): Promise<SettingsData> => {
     .select("full_name")
     .eq("id", userId)
     .maybeSingle();
-  const { data: payoutRow } = await supabase
-    .from("notifications")
-    .select("message")
-    .eq("user_id", userId)
-    .eq("type", "payout_profile")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const { data: profileMetaRow } = await supabase
-    .from("notifications")
-    .select("message")
-    .eq("user_id", userId)
-    .eq("type", "profile_meta")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const { data: notificationPrefsRow } = await supabase
-    .from("notifications")
-    .select("message")
-    .eq("user_id", userId)
-    .eq("type", "notification_preferences")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
   const userMetaResult = await getUserMetaEntries(supabase, userId, [
     USER_META_KEYS.profileDetails,
     USER_META_KEYS.payoutProfile,
     USER_META_KEYS.notificationPreferences,
   ]);
+  const payoutMetaResult = await getPayoutMetaEntries(supabase, userId, [
+    PAYOUT_META_KEYS.defaultAccount,
+  ]);
 
   const payoutProfile =
-    coercePayoutProfile(userMetaResult.entries.get(USER_META_KEYS.payoutProfile)) ??
-    parsePayoutProfile(payoutRow?.message);
+    coercePayoutProfile(payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount)) ??
+    coercePayoutProfile(userMetaResult.entries.get(USER_META_KEYS.payoutProfile));
   const profileDetails =
-    coerceProfileDetails(userMetaResult.entries.get(USER_META_KEYS.profileDetails)) ??
-    parseProfileDetails(profileMetaRow?.message);
+    coerceProfileDetails(userMetaResult.entries.get(USER_META_KEYS.profileDetails));
   const notificationPreferences =
-    parseNotificationPreferences(notificationPrefsRow?.message) ??
     (userMetaResult.entries.get(USER_META_KEYS.notificationPreferences) as
       | NotificationPreferences
       | undefined) ??
@@ -318,37 +297,6 @@ export const settingsApi = createApi({
             }),
           );
 
-          const payload = serializeProfileDetails({
-            bio: arg.bio,
-            website: normalizeWebsite(arg.website),
-            instagram: arg.instagram,
-          });
-          const { data: existingProfileMeta } = await supabase
-            .from("notifications")
-            .select("id")
-            .eq("user_id", arg.userId)
-            .eq("type", "profile_meta")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (existingProfileMeta?.id) {
-            const { error } = await supabase
-              .from("notifications")
-              .update({ message: payload, is_read: true })
-              .eq("id", existingProfileMeta.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from("notifications").insert({
-              user_id: arg.userId,
-              actor_id: arg.userId,
-              type: "profile_meta",
-              entity_id: arg.userId,
-              message: payload,
-              is_read: true,
-            });
-            if (error) throw error;
-          }
-
           return { data: await loadSettings() };
         } catch (error) {
           return { error: buildError(error, "No se pudo actualizar el perfil.") };
@@ -362,40 +310,18 @@ export const settingsApi = createApi({
           const supabase = getSupabaseClient();
           if (!supabase) throw new Error("Falta configurar Supabase.");
 
-          const payload = serializePayoutProfile(arg.payoutProfile);
+          await upsertPayoutMetaValue(
+            supabase,
+            arg.userId,
+            PAYOUT_META_KEYS.defaultAccount,
+            toPayoutProfileMetaValue(arg.payoutProfile),
+          );
           await upsertUserMetaValue(
             supabase,
             arg.userId,
             USER_META_KEYS.payoutProfile,
             toPayoutProfileMetaValue(arg.payoutProfile),
           );
-
-          const { data: existing } = await supabase
-            .from("notifications")
-            .select("id")
-            .eq("user_id", arg.userId)
-            .eq("type", "payout_profile")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (existing?.id) {
-            const { error } = await supabase
-              .from("notifications")
-              .update({ message: payload, is_read: true })
-              .eq("id", existing.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from("notifications").insert({
-              user_id: arg.userId,
-              actor_id: arg.userId,
-              type: "payout_profile",
-              entity_id: arg.userId,
-              message: payload,
-              is_read: true,
-            });
-            if (error) throw error;
-          }
 
           return { data: await loadSettings() };
         } catch (error) {
@@ -420,34 +346,6 @@ export const settingsApi = createApi({
             arg.notificationPreferences,
           );
 
-          const payload = serializeNotificationPreferences(arg.notificationPreferences);
-          const { data: existing } = await supabase
-            .from("notifications")
-            .select("id")
-            .eq("user_id", arg.userId)
-            .eq("type", "notification_preferences")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (existing?.id) {
-            const { error } = await supabase
-              .from("notifications")
-              .update({ message: payload, is_read: true })
-              .eq("id", existing.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from("notifications").insert({
-              user_id: arg.userId,
-              actor_id: arg.userId,
-              type: "notification_preferences",
-              entity_id: arg.userId,
-              message: payload,
-              is_read: true,
-            });
-            if (error) throw error;
-          }
-
           return { data: await loadSettings() };
         } catch (error) {
           return {
@@ -457,7 +355,7 @@ export const settingsApi = createApi({
       },
       invalidatesTags: ["Settings"],
     }),
-    deleteAccount: builder.mutation<void, void>({
+    closeAccount: builder.mutation<{ mode?: string }, void>({
       async queryFn() {
         try {
           const supabase = getSupabaseClient();
@@ -475,14 +373,14 @@ export const settingsApi = createApi({
               Authorization: `Bearer ${session.access_token}`,
             },
           });
-          const result = (await response.json()) as { error?: string };
+          const result = (await response.json()) as { error?: string; mode?: string };
           if (!response.ok) {
-            throw new Error(result.error ?? "No se pudo borrar la cuenta.");
+            throw new Error(result.error ?? "No se pudo cerrar la cuenta.");
           }
 
-          return { data: undefined };
+          return { data: { mode: result.mode } };
         } catch (error) {
-          return { error: buildError(error, "No se pudo borrar la cuenta.") };
+          return { error: buildError(error, "No se pudo cerrar la cuenta.") };
         }
       },
       invalidatesTags: ["Settings"],
@@ -491,7 +389,7 @@ export const settingsApi = createApi({
 });
 
 export const {
-  useDeleteAccountMutation,
+  useCloseAccountMutation,
   useGetSettingsQuery,
   useUpdateNotificationPreferencesMutation,
   useUpdatePayoutProfileMutation,

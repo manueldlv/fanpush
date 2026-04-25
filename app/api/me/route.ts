@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
-import { coerceAccountState } from "@/lib/accountState";
+import { canAccessFinanceWhileBlocked, coerceAccountState } from "@/lib/accountState";
 import { loadCreatorEarnings } from "@/lib/earnings";
+import { getPayoutMetaEntries, PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { coercePayoutProfile, parsePayoutProfile } from "@/lib/payouts";
 import { coerceProfileDetails, parseProfileDetails } from "@/lib/profileDetails";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
@@ -31,9 +32,8 @@ export async function GET(request: Request) {
     const [
       { data: userRow, error: userRowError },
       { data: profileRow, error: profileRowError },
-      { data: profileMetaRow, error: profileMetaError },
-      { data: payoutRow, error: payoutError },
       userMetaResult,
+      payoutMetaResult,
       accessSnapshot,
       earnings,
       balanceSnapshot,
@@ -49,27 +49,12 @@ export async function GET(request: Request) {
         .select("id,full_name,email")
         .eq("id", user.id)
         .maybeSingle(),
-      admin
-        .from("notifications")
-        .select("message")
-        .eq("user_id", user.id)
-        .eq("type", "profile_meta")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      admin
-        .from("notifications")
-        .select("message")
-        .eq("user_id", user.id)
-        .eq("type", "payout_profile")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
       getUserMetaEntries(admin, user.id, [
         USER_META_KEYS.profileDetails,
         USER_META_KEYS.payoutProfile,
         USER_META_KEYS.accountState,
       ]),
+      getPayoutMetaEntries(admin, user.id, [PAYOUT_META_KEYS.defaultAccount]),
       getUserAccessSnapshot(admin, user),
       loadCreatorEarnings(admin, user.id),
       ensureLegacyCreatorBalanceBaseline(admin, user.id),
@@ -82,19 +67,11 @@ export async function GET(request: Request) {
     if (profileRowError) {
       throw new Error(`No se pudo leer el perfil: ${profileRowError.message}`);
     }
-    if (profileMetaError) {
-      throw new Error(`No se pudo leer el detalle del perfil: ${profileMetaError.message}`);
-    }
-    if (payoutError) {
-      throw new Error(`No se pudo leer el perfil de cobro: ${payoutError.message}`);
-    }
-
     const profileDetails =
-      coerceProfileDetails(userMetaResult.entries.get(USER_META_KEYS.profileDetails)) ??
-      parseProfileDetails(profileMetaRow?.message);
+      coerceProfileDetails(userMetaResult.entries.get(USER_META_KEYS.profileDetails));
     const payoutProfile =
-      coercePayoutProfile(userMetaResult.entries.get(USER_META_KEYS.payoutProfile)) ??
-      parsePayoutProfile(payoutRow?.message);
+      coercePayoutProfile(payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount)) ??
+      coercePayoutProfile(userMetaResult.entries.get(USER_META_KEYS.payoutProfile));
     const accountState = coerceAccountState(
       userMetaResult.entries.get(USER_META_KEYS.accountState),
     );
@@ -108,7 +85,7 @@ export async function GET(request: Request) {
     const canCreate = isAuthor && !accountState.isBlocked;
     const canWithdraw =
       (isAuthor || permissions.includes("withdrawals.request")) &&
-      !accountState.isBlocked;
+      (!accountState.isBlocked || canAccessFinanceWhileBlocked(accountState));
     const canAccessAdmin =
       accessSnapshot.isAdmin || permissions.includes("admin.access");
     const cashAvailable = balanceSnapshot?.cashAvailable ?? 0;

@@ -44,3 +44,32 @@ export const coerceAccountState = (value: unknown): AccountState => {
       typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
   };
 };
+
+export const isPlatformDisabledReason = (reason?: string | null) =>
+  reason === "account_closed" ||
+  reason === "account_deleted" ||
+  reason === "terms_violation" ||
+  reason === "spam" ||
+  reason === "admin_disabled";
+
+export const canAccessFinanceWhileBlocked = (state: AccountState) =>
+  state.isBlocked &&
+  (state.blockedReason === "account_closed" ||
+    state.blockedReason === "account_deleted");
+
+export const isPubliclyUnavailableAccount = (state: AccountState) =>
+  state.isBlocked && isPlatformDisabledReason(state.blockedReason);
+
+export const getUnavailableAccountMessage = (state: AccountState) => {
+  switch (state.blockedReason) {
+    case "account_closed":
+    case "account_deleted":
+      return "Esta persona cerró su cuenta y ya no está disponible en la plataforma.";
+    case "terms_violation":
+    case "spam":
+    case "admin_disabled":
+      return "Este perfil no está disponible por incumplimiento de las normas de la plataforma.";
+    default:
+      return "Este perfil no está disponible.";
+  }
+};

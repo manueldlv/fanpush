@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
+import { USER_META_KEYS } from "@/lib/userMeta";
 
 export async function POST(request: Request) {
   try {
@@ -10,10 +11,6 @@ export async function POST(request: Request) {
 
     const userId = user.id;
     const closedAt = new Date().toISOString();
-    const deletedSuffix = userId.slice(0, 8);
-    const archivedUsername = `deleted_${deletedSuffix}`;
-    const archivedEmail = `deleted+${deletedSuffix}@fanpush.invalid`;
-    const replacementPassword = `${crypto.randomUUID()}${crypto.randomUUID()}`;
 
     const { data: ownedPostsRows } = await admin
       .from("posts")
@@ -31,43 +28,14 @@ export async function POST(request: Request) {
       if (error) throw new Error(error.message);
     };
 
-    throwIfError(
-      (
-        await admin
-          .from("notifications")
-          .delete()
-          .or(`user_id.eq.${userId},actor_id.eq.${userId}`)
-      ).error,
-    );
-
-    throwIfError(
-      (
-        await admin
-          .from("follows")
-          .delete()
-          .or(`follower_id.eq.${userId},following_id.eq.${userId}`)
-      ).error,
-    );
-
-    throwIfError((await admin.from("likes").delete().eq("user_id", userId)).error);
-    throwIfError(
-      (await admin.from("purchases").delete().eq("user_id", userId)).error,
-    );
-    throwIfError((await admin.from("notification_threads").delete().eq("user_id", userId)).error);
-    throwIfError((await admin.from("user_meta").delete().eq("user_id", userId)).error);
-
-    throwIfError(
-      (
-        await admin
-          .from("notifications")
-          .update({ actor_id: null })
-          .eq("actor_id", userId)
-      ).error,
-    );
-
     if (ownedPostIds.length > 0) {
       throwIfError(
-        (await admin.from("likes").delete().in("post_id", ownedPostIds)).error,
+        (
+          await admin
+            .from("posts")
+            .update({ is_locked: true, updated_at: closedAt })
+            .in("id", ownedPostIds)
+        ).error,
       );
     }
 
@@ -95,11 +63,6 @@ export async function POST(request: Request) {
     throwIfError(
       (
         await admin.from("users").update({
-          username: archivedUsername,
-          avatar_url: null,
-          bio: null,
-          website: null,
-          instagram: null,
           updated_at: closedAt,
         }).eq("id", userId)
       ).error,
@@ -108,10 +71,6 @@ export async function POST(request: Request) {
     throwIfError(
       (
         await admin.from("profiles").update({
-          full_name: "Cuenta eliminada",
-          email: archivedEmail,
-          country: null,
-          locale: null,
           updated_at: closedAt,
         }).eq("id", userId)
       ).error,
@@ -122,10 +81,10 @@ export async function POST(request: Request) {
         await admin.from("user_meta").upsert(
           {
             user_id: userId,
-            meta_key: "account.state",
+            meta_key: USER_META_KEYS.accountState,
             meta_value: {
               isBlocked: true,
-              blockedReason: "account_deleted",
+              blockedReason: "account_closed",
               badges: [],
               isVerified: false,
               isFeatured: false,
@@ -138,27 +97,14 @@ export async function POST(request: Request) {
       ).error,
     );
 
-    const { error: updateAuthError } = await admin.auth.admin.updateUserById(userId, {
-      email: archivedEmail,
-      password: replacementPassword,
-      user_metadata: {
-        username: archivedUsername,
-        full_name: "Cuenta eliminada",
-        deleted_at: closedAt,
-      },
-    });
-    if (updateAuthError) {
-      throw new Error(updateAuthError.message);
-    }
-
-    return NextResponse.json({ ok: true, mode: "archived" });
+    return NextResponse.json({ ok: true, mode: "closed" });
   } catch (error) {
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : "No se pudo borrar la cuenta.",
+            : "No se pudo cerrar la cuenta.",
       },
       { status: 500 },
     );

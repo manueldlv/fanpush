@@ -1,10 +1,15 @@
 import { createApi, fakeBaseQuery } from "@reduxjs/toolkit/query/react";
 import {
+  coerceAccountState,
+  getUnavailableAccountMessage,
+  isPubliclyUnavailableAccount,
+} from "@/lib/accountState";
+import {
   getSessionAccessTokenWithRetry,
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
 import { parseUploadModerationMeta } from "@/lib/contentClassification";
-import { parseProfileDetails } from "@/lib/profileDetails";
+import { coerceProfileDetails, parseProfileDetails } from "@/lib/profileDetails";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import {
   applyResolvedMediaAccess,
@@ -13,6 +18,7 @@ import {
 } from "@/lib/postMediaState";
 import { ensureLegacyCreatorBalanceBaseline } from "@/lib/server/repositories/ledger";
 import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
+import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 import type { Post } from "@/lib/store/posts";
 
 type AlbumMediaPost = {
@@ -195,6 +201,40 @@ const buildEmptyProfileView = (
   earnings: 0,
 });
 
+const buildUnavailableProfileView = ({
+  arg,
+  currentUserId,
+  viewedUserId,
+  username,
+  blockedReason,
+}: {
+  arg: ProfileViewArg;
+  currentUserId: string | null;
+  viewedUserId: string;
+  username: string;
+  blockedReason: string | null;
+}): ProfileViewData => ({
+  currentUserId,
+  viewedUserId,
+  profile: {
+    username: username || arg.username?.trim() || "usuario",
+    fullName: "Perfil no disponible",
+    avatar: "",
+    bio: getUnavailableAccountMessage(
+      coerceAccountState({
+        isBlocked: true,
+        blockedReason,
+      }),
+    ),
+    website: "",
+    instagram: "",
+  },
+  posts: [],
+  stats: emptyStats(),
+  isFollowing: false,
+  earnings: 0,
+});
+
 export const getProfileViewCacheKey = (arg: ProfileViewArg) => {
   if (arg.userId?.trim()) return `id:${arg.userId.trim()}`;
   if (arg.username?.trim()) return `username:${arg.username.trim().toLowerCase()}`;
@@ -283,7 +323,7 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
 
   const [
     profileRowResult,
-    profileMetaRowResult,
+    userMetaResult,
     albumsResult,
     postsCountResult,
     followersRowsResult,
@@ -294,14 +334,10 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
       .select("full_name")
       .eq("id", viewedUserId)
       .maybeSingle(),
-    supabase
-      .from("notifications")
-      .select("message")
-      .eq("user_id", viewedUserId)
-      .eq("type", "profile_meta")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    getUserMetaEntries(supabase, viewedUserId, [
+      USER_META_KEYS.profileDetails,
+      USER_META_KEYS.accountState,
+    ]),
     supabase
       .from("albums")
       .select(
@@ -325,7 +361,23 @@ const loadProfileView = async (arg: ProfileViewArg): Promise<ProfileViewData> =>
       .eq("follower_id", viewedUserId),
   ]);
 
-  const profileDetails = parseProfileDetails(profileMetaRowResult.data?.message);
+  const profileDetails = coerceProfileDetails(
+    userMetaResult.entries.get(USER_META_KEYS.profileDetails),
+  );
+  const accountState = coerceAccountState(
+    userMetaResult.entries.get(USER_META_KEYS.accountState),
+  );
+
+  if (currentUserId !== viewedUserId && isPubliclyUnavailableAccount(accountState)) {
+    return buildUnavailableProfileView({
+      arg,
+      currentUserId,
+      viewedUserId,
+      username: userRow?.username ?? arg.username?.trim() ?? fallbackUsername,
+      blockedReason: accountState.blockedReason,
+    });
+  }
+
   const resolvedAvatar = await resolvePublicUrl(userRow?.avatar_url ?? "");
   const profile: ProfileSummary = {
     username: userRow?.username ?? arg.username?.trim() ?? fallbackUsername,

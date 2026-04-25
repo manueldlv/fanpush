@@ -1,10 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  coerceAccountState,
+  getUnavailableAccountMessage,
+  isPubliclyUnavailableAccount,
+} from "@/lib/accountState";
+import {
   buildDirectPremiumMediaPath,
   inferDisplayKind,
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 
 type ThreadRow = {
   id: string;
@@ -247,31 +253,46 @@ const createThreadParticipantMap = async (
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
   if (uniqueUserIds.length === 0) return new Map<string, DirectThreadSummary>();
 
-  const [{ data: userRows, error: usersError }, { data: profileRows, error: profilesError }] =
+  const [
+    { data: userRows, error: usersError },
+    { data: profileRows, error: profilesError },
+    { data: metaRows, error: metaError },
+  ] =
     await Promise.all([
       admin.from("users").select("id,username,avatar_url").in("id", uniqueUserIds),
       admin.from("profiles").select("id,full_name").in("id", uniqueUserIds),
+      admin
+        .from("user_meta")
+        .select("user_id,meta_key,meta_value")
+        .in("user_id", uniqueUserIds)
+        .eq("meta_key", USER_META_KEYS.accountState),
     ]);
 
   throwRepositoryError(usersError, "No se pudieron leer los usuarios del chat");
   throwRepositoryError(profilesError, "No se pudieron leer los perfiles del chat");
+  throwRepositoryError(metaError, "No se pudo leer el estado de cuenta del chat");
 
   const userMap = new Map((userRows ?? []).map((row) => [row.id, row as UserRow]));
   const profileMap = new Map((profileRows ?? []).map((row) => [row.id, row as ProfileRow]));
+  const accountStateMap = new Map(
+    (metaRows ?? []).map((row) => [row.user_id as string, coerceAccountState(row.meta_value)]),
+  );
   const result = new Map<string, DirectThreadSummary>();
 
   uniqueUserIds.forEach((userId) => {
     const user = userMap.get(userId);
     const profile = profileMap.get(userId);
     const username = user?.username?.trim() || "usuario";
+    const accountState = accountStateMap.get(userId);
+    const unavailable = accountState ? isPubliclyUnavailableAccount(accountState) : false;
     result.set(userId, {
       id: "",
       participantUserId: userId,
       username,
-      fullName: profile?.full_name?.trim() || username,
+      fullName: unavailable ? "Cuenta no disponible" : profile?.full_name?.trim() || username,
       handle: username,
-      preview: "",
-      avatarUrl: resolvePublicUrl(admin, user?.avatar_url),
+      preview: unavailable && accountState ? getUnavailableAccountMessage(accountState) : "",
+      avatarUrl: unavailable ? null : resolvePublicUrl(admin, user?.avatar_url),
       participantIsAuthor: false,
       lastSeen: "Ahora",
       lastMessageAt: new Date(0).toISOString(),
@@ -527,6 +548,16 @@ export const openDirectThreadByUsername = async ({
 
   throwRepositoryError(userError, "No se pudo abrir el chat");
   if (!userRow?.id) throw new Error("No encontramos al usuario para abrir el chat.");
+
+  const accountStateResult = await getUserMetaEntries(admin, userRow.id, [
+    USER_META_KEYS.accountState,
+  ]);
+  const accountState = coerceAccountState(
+    accountStateResult.entries.get(USER_META_KEYS.accountState),
+  );
+  if (isPubliclyUnavailableAccount(accountState)) {
+    throw new Error("No puedes abrir un chat con una cuenta no disponible.");
+  }
 
   const { data: blockedByViewer } = await admin
     .from("direct_user_blocks")

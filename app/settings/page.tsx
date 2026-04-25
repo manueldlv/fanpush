@@ -12,7 +12,7 @@ import {
 } from "@/lib/chatPreferences";
 import { profileApi } from "@/lib/redux/api/profileApi";
 import {
-  useDeleteAccountMutation,
+  useCloseAccountMutation,
   useGetSettingsQuery,
   useUpdateNotificationPreferencesMutation,
   useUpdatePayoutProfileMutation,
@@ -66,7 +66,7 @@ export default function SettingsPage() {
   const [updateProfile] = useUpdateProfileMutation();
   const [updatePayoutProfile] = useUpdatePayoutProfileMutation();
   const [updateNotificationPreferences] = useUpdateNotificationPreferencesMutation();
-  const [deleteAccount] = useDeleteAccountMutation();
+  const [closeAccount] = useCloseAccountMutation();
   const invalidateProfileCaches = (userId: string, nextUsername: string) => {
     dispatch(profileApi.util.invalidateTags([
       { type: "ProfileView", id: "self" },
@@ -432,7 +432,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeleteAccount = async () => {
+  const handleCloseAccount = async () => {
     setMessage(null);
     const expected = username.trim().toLowerCase();
     if (!expected || deleteConfirmText.trim().toLowerCase() !== expected) {
@@ -442,13 +442,8 @@ export default function SettingsPage() {
 
     setDeletingAccount(true);
     try {
-      await deleteAccount().unwrap();
-      const supabase = getSupabaseClient();
-      if (!supabase) {
-        throw new Error("Falta configurar Supabase.");
-      }
-      await supabase.auth.signOut();
-      window.location.assign("/auth");
+      await closeAccount().unwrap();
+      window.location.assign("/saldo");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Ocurrió un error.");
     } finally {
@@ -863,11 +858,12 @@ export default function SettingsPage() {
 
                 <div className="rounded-[5px] border border-red-200 bg-red-50 p-6">
                   <div className="text-sm font-semibold text-red-700">
-                    Borrar cuenta
+                    Cerrar cuenta
                   </div>
                   <p className="mt-2 text-xs text-red-600">
-                    Esto elimina tu cuenta y sus datos relacionados. Para
-                    confirmar, escribe tu nombre de usuario exacto.
+                    Tu perfil dejará de estar visible en la plataforma, pero podrás
+                    seguir entrando para revisar saldo, retiros y configuración.
+                    Para confirmar, escribe tu nombre de usuario exacto.
                   </p>
                   <div className="mt-4 rounded-[5px] border border-red-200 bg-white px-3 py-2">
                     <input
@@ -882,7 +878,7 @@ export default function SettingsPage() {
                   <div className="mt-4 flex justify-end">
                     <button
                       type="button"
-                      onClick={handleDeleteAccount}
+                      onClick={handleCloseAccount}
                       disabled={
                         deletingAccount ||
                         deleteConfirmText.trim().toLowerCase() !==
@@ -890,7 +886,7 @@ export default function SettingsPage() {
                       }
                       className="rounded-[5px] bg-red-600 px-6 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {deletingAccount ? "Borrando..." : "Borrar cuenta"}
+                      {deletingAccount ? "Cerrando..." : "Cerrar cuenta"}
                     </button>
                   </div>
                 </div>

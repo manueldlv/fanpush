@@ -22,7 +22,9 @@ import {
 import { getExtensionFromFile } from "@/lib/media";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { feedApi } from "@/lib/redux/api/feedApi";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { useRouter } from "next/navigation";
+import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
 import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
@@ -61,6 +63,7 @@ function CrearPageSkeleton() {
 export default function CrearPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
+  const { userId: currentUserId } = useViewerSession();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [previewIds, setPreviewIds] = useState<string[]>([]);
@@ -361,10 +364,7 @@ export default function CrearPage() {
     }
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      if (authError) throw authError;
-      const userId = authData?.user?.id;
-      if (!userId) {
+      if (!currentUserId) {
         setError("Necesitas iniciar sesion para publicar.");
         setPublishing(false);
         return;
@@ -408,8 +408,7 @@ export default function CrearPage() {
 
       formData.append("itemsMeta", JSON.stringify(itemsMeta));
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
+      const accessToken = await getSessionAccessTokenWithRetry(supabase);
       if (!accessToken) {
         throw new Error("Necesitas iniciar sesion para publicar.");
       }
@@ -443,13 +442,11 @@ export default function CrearPage() {
         setAuthorStatus("idle");
         return;
       }
-      const { data } = await supabase.auth.getUser();
-      const userId = data.user?.id;
-      if (!userId) {
+      if (!currentUserId) {
         setAuthorStatus("idle");
         return;
       }
-      const application = await getAuthorApplicationForUser(supabase, userId);
+      const application = await getAuthorApplicationForUser(supabase, currentUserId);
       setAuthorStatus(application?.record?.status ?? "idle");
     };
 
@@ -461,7 +458,7 @@ export default function CrearPage() {
       window.clearInterval(interval);
       window.removeEventListener("creator-status-updated", refresh);
     };
-  }, []);
+  }, [currentUserId]);
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">

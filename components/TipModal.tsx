@@ -7,6 +7,7 @@ import {
   type BalanceCheckoutResult,
 } from "@/lib/balanceCheckout";
 import { MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
+import { redirectToSaldo, shouldRedirectToSaldo } from "@/lib/purchaseRedirect";
 
 const formatUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -33,6 +34,7 @@ type TipModalProps = {
   open: boolean;
   availableBalance: number;
   recipientLabel: string;
+  recipientAvatar?: string | null;
   recipientUserId: string | null;
   threadId?: string | null;
   onClose: () => void;
@@ -43,6 +45,7 @@ export default function TipModal({
   open,
   availableBalance,
   recipientLabel,
+  recipientAvatar,
   recipientUserId,
   threadId,
   onClose,
@@ -96,6 +99,26 @@ export default function TipModal({
       );
       return;
     }
+
+    if (
+      shouldRedirectToSaldo({
+        availableBalance,
+        requiredAmount: amountValue,
+      })
+    ) {
+      onClose();
+      redirectToSaldo({
+        reason: "insufficient-balance",
+        requiredAmount: amountValue,
+        currentBalance: availableBalance,
+        kind: threadId ? "chat" : "tip",
+        targetId: recipientUserId,
+        targetLabel: recipientLabel,
+        targetAvatar: recipientAvatar,
+      });
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
@@ -105,6 +128,7 @@ export default function TipModal({
         amount: amountValue,
         message: message.trim() || undefined,
         threadId: threadId || undefined,
+        availableBalance,
       });
       setResult(checkoutResult);
       onSubmitted?.(checkoutResult);

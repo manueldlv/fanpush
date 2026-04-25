@@ -8,6 +8,7 @@ import SharePostModal from "@/components/SharePostModal";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
+import { redirectToSaldo, shouldRedirectToSaldo } from "@/lib/purchaseRedirect";
 import {
   FAVORITES_UPDATED_EVENT,
   loadFavoritePosts,
@@ -32,7 +33,9 @@ export default function FavoritosPage() {
   const [tipTarget, setTipTarget] = useState<{
     userId: string;
     label: string;
+    avatar: string | null;
   } | null>(null);
+  const availableBalance = viewer?.commerce.balance ?? 0;
 
   useEffect(() => {
     const syncFavorites = () => {
@@ -66,10 +69,13 @@ export default function FavoritosPage() {
 
   const handlePurchase = async (postId: string) => {
     if (!viewerId) return false;
+    const targetPost = favoritePosts.find((post) => post.id === postId);
     try {
       await runBalanceCheckout({
         kind: "purchase",
         albumId: postId,
+        availableBalance,
+        requiredAmount: Number(targetPost?.price ?? 0),
       });
       window.dispatchEvent(new Event("purchases-updated"));
       window.dispatchEvent(new Event("balance-updated"));
@@ -84,9 +90,28 @@ export default function FavoritosPage() {
       return;
     }
 
+    if (
+      shouldRedirectToSaldo({
+        availableBalance,
+        requiredAmount: 1000,
+      })
+    ) {
+      redirectToSaldo({
+        reason: "insufficient-balance",
+        requiredAmount: 1000,
+        currentBalance: availableBalance,
+        kind: "tip",
+        targetId: post.userId,
+        targetLabel: post.author,
+        targetAvatar: post.avatar,
+      });
+      return;
+    }
+
     setTipTarget({
       userId: post.userId,
       label: post.author,
+      avatar: post.avatar,
     });
     setTipOpen(true);
   };
@@ -114,8 +139,9 @@ export default function FavoritosPage() {
       />
       <TipModal
         open={tipOpen}
-        availableBalance={viewer?.commerce.balance ?? 0}
+        availableBalance={availableBalance}
         recipientLabel={tipTarget?.label ?? "usuario"}
+        recipientAvatar={tipTarget?.avatar ?? null}
         recipientUserId={tipTarget?.userId ?? null}
         onClose={() => setTipOpen(false)}
         onSubmitted={() => {

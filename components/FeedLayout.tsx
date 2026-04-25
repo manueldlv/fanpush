@@ -10,7 +10,10 @@ import SharePostModal from "@/components/SharePostModal";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
 import { runBalanceCheckout } from "@/lib/balanceCheckout";
-import { getSessionAccessTokenWithRetry, PURCHASE_REFRESH_FLAG } from "@/lib/auth";
+import {
+  getSessionAccessTokenWithRetry,
+  PURCHASE_REFRESH_FLAG,
+} from "@/lib/auth";
 import {
   FAVORITES_UPDATED_EVENT,
   isFavoritePost,
@@ -32,6 +35,7 @@ import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { socialApi } from "@/lib/redux/api/socialApi";
 import { setFeedPosts } from "@/lib/redux/slices/postsSlice";
 import { buildPostSharePath } from "@/lib/postShare";
+import { redirectToSaldo, shouldRedirectToSaldo } from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
@@ -55,6 +59,8 @@ type AlbumUser = {
   username: string | null;
   avatar_url: string | null;
 };
+
+const MEDIA_ACCESS_BATCH_SIZE = 50;
 
 const normalizeAlbumMedia = (
   albumPosts: AlbumPostRow[] | null | undefined,
@@ -144,7 +150,9 @@ export default function FeedLayout() {
     ownerId: string;
     author: string;
   } | null>(null);
-  const [reportReason, setReportReason] = useState("Contenido fuera de contexto");
+  const [reportReason, setReportReason] = useState(
+    "Contenido fuera de contexto",
+  );
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSent, setReportSent] = useState(false);
@@ -155,10 +163,13 @@ export default function FeedLayout() {
     new Set(),
   );
   const [loading, setLoading] = useState(false);
-  const [favoritePostIds, setFavoritePostIds] = useState<Set<string>>(new Set());
+  const [favoritePostIds, setFavoritePostIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [tipTarget, setTipTarget] = useState<{
     userId: string;
     label: string;
+    avatar: string | null;
   } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
@@ -180,24 +191,42 @@ export default function FeedLayout() {
     accessToken: string,
     incomingPosts: Post[],
   ) => {
-    const allPostIds = incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+    const allPostIds = Array.from(
+      new Set(
+        incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean),
+      ),
+    );
     if (allPostIds.length === 0) return incomingPosts;
 
-    const response = await fetch("/api/media/access", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ postIds: allPostIds }),
-    });
+    const batches = Array.from(
+      { length: Math.ceil(allPostIds.length / MEDIA_ACCESS_BATCH_SIZE) },
+      (_, index) =>
+        allPostIds.slice(
+          index * MEDIA_ACCESS_BATCH_SIZE,
+          (index + 1) * MEDIA_ACCESS_BATCH_SIZE,
+        ),
+    );
+    const resolvedItems: Record<string, ResolvedAccessMedia> = {};
 
-    if (!response.ok) return incomingPosts;
-    const result = (await response.json()) as {
-      items?: Record<string, ResolvedAccessMedia>;
-    };
+    await Promise.all(
+      batches.map(async (postIds) => {
+        const response = await fetch("/api/media/access", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ postIds }),
+        });
 
-    const resolvedItems = result.items ?? {};
+        if (!response.ok) return;
+        const result = (await response.json()) as {
+          items?: Record<string, ResolvedAccessMedia>;
+        };
+        Object.assign(resolvedItems, result.items ?? {});
+      }),
+    );
+
     return incomingPosts.map((post) => ({
       ...post,
       media: post.media.map((item, index): Post["media"][number] => {
@@ -252,20 +281,24 @@ export default function FeedLayout() {
     if (!supabase) return;
     const purchasesHandler = async () => {
       if (!currentUserId) return;
-      const allPostIds = posts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+      const allPostIds = posts
+        .flatMap((post) => post.mediaPostIds)
+        .filter(Boolean);
       if (allPostIds.length === 0) return;
       const { data: purchaseRows } = await supabase
         .from("purchases")
         .select("post_id")
         .eq("user_id", currentUserId)
         .in("post_id", allPostIds);
-      const purchased = new Set(
-        (purchaseRows ?? []).map((row) => row.post_id),
-      );
+      const purchased = new Set((purchaseRows ?? []).map((row) => row.post_id));
       setPurchasedPostIds(purchased);
       const accessToken = await getSessionAccessTokenWithRetry(supabase);
       if (accessToken) {
-        const resolved = await resolveAccessibleMedia(supabase, accessToken, posts);
+        const resolved = await resolveAccessibleMedia(
+          supabase,
+          accessToken,
+          posts,
+        );
         dispatch(setFeedPosts(resolved));
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(PURCHASE_REFRESH_FLAG);
@@ -280,7 +313,12 @@ export default function FeedLayout() {
 
   useEffect(() => {
     const supabase = getSupabaseClient();
-    if (!supabase || !currentUserId || purchasedPostIds.size === 0 || posts.length === 0) {
+    if (
+      !supabase ||
+      !currentUserId ||
+      purchasedPostIds.size === 0 ||
+      posts.length === 0
+    ) {
       return;
     }
 
@@ -306,7 +344,11 @@ export default function FeedLayout() {
         forceRetry: true,
       });
       if (!accessToken) return;
-      const resolved = await resolveAccessibleMedia(supabase, accessToken, posts);
+      const resolved = await resolveAccessibleMedia(
+        supabase,
+        accessToken,
+        posts,
+      );
       if (cancelled) return;
       dispatch(setFeedPosts(resolved));
       if (typeof window !== "undefined") {
@@ -455,7 +497,9 @@ export default function FeedLayout() {
         setLikedPostIds((prev) => new Set(prev).add(postId));
         dispatch(
           setFeedPosts(
-            posts.map((p) => (p.id === albumId ? { ...p, likes: p.likes + 1 } : p)),
+            posts.map((p) =>
+              p.id === albumId ? { ...p, likes: p.likes + 1 } : p,
+            ),
           ),
         );
       }
@@ -464,10 +508,14 @@ export default function FeedLayout() {
 
   const handlePurchase = async (albumId: string) => {
     if (!currentUserId) return;
+    const targetPost = posts.find((post) => post.id === albumId);
+    const requiredAmount = Number(targetPost?.price ?? 0);
     try {
       await runBalanceCheckout({
         kind: "purchase",
         albumId,
+        availableBalance: viewerBalance,
+        requiredAmount,
       });
       setPurchaseError(null);
       setPurchaseSuccess(
@@ -496,9 +544,27 @@ export default function FeedLayout() {
     ) {
       return;
     }
+    if (
+      shouldRedirectToSaldo({
+        availableBalance: viewerBalance,
+        requiredAmount: 1000,
+      })
+    ) {
+      redirectToSaldo({
+        reason: "insufficient-balance",
+        requiredAmount: 1000,
+        currentBalance: viewerBalance,
+        kind: "tip",
+        targetId: post.userId,
+        targetLabel: post.author,
+        targetAvatar: post.avatar,
+      });
+      return;
+    }
     setTipTarget({
       userId: post.userId,
       label: post.author,
+      avatar: post.avatar,
     });
   };
 
@@ -532,7 +598,9 @@ export default function FeedLayout() {
       dispatch(setFeedPosts(posts.filter((post) => post.id !== albumId)));
     } catch (err) {
       console.error(err);
-      setDeleteError("No se pudo eliminar la publicación. Revisa los permisos.");
+      setDeleteError(
+        "No se pudo eliminar la publicación. Revisa los permisos.",
+      );
     } finally {
       setMenuPostId(null);
       setConfirmDeleteId(null);
@@ -642,9 +710,9 @@ export default function FeedLayout() {
             Aún no hay publicaciones
           </h2>
           <p className="mt-3 max-w-[620px] text-[15px] leading-7 text-[#464646]">
-            Todavía no hay publicaciones para mostrar. Si quieres empezar a subir
-            contenido y aparecer en el feed, conviértete en autor para publicar
-            tus propios posteos dentro del sitio.
+            Todavía no hay publicaciones para mostrar. Si quieres empezar a
+            subir contenido y aparecer en el feed, conviértete en autor para
+            publicar tus propios posteos dentro del sitio.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
@@ -667,7 +735,10 @@ export default function FeedLayout() {
           isFavorite={favoritePostIds.has(openPost.id)}
           onToggleFavorite={handleToggleFavorite}
           onShare={handleSharePost}
-          isLiked={Boolean(openPost.mediaPostIds?.[0] && likedPostIds.has(openPost.mediaPostIds[0]))}
+          isLiked={Boolean(
+            openPost.mediaPostIds?.[0] &&
+            likedPostIds.has(openPost.mediaPostIds[0]),
+          )}
           onLike={toggleLike}
           onReport={(post) => {
             if (!post.userId) return;
@@ -681,7 +752,9 @@ export default function FeedLayout() {
             setReportSent(false);
           }}
           onUnfollow={toggleFollow}
-          isFollowing={Boolean(openPost.userId && followingIds.has(openPost.userId))}
+          isFollowing={Boolean(
+            openPost.userId && followingIds.has(openPost.userId),
+          )}
           onToggleFollow={toggleFollow}
         />
       ) : null}
@@ -695,6 +768,7 @@ export default function FeedLayout() {
         open={Boolean(tipTarget)}
         availableBalance={viewerBalance}
         recipientLabel={tipTarget?.label ?? "usuario"}
+        recipientAvatar={tipTarget?.avatar ?? null}
         recipientUserId={tipTarget?.userId ?? null}
         onClose={() => setTipTarget(null)}
         onSubmitted={() => {
@@ -812,8 +886,8 @@ export default function FeedLayout() {
                   Denunciar contenido
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-zinc-500">
-                  Contanos qué viste en la publicación de @{reportModal.author}. El
-                  equipo de FanPush va a revisarlo.
+                  Contanos qué viste en la publicación de @{reportModal.author}.
+                  El equipo de FanPush va a revisarlo.
                 </p>
 
                 <div className="mt-4">
@@ -863,11 +937,12 @@ export default function FeedLayout() {
                   Denuncia enviada
                 </h3>
                 <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
-                  Recibimos tu reporte sobre la publicación de @{reportModal.author}.
-                  El equipo de moderación lo va a revisar.
+                  Recibimos tu reporte sobre la publicación de @
+                  {reportModal.author}. El equipo de moderación lo va a revisar.
                 </p>
                 <div className="mt-6 rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-700">
-                  Motivo enviado: <span className="font-semibold">{reportReason}</span>
+                  Motivo enviado:{" "}
+                  <span className="font-semibold">{reportReason}</span>
                 </div>
                 <button
                   type="button"
@@ -931,250 +1006,268 @@ export default function FeedLayout() {
             const showPostActions = !hasPaidContent || lockedCount === 0;
             const current = activeIndex[post.id] ?? 0;
             const primaryPostId = post.mediaPostIds?.[0];
-            const isLiked = primaryPostId ? likedPostIds.has(primaryPostId) : false;
+            const isLiked = primaryPostId
+              ? likedPostIds.has(primaryPostId)
+              : false;
 
             return (
               <>
-          <div className="flex items-center justify-between px-5 py-4">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  router.push(buildUserProfileHref(post.author));
-                }}
-                className="h-[46px] w-[46px] overflow-hidden rounded-full"
-                aria-label={`Ver perfil de ${post.author}`}
-              >
-                <UserAvatar src={post.avatar} alt={post.author} />
-              </button>
-              <div>
-                <div className="flex items-center gap-2 text-[15px] font-semibold leading-none text-zinc-900">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      router.push(buildUserProfileHref(post.author));
-                    }}
-                    className="hover:underline"
-                  >
-                    {post.author}
-                  </button>
-                  {post.verified ? (
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-sky-500 text-[10px] font-bold text-white">
-                      ✓
-                    </span>
-                  ) : null}
-                  <span className="text-[13px] font-normal text-zinc-500">
-                    {post.time}
-                  </span>
-                </div>
-                <div className="mt-1 text-[13px] leading-none text-zinc-500">
-                  {post.suggestion}
-                </div>
-              </div>
-            </div>
+                <div className="flex items-center justify-between px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        router.push(buildUserProfileHref(post.author));
+                      }}
+                      className="h-10 w-10 overflow-hidden rounded-full"
+                      aria-label={`Ver perfil de ${post.author}`}
+                    >
+                      <UserAvatar
+                        src={post.avatar}
+                        alt={post.author}
+                        sizeClassName="h-10 w-10"
+                        iconClassName="h-4 w-4"
+                      />
+                    </button>
+                    <div>
+                      <div className="flex items-center gap-2 text-[14px] font-semibold leading-none text-zinc-900">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            router.push(buildUserProfileHref(post.author));
+                          }}
+                          className="hover:underline"
+                        >
+                          {post.author}
+                        </button>
+                        {post.verified ? (
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-sky-500 text-[10px] font-bold text-white">
+                            ✓
+                          </span>
+                        ) : null}
+                        <span className="text-[12px] font-normal text-zinc-500">
+                          {post.time}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[12px] leading-none text-zinc-500">
+                        {post.suggestion}
+                      </div>
+                    </div>
+                  </div>
 
-            <div className="flex items-center gap-3">
-              {post.userId !== currentUserId ? (
+                  <div className="flex items-center gap-3">
+                    {post.userId !== currentUserId ? (
+                      <button
+                        className={`min-w-[96px] text-right text-[15px] font-semibold leading-none tracking-[-0.02em] ${
+                          followingIds.has(post.userId)
+                            ? "text-zinc-700"
+                            : "text-[#5A3EE7]"
+                        }`}
+                        onClick={() => toggleFollow(post.userId)}
+                      >
+                        {followingIds.has(post.userId) ? "Siguiendo" : "Seguir"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setMenuPostId(post.id)}
+                      className="rounded-[5px] p-2 text-zinc-500 hover:bg-zinc-100"
+                      aria-label="Mas opciones"
+                    >
+                      <MoreHorizontal className="h-[18px] w-[18px]" />
+                    </button>
+                  </div>
+                </div>
+
                 <button
-                  className={`min-w-[108px] text-right text-[16px] font-semibold leading-none tracking-[-0.02em] ${
-                    followingIds.has(post.userId)
-                      ? "text-zinc-700"
-                      : "text-[#5A3EE7]"
+                  type="button"
+                  onClick={() => setSelectedPost(post.id)}
+                  className={`relative w-full overflow-hidden text-left ${
+                    hasPaidContent ? "h-[620px]" : "aspect-square"
                   }`}
-                  onClick={() => toggleFollow(post.userId)}
                 >
-                  {followingIds.has(post.userId) ? "Siguiendo" : "Seguir"}
+                  {post.media.map((item, index) => {
+                    const isActive = index === current;
+                    return (
+                      <div
+                        key={`${post.id}-${index}`}
+                        className={`absolute inset-0 transition-opacity duration-300 ${
+                          isActive ? "opacity-100" : "opacity-0"
+                        }`}
+                      >
+                        {item.kind === "image" ? (
+                          <MediaImage
+                            src={item.url}
+                            alt={`Media de ${post.author}`}
+                            className={`h-full w-full object-cover ${
+                              item.locked ? "scale-[1.02] blur-[10px]" : ""
+                            }`}
+                            fallbackClassName={`h-full w-full ${
+                              item.locked ? "scale-[1.02] blur-[10px]" : ""
+                            }`}
+                            iconClassName="h-7 w-7"
+                          />
+                        ) : (
+                          <video
+                            src={item.url}
+                            className={`h-full w-full object-cover ${
+                              item.locked ? "scale-[1.02] blur-[10px]" : ""
+                            }`}
+                            muted
+                            autoPlay
+                            loop
+                            preload="metadata"
+                            playsInline
+                          />
+                        )}
+                        {item.locked ? (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="flex h-[86px] w-[86px] items-center justify-center rounded-[5px] bg-white/20">
+                              <Lock
+                                className="h-9 w-9 text-white"
+                                strokeWidth={2.5}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  {post.media.length > 1 ? (
+                    <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
+                      {post.media.map((_, index) => {
+                        const current = activeIndex[post.id] ?? 0;
+                        return (
+                          <button
+                            key={`dot-${post.id}-${index}`}
+                            type="button"
+                            onClick={() =>
+                              setActiveIndex((prev) => ({
+                                ...prev,
+                                [post.id]: index,
+                              }))
+                            }
+                            className={`h-2 w-2 rounded-[5px] ${
+                              current === index ? "bg-white" : "bg-white/50"
+                            }`}
+                            aria-label="Cambiar slide"
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {post.media.length > 1 ? (
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActiveIndex((prev) => {
+                            const current = prev[post.id] ?? 0;
+                            const next =
+                              (current - 1 + post.media.length) %
+                              post.media.length;
+                            return { ...prev, [post.id]: next };
+                          });
+                        }}
+                        className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
+                      >
+                        ‹
+                      </button>
+                    </div>
+                  ) : null}
+                  {post.media.length > 1 ? (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActiveIndex((prev) => {
+                            const current = prev[post.id] ?? 0;
+                            const next = (current + 1) % post.media.length;
+                            return { ...prev, [post.id]: next };
+                          });
+                        }}
+                        className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  ) : null}
                 </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setMenuPostId(post.id)}
-                className="rounded-[5px] p-2 text-zinc-500 hover:bg-zinc-100"
-                aria-label="Mas opciones"
-              >
-                <MoreHorizontal className="h-[18px] w-[18px]" />
-              </button>
-            </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={() => setSelectedPost(post.id)}
-            className={`relative w-full overflow-hidden text-left ${
-              hasPaidContent ? "h-[620px]" : "aspect-square"
-            }`}
-          >
-            {post.media.map((item, index) => {
-              const isActive = index === current;
-              return (
-                <div
-                  key={`${post.id}-${index}`}
-                  className={`absolute inset-0 transition-opacity duration-300 ${
-                    isActive ? "opacity-100" : "opacity-0"
-                  }`}
-                >
-                  {item.kind === "image" ? (
-                    <MediaImage
-                      src={item.url}
-                      alt={`Media de ${post.author}`}
-                      className={`h-full w-full object-cover ${
-                        item.locked ? "scale-[1.02] blur-[10px]" : ""
-                      }`}
-                      fallbackClassName={`h-full w-full ${
-                        item.locked ? "scale-[1.02] blur-[10px]" : ""
-                      }`}
-                      iconClassName="h-7 w-7"
-                    />
-                  ) : (
-                    <video
-                      src={item.url}
-                      className={`h-full w-full object-cover ${
-                        item.locked ? "scale-[1.02] blur-[10px]" : ""
-                      }`}
-                      muted
-                      autoPlay
-                      loop
-                      preload="metadata"
-                      playsInline
-                    />
-                  )}
-                  {item.locked ? (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="flex h-[86px] w-[86px] items-center justify-center rounded-[5px] bg-white/20">
-                        <Lock className="h-9 w-9 text-white" strokeWidth={2.5} />
+                <div className="px-5 py-4">
+                  {showPostActions ? (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 text-zinc-700">
+                        <button
+                          className="flex items-center gap-2"
+                          onClick={() => toggleLike(post.id)}
+                        >
+                          <Heart
+                            className={`h-6 w-6 ${
+                              isLiked
+                                ? "fill-[#ff334b] text-[#ff334b]"
+                                : "fill-none text-zinc-900"
+                            }`}
+                          />
+                          <span className="text-[14px] font-semibold text-zinc-900">
+                            {formatFeedLikes(post.likes)}
+                          </span>
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-4 text-zinc-900">
+                        <button
+                          type="button"
+                          aria-label="Compartir"
+                          onClick={() => handleSharePost(post)}
+                        >
+                          <Send className="h-6 w-6" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Guardar"
+                          onClick={() => handleToggleFavorite(post)}
+                        >
+                          <Bookmark
+                            className={`h-6 w-6 ${
+                              favoritePostIds.has(post.id)
+                                ? "fill-[#5A3EE7] text-[#5A3EE7]"
+                                : "text-zinc-900"
+                            }`}
+                          />
+                        </button>
                       </div>
                     </div>
                   ) : null}
-                </div>
-              );
-            })}
-            {post.media.length > 1 ? (
-              <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
-                {post.media.map((_, index) => {
-                  const current = activeIndex[post.id] ?? 0;
-                  return (
+
+                  <div
+                    className={`${showPostActions ? "mt-3.5" : "mt-0"} text-[14px] leading-[1.4] text-zinc-700`}
+                  >
+                    <span className="font-semibold text-zinc-900">
+                      {post.author}
+                    </span>{" "}
+                    {renderCaptionWithHashtags(post.caption)}
+                  </div>
+
+                  {currentUserId &&
+                  post.userId !== currentUserId &&
+                  post.tipEnabled ? (
                     <button
-                      key={`dot-${post.id}-${index}`}
                       type="button"
-                      onClick={() =>
-                        setActiveIndex((prev) => ({ ...prev, [post.id]: index }))
-                      }
-                      className={`h-2 w-2 rounded-[5px] ${
-                        current === index ? "bg-white" : "bg-white/50"
-                      }`}
-                      aria-label="Cambiar slide"
-                    />
-                  );
-                })}
-              </div>
-            ) : null}
-            {post.media.length > 1 ? (
-              <div className="absolute inset-y-0 left-0 flex items-center pl-3">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setActiveIndex((prev) => {
-                      const current = prev[post.id] ?? 0;
-                      const next =
-                        (current - 1 + post.media.length) % post.media.length;
-                      return { ...prev, [post.id]: next };
-                    });
-                  }}
-                  className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
-                >
-                  ‹
-                </button>
-              </div>
-            ) : null}
-            {post.media.length > 1 ? (
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setActiveIndex((prev) => {
-                      const current = prev[post.id] ?? 0;
-                      const next = (current + 1) % post.media.length;
-                      return { ...prev, [post.id]: next };
-                    });
-                  }}
-                  className="rounded-[5px] bg-white/80 px-2 py-1 text-xs font-semibold text-zinc-700"
-                >
-                  ›
-                </button>
-              </div>
-            ) : null}
-          </button>
-
-          <div className="px-6 py-5">
-            {showPostActions ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-zinc-700">
-                  <button
-                    className="flex items-center gap-2"
-                    onClick={() => toggleLike(post.id)}
-                  >
-                    <Heart
-                      className={`h-6 w-6 ${
-                        isLiked
-                          ? "fill-[#ff334b] text-[#ff334b]"
-                          : "fill-none text-zinc-900"
-                      }`}
-                    />
-                    <span className="text-[15px] font-semibold text-zinc-900">
-                      {formatFeedLikes(post.likes)}
-                    </span>
-                  </button>
+                      onClick={() => handleOpenTip(post)}
+                      className="mt-3.5 inline-flex items-center gap-2 text-[14px] font-semibold text-[#5A3EE7]"
+                    >
+                      <img
+                        src="/tip-lightning.png"
+                        alt=""
+                        aria-hidden="true"
+                        className="h-4 w-4 object-contain"
+                      />
+                      Enviar propina
+                    </button>
+                  ) : null}
                 </div>
-                <div className="flex items-center gap-4 text-zinc-900">
-                  <button
-                    type="button"
-                    aria-label="Compartir"
-                    onClick={() => handleSharePost(post)}
-                  >
-                    <Send className="h-6 w-6" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Guardar"
-                    onClick={() => handleToggleFavorite(post)}
-                  >
-                    <Bookmark
-                      className={`h-6 w-6 ${
-                        favoritePostIds.has(post.id)
-                          ? "fill-[#5A3EE7] text-[#5A3EE7]"
-                          : "text-zinc-900"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className={`${showPostActions ? "mt-5" : "mt-0"} text-[15px] leading-[1.45] text-zinc-700`}>
-              <span className="font-semibold text-zinc-900">
-                {post.author}
-              </span>{" "}
-              {renderCaptionWithHashtags(post.caption)}
-            </div>
-
-            {currentUserId && post.userId !== currentUserId && post.tipEnabled ? (
-              <button
-                type="button"
-                onClick={() => handleOpenTip(post)}
-                className="mt-5 inline-flex items-center gap-2 text-[15px] font-semibold text-[#5A3EE7]"
-              >
-                <img
-                  src="/tip-lightning.png"
-                  alt=""
-                  aria-hidden="true"
-                  className="h-4 w-4 object-contain"
-                />
-                Enviar propina
-              </button>
-            ) : null}
-          </div>
               </>
             );
           })()}

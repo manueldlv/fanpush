@@ -35,9 +35,14 @@ import {
   profileApi,
   useGetProfileViewQuery,
 } from "@/lib/redux/api/profileApi";
-import { sessionApi, useGetViewerQuery } from "@/lib/redux/api/sessionApi";
+import {
+  sessionApi,
+  useGetSessionQuery,
+  useGetViewerQuery,
+} from "@/lib/redux/api/sessionApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { buildPostSharePath } from "@/lib/postShare";
+import { redirectToSaldo, shouldRedirectToSaldo } from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
 import { formatARS } from "@/lib/utils";
@@ -190,6 +195,7 @@ export default function PerfilPage({
   } | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const { data: viewer } = useGetViewerQuery();
+  const { data: session } = useGetSessionQuery();
   const searchParams = useSearchParams();
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -219,11 +225,15 @@ export default function PerfilPage({
   const profileWebsite = profileData?.profile.website ?? "";
   const profileInstagram = profileData?.profile.instagram ?? "";
   const profilePosts = profileData?.posts ?? [];
-  const currentUserId = profileData?.currentUserId ?? null;
+  const sessionUserId = session?.userId ?? null;
+  const currentUserId = profileData?.currentUserId ?? sessionUserId;
   const viewedUserId = profileData?.viewedUserId ?? null;
   const requestedPostId = searchParams.get("post");
+  const viewerUsername = viewer?.profile.username?.trim().toLowerCase() ?? null;
+  const normalizedProfileName = profileName.trim().toLowerCase();
   const isOwnProfile = Boolean(
-    currentUserId && viewedUserId && currentUserId === viewedUserId,
+    (currentUserId && viewedUserId && currentUserId === viewedUserId) ||
+      (viewerUsername && viewerUsername === normalizedProfileName),
   );
   const selfProfileQueryArg = {
     userId: null,
@@ -740,10 +750,14 @@ export default function PerfilPage({
 
   const handlePurchase = async (albumId: string) => {
     if (!currentUserId) return;
+    const targetPost = profilePosts.find((post) => post.id === albumId);
+    const requiredAmount = Number(targetPost?.price ?? 0);
     try {
       await runBalanceCheckout({
         kind: "purchase",
         albumId,
+        availableBalance,
+        requiredAmount,
       });
       setUiMessage({
         tone: "success",
@@ -764,6 +778,28 @@ export default function PerfilPage({
     }
   };
 
+  const handleOpenTip = () => {
+    if (!viewedUserId || viewedUserId === currentUserId) return;
+    if (
+      shouldRedirectToSaldo({
+        availableBalance,
+        requiredAmount: 1000,
+      })
+    ) {
+      redirectToSaldo({
+        reason: "insufficient-balance",
+        requiredAmount: 1000,
+        currentBalance: availableBalance,
+        kind: "tip",
+        targetId: viewedUserId,
+        targetLabel: profileName || "usuario",
+        targetAvatar: profileData?.profile.avatar ?? null,
+      });
+      return;
+    }
+    setTipOpen(true);
+  };
+
   const handleReport = async () => {
     if (!currentUserId || !reportModal?.ownerId) return;
     const supabase = getSupabaseClient();
@@ -775,11 +811,9 @@ export default function PerfilPage({
     setReportError(null);
     setReportSubmitting(true);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const accessToken = await getSessionAccessTokenWithRetry(supabase);
 
-    if (!session?.access_token) {
+    if (!accessToken) {
       setReportSubmitting(false);
       setReportError("Necesitas iniciar sesión para reportar contenido.");
       return;
@@ -789,7 +823,7 @@ export default function PerfilPage({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         albumId: reportModal.albumId,
@@ -846,15 +880,13 @@ export default function PerfilPage({
     setUiMessage(null);
 
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) {
+      if (!currentUserId) {
         throw new Error("Necesitas iniciar sesión.");
       }
 
       const safeUsername =
-        profileName.trim() || authData?.user?.email?.split("@")[0] || "usuario";
-      const path = `avatars/${userId}/${Date.now()}-${file.name}`;
+        profileName.trim() || viewer?.profile.username || session?.email?.split("@")[0] || "usuario";
+      const path = `avatars/${currentUserId}/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
         .from(PUBLIC_MEDIA_BUCKET)
         .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
@@ -873,7 +905,7 @@ export default function PerfilPage({
 
       const { error: userUpdateError } = await supabase.from("users").upsert(
         {
-          id: userId,
+          id: currentUserId,
           username: safeUsername,
           avatar_url: path,
         },
@@ -902,7 +934,7 @@ export default function PerfilPage({
         profileApi.util.invalidateTags([
           { type: "ProfileView", id: getProfileViewCacheKey(profileQueryArg) },
           { type: "ProfileView", id: "self" },
-          { type: "ProfileView", id: `id:${userId}` },
+          { type: "ProfileView", id: `id:${currentUserId}` },
           { type: "ProfileView", id: `username:${safeUsername.toLowerCase()}` },
         ]),
       );
@@ -1013,7 +1045,7 @@ export default function PerfilPage({
           onDelete={handleDelete}
           onPurchase={handlePurchase}
           onTip={() => {
-            if (!isOwnProfile) setTipOpen(true);
+            if (!isOwnProfile) handleOpenTip();
           }}
           isFavorite={favoritePostIds.has(openPost.id)}
           onToggleFavorite={handleToggleFavorite}
@@ -1054,6 +1086,7 @@ export default function PerfilPage({
         open={tipOpen}
         availableBalance={availableBalance}
         recipientLabel={profileName || "usuario"}
+        recipientAvatar={profileData?.profile.avatar ?? null}
         recipientUserId={viewedUserId}
         onClose={() => setTipOpen(false)}
         onSubmitted={() => {
@@ -1365,7 +1398,7 @@ export default function PerfilPage({
                           <button
                             type="button"
                             onClick={() => {
-                              setTipOpen(true);
+                              handleOpenTip();
                             }}
                             className="fanpush-button-secondary px-5 py-3"
                           >

@@ -10,6 +10,7 @@ import {
   CHAT_BLOCKED_USERS_UPDATED_EVENT,
   type BlockedChatUser,
 } from "@/lib/chatPreferences";
+import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import { profileApi } from "@/lib/redux/api/profileApi";
 import {
   useCloseAccountMutation,
@@ -19,6 +20,7 @@ import {
   useUpdateProfileMutation,
 } from "@/lib/redux/api/settingsApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
+import { useViewerSession } from "@/lib/redux/useViewerSession";
 import type { PayoutProfile } from "@/lib/payouts";
 import {
   buildDefaultNotificationPreferences,
@@ -62,6 +64,11 @@ function ToggleSwitch({
 export default function SettingsPage() {
   const searchParams = useSearchParams();
   const dispatch = useAppDispatch();
+  const {
+    userId: currentUserId,
+    session,
+    username: viewerUsername,
+  } = useViewerSession();
   const { data: settingsData } = useGetSettingsQuery();
   const [updateProfile] = useUpdateProfileMutation();
   const [updatePayoutProfile] = useUpdatePayoutProfileMutation();
@@ -153,14 +160,12 @@ export default function SettingsPage() {
       setBlockedUsersLoading(true);
       try {
         const supabase = getSupabaseClient();
-        const session = supabase
-          ? await supabase.auth.getSession().then((result) => result.data.session)
+        const accessToken = supabase
+          ? await getSessionAccessTokenWithRetry(supabase)
           : null;
         const response = await fetch("/api/direct-chats/blocked", {
           credentials: "include",
-          headers: session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : undefined,
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         });
         const result = (await response.json()) as {
           error?: string;
@@ -194,15 +199,13 @@ export default function SettingsPage() {
   const handleUnblockUser = async (userId: string) => {
     try {
       const supabase = getSupabaseClient();
-      const session = supabase
-        ? await supabase.auth.getSession().then((result) => result.data.session)
+      const accessToken = supabase
+        ? await getSessionAccessTokenWithRetry(supabase)
         : null;
       const response = await fetch(`/api/direct-chats/blocked/${userId}`, {
         method: "DELETE",
         credentials: "include",
-        headers: session?.access_token
-          ? { Authorization: `Bearer ${session.access_token}` }
-          : undefined,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok) {
@@ -253,15 +256,13 @@ export default function SettingsPage() {
     }
 
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) {
+      if (!currentUserId) {
         throw new Error("Necesitas iniciar sesión.");
       }
 
       const safeUsername =
-        username.trim() || authData?.user?.email?.split("@")[0] || "usuario";
-      const path = `avatars/${userId}/${Date.now()}-${file.name}`;
+        username.trim() || viewerUsername || session?.email?.split("@")[0] || "usuario";
+      const path = `avatars/${currentUserId}/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
         .from(PUBLIC_MEDIA_BUCKET)
         .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
@@ -284,7 +285,7 @@ export default function SettingsPage() {
       setAvatarPath(path);
       setAvatarUrl(uploadedAvatarUrl);
       await updateProfile({
-        userId,
+        userId: currentUserId,
         username: safeUsername,
         avatarUrl: uploadedAvatarUrl,
         avatarPath: path,
@@ -293,7 +294,7 @@ export default function SettingsPage() {
         website: normalizeWebsite(website),
         instagram: instagram.trim(),
       }).unwrap();
-      invalidateProfileCaches(userId, safeUsername);
+      invalidateProfileCaches(currentUserId, safeUsername);
       setMessage("Foto de perfil actualizada.");
       window.dispatchEvent(
         new CustomEvent("profile-updated", {
@@ -323,14 +324,12 @@ export default function SettingsPage() {
     }
 
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) {
+      if (!currentUserId) {
         throw new Error("Necesitas iniciar sesión.");
       }
 
       const safeUsername =
-        username.trim() || authData?.user?.email?.split("@")[0] || "usuario";
+        username.trim() || viewerUsername || session?.email?.split("@")[0] || "usuario";
 
       if (avatarPath && !avatarPath.startsWith("http")) {
         await supabase.storage.from(PUBLIC_MEDIA_BUCKET).remove([avatarPath]);
@@ -345,7 +344,7 @@ export default function SettingsPage() {
       setAvatarUrl(null);
 
       await updateProfile({
-        userId,
+        userId: currentUserId,
         username: safeUsername,
         avatarUrl: null,
         avatarPath: null,
@@ -355,7 +354,7 @@ export default function SettingsPage() {
         instagram: instagram.trim(),
       }).unwrap();
 
-      invalidateProfileCaches(userId, safeUsername);
+      invalidateProfileCaches(currentUserId, safeUsername);
       setMessage("Foto de perfil eliminada.");
       window.dispatchEvent(
         new CustomEvent("profile-updated", {
@@ -389,16 +388,15 @@ export default function SettingsPage() {
     }
 
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) throw new Error("Necesitas iniciar sesion.");
+      if (!currentUserId) throw new Error("Necesitas iniciar sesion.");
 
       const safeUsername =
         username.trim() ||
-        authData?.user?.email?.split("@")[0] ||
+        viewerUsername ||
+        session?.email?.split("@")[0] ||
         "usuario";
       const result = await updateProfile({
-        userId,
+        userId: currentUserId,
         username: safeUsername,
         avatarUrl,
         avatarPath,
@@ -411,7 +409,7 @@ export default function SettingsPage() {
       setUsername(result.username);
       setAvatarUrl(result.avatarUrl);
       setAvatarPath(result.avatarPath);
-      invalidateProfileCaches(userId, safeUsername);
+      invalidateProfileCaches(currentUserId, safeUsername);
       setMessage("Perfil actualizado.");
       window.dispatchEvent(
         new CustomEvent("profile-updated", {
@@ -469,9 +467,7 @@ export default function SettingsPage() {
         setMessage("Falta configurar Supabase.");
         return;
       }
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) throw new Error("Necesitas iniciar sesión.");
+      if (!currentUserId) throw new Error("Necesitas iniciar sesión.");
       const updatedAt = new Date().toISOString();
       const nextPayoutProfile = {
         alias: payoutAlias.trim(),
@@ -481,7 +477,7 @@ export default function SettingsPage() {
         updatedAt,
       };
       await updatePayoutProfile({
-        userId,
+        userId: currentUserId,
         payoutProfile: nextPayoutProfile,
       }).unwrap();
       setSavedPayoutProfile(nextPayoutProfile);
@@ -565,15 +561,13 @@ export default function SettingsPage() {
         setMessage("Falta configurar Supabase.");
         return;
       }
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) throw new Error("Necesitas iniciar sesión.");
+      if (!currentUserId) throw new Error("Necesitas iniciar sesión.");
       const payload = {
         ...notificationPreferences,
         updatedAt: new Date().toISOString(),
       };
       await updateNotificationPreferences({
-        userId,
+        userId: currentUserId,
         notificationPreferences: payload,
       }).unwrap();
       setNotificationPreferences(payload);

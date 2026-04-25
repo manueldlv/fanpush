@@ -1,9 +1,15 @@
 import { getSupabaseClient } from "@/lib/supabase";
-import { redirectToSaldoIfNeeded } from "@/lib/purchaseRedirect";
+import {
+  redirectToSaldo,
+  redirectToSaldoIfNeeded,
+  shouldRedirectToSaldo,
+} from "@/lib/purchaseRedirect";
 
 type PurchaseCheckoutInput = {
   kind: "purchase";
   albumId: string;
+  availableBalance?: number;
+  requiredAmount?: number;
 };
 
 type TipCheckoutInput = {
@@ -12,6 +18,7 @@ type TipCheckoutInput = {
   amount: number;
   message?: string;
   threadId?: string;
+  availableBalance?: number;
 };
 
 export type BalanceCheckoutResult = {
@@ -29,6 +36,26 @@ export type BalanceCheckoutResult = {
 export const runBalanceCheckout = async (
   input: PurchaseCheckoutInput | TipCheckoutInput,
 ) => {
+  const requiredAmount =
+    input.kind === "tip" ? Number(input.amount) : Number(input.requiredAmount ?? 0);
+  const availableBalance = Number(input.availableBalance ?? NaN);
+
+  if (
+    shouldRedirectToSaldo({
+      availableBalance,
+      requiredAmount,
+    })
+  ) {
+    redirectToSaldo({
+      reason: "insufficient-balance",
+      requiredAmount,
+      currentBalance: availableBalance,
+      kind: input.kind === "tip" ? "tip" : "purchase",
+      targetId: input.kind === "tip" ? input.targetUserId : input.albumId,
+    });
+    throw new Error("No tienes saldo suficiente. Te redirigimos a Mi saldo.");
+  }
+
   const supabase = getSupabaseClient();
   if (!supabase) {
     throw new Error("Falta configurar Supabase.");
@@ -56,7 +83,13 @@ export const runBalanceCheckout = async (
   };
 
   if (!response.ok || !result.ok) {
-    redirectToSaldoIfNeeded(result.error);
+    redirectToSaldoIfNeeded(result.error, {
+      reason: "insufficient-balance",
+      requiredAmount,
+      currentBalance: Number.isFinite(availableBalance) ? availableBalance : null,
+      kind: input.kind === "tip" ? "tip" : "purchase",
+      targetId: input.kind === "tip" ? input.targetUserId : input.albumId,
+    });
     throw new Error(result.error ?? "No se pudo completar el checkout con saldo.");
   }
 

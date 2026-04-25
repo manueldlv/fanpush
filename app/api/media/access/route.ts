@@ -12,6 +12,8 @@ type AccessBody = {
   postIds?: string[];
 };
 
+const MAX_POST_IDS = 50;
+
 export async function POST(request: Request) {
   try {
     const { admin, user, error } = await getAuthenticatedUser(request);
@@ -24,6 +26,13 @@ export async function POST(request: Request) {
 
     if (postIds.length === 0) {
       return NextResponse.json({ items: {} });
+    }
+
+    if (postIds.length > MAX_POST_IDS) {
+      return NextResponse.json(
+        { error: `Solo puedes consultar hasta ${MAX_POST_IDS} publicaciones por vez.` },
+        { status: 400 },
+      );
     }
 
     const { data: posts, error: postsError } = await admin
@@ -110,8 +119,19 @@ export async function POST(request: Request) {
       }),
     );
 
+    const requestedFallbackEntries = postIds
+      .filter((postId) => !(posts ?? []).some((post) => post.id === postId))
+      .map((postId) => [
+        postId,
+        {
+          url: "",
+          kind: "image" as const,
+          locked: true,
+        },
+      ] as const);
+
     return NextResponse.json({
-      items: Object.fromEntries(resolvedEntries),
+      items: Object.fromEntries([...resolvedEntries, ...requestedFallbackEntries]),
     });
   } catch (error) {
     return NextResponse.json(

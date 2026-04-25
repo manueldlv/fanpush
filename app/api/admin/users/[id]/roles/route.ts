@@ -52,9 +52,7 @@ export async function GET(
       user: targetUser,
       roles: roles.roleCodes,
       managedRoles: MANAGED_ADMIN_ROLE_CODES,
-      strictMode:
-        (process.env.AUTH_ENFORCE_PERSISTED_ROLES ?? "").trim().toLowerCase() ===
-        "true",
+      strictMode: true,
     });
   } catch (error) {
     return NextResponse.json(

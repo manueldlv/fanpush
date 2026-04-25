@@ -1,8 +1,4 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { isAdminUser } from "@/lib/admin";
-
-const enforcePersistedRoles =
-  (process.env.AUTH_ENFORCE_PERSISTED_ROLES ?? "").trim().toLowerCase() === "true";
 
 const isMissingRelationError = (message?: string | null) =>
   Boolean(
@@ -139,38 +135,11 @@ export const hasRole = async (
 ) => {
   const roles = await getUserActiveRoles(admin, user.id);
   if (roles.available) {
-    if (roles.roleCodes.includes(roleCode)) return true;
-
-    if (enforcePersistedRoles) return false;
-
-    const legacyAdmin = await isAdminUser(admin, user);
-    if (legacyAdmin && (roleCode === "admin" || roleCode === "super_admin")) {
-      await grantRoleByCode(admin, user.id, "admin");
-      return roleCode === "admin";
-    }
-
-    return false;
-  }
-
-  if (enforcePersistedRoles) return false;
-
-  if (roleCode === "admin" || roleCode === "super_admin") {
-    return isAdminUser(admin, user);
+    return roles.roleCodes.includes(roleCode);
   }
 
   return false;
 };
-
-const LEGACY_ADMIN_PERMISSIONS = new Set([
-  "admin.access",
-  "admin.dashboard.read",
-  "content.moderate",
-  "authors.review",
-  "withdrawals.review",
-  "commissions.manage",
-  "roles.manage",
-  "dev.seed",
-]);
 
 export type UserAccessSnapshot = {
   roles: string[];
@@ -211,19 +180,6 @@ export const getUserAccessSnapshot = async (
       }
     }
 
-    if (!enforcePersistedRoles) {
-      const legacyAdmin = await isAdminUser(admin, user);
-      if (legacyAdmin) {
-        return {
-          roles: Array.from(new Set([...roles.roleCodes, "admin"])),
-          permissions: Array.from(
-            new Set([...permissionCodes, ...Array.from(LEGACY_ADMIN_PERMISSIONS)]),
-          ),
-          isAdmin: true,
-        };
-      }
-    }
-
     return {
       roles: roles.roleCodes,
       permissions: Array.from(new Set(permissionCodes)),
@@ -232,17 +188,6 @@ export const getUserAccessSnapshot = async (
         roles.roleCodes.includes("super_admin") ||
         permissionCodes.includes("admin.access"),
     };
-  }
-
-  if (!enforcePersistedRoles) {
-    const legacyAdmin = await isAdminUser(admin, user);
-    if (legacyAdmin) {
-      return {
-        roles: ["admin"],
-        permissions: Array.from(LEGACY_ADMIN_PERMISSIONS),
-        isAdmin: true,
-      };
-    }
   }
 
   return {
@@ -261,10 +206,7 @@ export const hasPermission = async (
 
   if (roles.available) {
     if (roles.roleIds.length === 0) {
-      const legacyAdmin = await isAdminUser(admin, user);
-      if (!legacyAdmin) return false;
-      await grantRoleByCode(admin, user.id, "admin");
-      return LEGACY_ADMIN_PERMISSIONS.has(permissionCode);
+      return false;
     }
 
     const { data, error } = await admin
@@ -290,23 +232,8 @@ export const hasPermission = async (
       .map((row) => normalizePermissionRelation(row.permission))
       .filter((value): value is string => Boolean(value));
 
-    if (grantedPermissions.includes(permissionCode)) return true;
-
-    if (enforcePersistedRoles) return false;
-
-    const legacyAdmin = await isAdminUser(admin, user);
-    if (legacyAdmin) {
-      await grantRoleByCode(admin, user.id, "admin");
-      return LEGACY_ADMIN_PERMISSIONS.has(permissionCode);
-    }
-
-    return false;
+    return grantedPermissions.includes(permissionCode);
   }
 
-  if (enforcePersistedRoles) return false;
-
-  const legacyAdmin = await isAdminUser(admin, user);
-  if (!legacyAdmin) return false;
-
-  return LEGACY_ADMIN_PERMISSIONS.has(permissionCode);
+  return false;
 };

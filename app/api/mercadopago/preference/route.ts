@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  getMercadoPagoWebhookToken,
   isPublicHttpsUrl,
   mercadopagoFetch,
   resolveAppBaseUrl,
@@ -40,6 +41,12 @@ export async function POST(request: Request) {
     const body = (await request.json()) as PreferenceBody;
     const baseUrl = resolveAppBaseUrl(request);
     const hasPublicBase = isPublicHttpsUrl(baseUrl);
+    const webhookToken = getMercadoPagoWebhookToken();
+    const notificationUrl = hasPublicBase
+      ? `${baseUrl}/api/mercadopago/webhook${
+          webhookToken ? `?token=${encodeURIComponent(webhookToken)}` : ""
+        }`
+      : null;
 
     if (body.kind === "purchase") {
       const album = await getPurchaseAlbumTarget(admin, body.albumId);
@@ -106,7 +113,7 @@ export async function POST(request: Request) {
           },
           ...(hasPublicBase
             ? {
-                notification_url: `${baseUrl}/api/mercadopago/webhook`,
+                notification_url: notificationUrl,
               }
             : {}),
         }),
@@ -160,7 +167,7 @@ export async function POST(request: Request) {
           },
           ...(hasPublicBase
             ? {
-                notification_url: `${baseUrl}/api/mercadopago/webhook`,
+                notification_url: notificationUrl,
               }
             : {}),
         }),
@@ -238,7 +245,7 @@ export async function POST(request: Request) {
         },
         ...(hasPublicBase
           ? {
-              notification_url: `${baseUrl}/api/mercadopago/webhook`,
+              notification_url: notificationUrl,
             }
           : {}),
       }),

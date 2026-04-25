@@ -3,6 +3,7 @@ import {
   getAdminSupabase,
   getAuthenticatedUser,
 } from "@/lib/server/auth/session";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import {
   creditApprovedAlbumPurchase,
@@ -18,6 +19,8 @@ export {
 } from "@/lib/server/auth/session";
 
 const mercadopagoAccessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+const mercadopagoWebhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim() ?? "";
+const mercadopagoWebhookToken = process.env.MERCADOPAGO_WEBHOOK_TOKEN?.trim() ?? "";
 
 export type MercadoPagoPayment = {
   id: number | string;
@@ -33,6 +36,8 @@ export type FinalizedPaymentResult =
   | { ok: false; status: string; statusDetail?: string | null };
 
 export const getMercadoPagoAccessToken = () => mercadopagoAccessToken;
+export const getMercadoPagoWebhookSecret = () => mercadopagoWebhookSecret;
+export const getMercadoPagoWebhookToken = () => mercadopagoWebhookToken;
 
 export const isPublicHttpsUrl = (value: string) => /^https:\/\//i.test(value);
 
@@ -85,6 +90,62 @@ export const parseExternalReference = (reference?: string | null) => {
     buyerId,
     targetId,
     amount: amountValue ? Number(amountValue) : null,
+  };
+};
+
+export const parseMercadoPagoWebhookSignature = (value?: string | null) => {
+  if (!value) return null;
+
+  const signature = Object.fromEntries(
+    value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [key, raw] = part.split("=", 2);
+        return [key?.trim(), raw?.trim()] as const;
+      }),
+  ) as Record<string, string | undefined>;
+
+  if (!signature.ts || !signature.v1) return null;
+  return {
+    ts: signature.ts,
+    v1: signature.v1,
+  };
+};
+
+export const verifyMercadoPagoWebhookSignature = ({
+  dataId,
+  requestId,
+  signatureHeader,
+}: {
+  dataId: string;
+  requestId?: string | null;
+  signatureHeader?: string | null;
+}) => {
+  if (!mercadopagoWebhookSecret) {
+    return { verified: false as const, mode: "skipped" as const };
+  }
+
+  const parsed = parseMercadoPagoWebhookSignature(signatureHeader);
+  if (!parsed?.ts || !parsed.v1) {
+    return { verified: false as const, mode: "secret" as const };
+  }
+
+  const manifest = `id:${dataId};request-id:${requestId ?? ""};ts:${parsed.ts};`;
+  const expected = createHmac("sha256", mercadopagoWebhookSecret)
+    .update(manifest)
+    .digest("hex");
+
+  const left = Buffer.from(expected);
+  const right = Buffer.from(parsed.v1);
+  if (left.length !== right.length) {
+    return { verified: false as const, mode: "secret" as const };
+  }
+
+  return {
+    verified: timingSafeEqual(left, right),
+    mode: "secret" as const,
   };
 };
 

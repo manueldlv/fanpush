@@ -61,13 +61,18 @@ const buildError = (error: unknown, fallback: string) => ({
   error: error instanceof Error ? error.message : fallback,
 });
 
+const EXPLORE_AUTHOR_LIMIT = 80;
+const EXPLORE_ALBUM_LIMIT = 160;
+const EXPLORE_PURCHASE_LOOKBACK_LIMIT = 1000;
+
 const resolvePublicUrl = (
   supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
   value: string | null,
 ) => {
   if (!value) return null;
   if (value.startsWith("http")) return value;
-  return supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+  return supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
+    .publicUrl;
 };
 
 type NormalizedAuthorPost = {
@@ -80,9 +85,10 @@ type NormalizedAuthorPost = {
 
 const normalizeAlbumPost = (
   value: AuthorAlbumPost["post"],
-): NormalizedAuthorPost | null => (Array.isArray(value) ? (value[0] ?? null) : value);
+): NormalizedAuthorPost | null =>
+  Array.isArray(value) ? (value[0] ?? null) : value;
 
-const pickRandomItem = <T,>(items: T[]) => {
+const pickRandomItem = <T>(items: T[]) => {
   if (items.length === 0) return null;
   return items[Math.floor(Math.random() * items.length)] ?? null;
 };
@@ -106,7 +112,8 @@ export const discoveryApi = createApi({
             .from("user_roles")
             .select("user_id, role:roles!inner(code)")
             .eq("role.code", "author")
-            .is("revoked_at", null);
+            .is("revoked_at", null)
+            .limit(EXPLORE_AUTHOR_LIMIT);
 
           if (authorRolesError) {
             throw new Error(authorRolesError.message);
@@ -140,21 +147,24 @@ export const discoveryApi = createApi({
             });
           }
 
-          const [{ data: users, error: usersError }, { data: albums, error: albumsError }] =
-            await Promise.all([
-              supabase
-                .from("users")
-                .select("id,username,avatar_url")
-                .in("id", authorIds),
-              supabase
-                .from("albums")
-                .select(
-                  "id,user_id,description,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
-                )
-                .eq("visibility", "published")
-                .in("user_id", authorIds)
-                .order("created_at", { ascending: false }),
-            ]);
+          const [
+            { data: users, error: usersError },
+            { data: albums, error: albumsError },
+          ] = await Promise.all([
+            supabase
+              .from("users")
+              .select("id,username,avatar_url")
+              .in("id", authorIds),
+            supabase
+              .from("albums")
+              .select(
+                "id,user_id,description,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
+              )
+              .eq("visibility", "published")
+              .in("user_id", authorIds)
+              .order("created_at", { ascending: false })
+              .limit(EXPLORE_ALBUM_LIMIT),
+          ]);
 
           if (usersError) {
             throw new Error(usersError.message);
@@ -182,12 +192,14 @@ export const discoveryApi = createApi({
             }
           }
 
-          const { data: purchases, error: purchasesError } = candidatePostIds.length
-            ? await supabase
-                .from("purchases")
-                .select("post_id")
-                .in("post_id", Array.from(new Set(candidatePostIds)))
-            : { data: [], error: null };
+          const { data: purchases, error: purchasesError } =
+            candidatePostIds.length
+              ? await supabase
+                  .from("purchases")
+                  .select("post_id")
+                  .in("post_id", Array.from(new Set(candidatePostIds)))
+                  .limit(EXPLORE_PURCHASE_LOOKBACK_LIMIT)
+              : { data: [], error: null };
 
           if (purchasesError) {
             throw new Error(purchasesError.message);
@@ -197,7 +209,10 @@ export const discoveryApi = createApi({
           for (const row of purchases ?? []) {
             const postId = typeof row.post_id === "string" ? row.post_id : null;
             if (!postId) continue;
-            purchaseCountByPostId.set(postId, (purchaseCountByPostId.get(postId) ?? 0) + 1);
+            purchaseCountByPostId.set(
+              postId,
+              (purchaseCountByPostId.get(postId) ?? 0) + 1,
+            );
           }
 
           const mapped: ExploreItem[] = ((users ?? []) as UserRow[])
@@ -207,28 +222,29 @@ export const discoveryApi = createApi({
               if (currentUserId && userId === currentUserId) return null;
 
               const userAlbums = albumsByUserId.get(userId) ?? [];
-              const postCandidates = userAlbums.flatMap((album) =>
-                (album.album_posts ?? [])
-                  .map((item) => {
-                    const post = normalizeAlbumPost(item.post);
-                    const postId = post?.id ?? item.post_id ?? null;
-                    if (!postId || !post?.media_url) return null;
-                    if (post.is_locked) return null;
-                    return {
-                      postId,
-                      mediaUrl: post.media_url,
-                      mediaType: post.media_type ?? "image",
-                      description: album.description ?? "",
-                      createdAt: post.created_at ?? album.created_at ?? "",
-                    };
-                  })
-                  .filter(Boolean) as Array<{
-                  postId: string;
-                  mediaUrl: string;
-                  mediaType: string;
-                  description: string;
-                  createdAt: string;
-                }>,
+              const postCandidates = userAlbums.flatMap(
+                (album) =>
+                  (album.album_posts ?? [])
+                    .map((item) => {
+                      const post = normalizeAlbumPost(item.post);
+                      const postId = post?.id ?? item.post_id ?? null;
+                      if (!postId || !post?.media_url) return null;
+                      if (post.is_locked) return null;
+                      return {
+                        postId,
+                        mediaUrl: post.media_url,
+                        mediaType: post.media_type ?? "image",
+                        description: album.description ?? "",
+                        createdAt: post.created_at ?? album.created_at ?? "",
+                      };
+                    })
+                    .filter(Boolean) as Array<{
+                    postId: string;
+                    mediaUrl: string;
+                    mediaType: string;
+                    description: string;
+                    createdAt: string;
+                  }>,
               );
 
               if (postCandidates.length === 0) {
@@ -304,18 +320,28 @@ export const discoveryApi = createApi({
               const description = album.description ?? "";
               if (!hasTag(description, tag)) return [];
 
-              const owner = Array.isArray(album.users) ? album.users[0] : album.users;
+              const owner = Array.isArray(album.users)
+                ? album.users[0]
+                : album.users;
               const username = owner?.username ?? "usuario";
-              const avatar = resolvePublicUrl(supabase, owner?.avatar_url ?? null);
+              const avatar = resolvePublicUrl(
+                supabase,
+                owner?.avatar_url ?? null,
+              );
 
               return Array.isArray(album.album_posts)
-                ? album.album_posts
+                ? (album.album_posts
                     .map((link) => {
-                      const post = Array.isArray(link.post) ? link.post[0] : link.post;
+                      const post = Array.isArray(link.post)
+                        ? link.post[0]
+                        : link.post;
                       if (!post?.media_url) return null;
                       return {
                         id: post.id ?? link.post_id,
-                        mediaUrl: resolvePublicUrl(supabase, post.media_url ?? null),
+                        mediaUrl: resolvePublicUrl(
+                          supabase,
+                          post.media_url ?? null,
+                        ),
                         mediaType: post.media_type ?? "image",
                         username,
                         avatar,
@@ -323,7 +349,7 @@ export const discoveryApi = createApi({
                         createdAt: post.created_at ?? album.created_at,
                       };
                     })
-                    .filter(Boolean) as ExploreItem[]
+                    .filter(Boolean) as ExploreItem[])
                 : [];
             })
             .filter((item) => Boolean(item.mediaUrl));

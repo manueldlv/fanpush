@@ -4,7 +4,10 @@ import { getPayoutMetaEntries, PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { resolveTipAmountMap } from "@/lib/earnings";
 import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
-import { getWithdrawalStatusLabel, type WithdrawalStatus } from "@/lib/withdrawals";
+import {
+  getWithdrawalStatusLabel,
+  type WithdrawalStatus,
+} from "@/lib/withdrawals";
 
 type SaleItem = {
   id: string;
@@ -32,7 +35,15 @@ type WithdrawalItem = {
   monthKey: string;
 };
 
-const formatAssetCountLabel = (count: number, singular: string, plural: string) => {
+const SALES_POST_LIMIT = 500;
+const SALES_EVENT_LIMIT = 1000;
+const WITHDRAWAL_HISTORY_LIMIT = 100;
+
+const formatAssetCountLabel = (
+  count: number,
+  singular: string,
+  plural: string,
+) => {
   if (count <= 0) return null;
   return `${count} ${count === 1 ? singular : plural}`;
 };
@@ -54,60 +65,82 @@ const resolvePublicUrl = (
 ) => {
   if (!value) return null;
   if (value.startsWith("http")) return value;
-  return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+  return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
+    .publicUrl;
 };
 
 export async function GET(request: Request) {
   try {
     const { admin, user, error } = await getAuthenticatedUser(request);
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: 401 },
+      );
     }
 
     const userId = user.id;
 
-    const [postRowsResult, directMessageRowsResult, tipRowsResult, withdrawalsResult, balanceResult] =
-      await Promise.all([
-        admin
-          .from("posts")
-          .select("id,user_id,media_type,caption,album_posts(album_id)")
-          .eq("user_id", userId),
-        admin
-          .from("direct_messages")
-          .select("id,thread_id,metadata,created_at")
-          .eq("sender_id", userId)
-          .eq("kind", "premium"),
-        admin
-          .from("notifications")
-          .select("id,actor_id,entity_id,message,created_at")
-          .eq("user_id", userId)
-          .eq("type", "tip")
-          .order("created_at", { ascending: false }),
-        admin
-          .from("withdrawal_requests")
-          .select("id,amount,status,requested_at,month_key")
-          .eq("user_id", userId)
-          .order("requested_at", { ascending: false }),
-        admin
-          .from("user_balances")
-          .select("cash_available,cash_reserved")
-          .eq("user_id", userId)
-          .maybeSingle(),
-      ]);
+    const [
+      postRowsResult,
+      directMessageRowsResult,
+      tipRowsResult,
+      withdrawalsResult,
+      balanceResult,
+    ] = await Promise.all([
+      admin
+        .from("posts")
+        .select("id,user_id,media_type,caption,album_posts(album_id)")
+        .eq("user_id", userId)
+        .limit(SALES_POST_LIMIT),
+      admin
+        .from("direct_messages")
+        .select("id,thread_id,metadata,created_at")
+        .eq("sender_id", userId)
+        .eq("kind", "premium")
+        .order("created_at", { ascending: false })
+        .limit(SALES_POST_LIMIT),
+      admin
+        .from("notifications")
+        .select("id,actor_id,entity_id,message,created_at")
+        .eq("user_id", userId)
+        .eq("type", "tip")
+        .order("created_at", { ascending: false })
+        .limit(SALES_EVENT_LIMIT),
+      admin
+        .from("withdrawal_requests")
+        .select("id,amount,status,requested_at,month_key")
+        .eq("user_id", userId)
+        .order("requested_at", { ascending: false })
+        .limit(WITHDRAWAL_HISTORY_LIMIT),
+      admin
+        .from("user_balances")
+        .select("cash_available,cash_reserved")
+        .eq("user_id", userId)
+        .maybeSingle(),
+    ]);
 
     if (postRowsResult.error) throw new Error(postRowsResult.error.message);
-    if (directMessageRowsResult.error) throw new Error(directMessageRowsResult.error.message);
+    if (directMessageRowsResult.error)
+      throw new Error(directMessageRowsResult.error.message);
     if (tipRowsResult.error) throw new Error(tipRowsResult.error.message);
-    if (withdrawalsResult.error) throw new Error(withdrawalsResult.error.message);
+    if (withdrawalsResult.error)
+      throw new Error(withdrawalsResult.error.message);
     if (balanceResult.error) throw new Error(balanceResult.error.message);
 
     const postRows = postRowsResult.data ?? [];
     const postIds = postRows.map((row) => row.id);
     const albumIds = Array.from(
-      new Set(postRows.map((row) => row.album_posts?.[0]?.album_id).filter(Boolean) as string[]),
+      new Set(
+        postRows
+          .map((row) => row.album_posts?.[0]?.album_id)
+          .filter(Boolean) as string[],
+      ),
     );
     const directMessageRows = directMessageRowsResult.data ?? [];
-    const directMessageIds = Array.from(new Set(directMessageRows.map((row) => row.id)));
+    const directMessageIds = Array.from(
+      new Set(directMessageRows.map((row) => row.id)),
+    );
 
     const [
       purchaseRowsResult,
@@ -121,6 +154,7 @@ export async function GET(request: Request) {
             .select("id,user_id,post_id,amount,created_at")
             .in("post_id", postIds)
             .order("created_at", { ascending: false })
+            .limit(SALES_EVENT_LIMIT)
         : Promise.resolve({ data: [], error: null }),
       albumIds.length
         ? admin
@@ -129,7 +163,10 @@ export async function GET(request: Request) {
             .in("id", albumIds)
         : Promise.resolve({ data: [], error: null }),
       albumIds.length
-        ? admin.from("album_posts").select("album_id,post_id").in("album_id", albumIds)
+        ? admin
+            .from("album_posts")
+            .select("album_id,post_id")
+            .in("album_id", albumIds)
         : Promise.resolve({ data: [], error: null }),
       directMessageIds.length
         ? admin
@@ -137,13 +174,17 @@ export async function GET(request: Request) {
             .select("message_id,buyer_user_id,amount,created_at")
             .in("message_id", directMessageIds)
             .order("created_at", { ascending: false })
+            .limit(SALES_EVENT_LIMIT)
         : Promise.resolve({ data: [], error: null }),
     ]);
 
-    if (purchaseRowsResult.error) throw new Error(purchaseRowsResult.error.message);
+    if (purchaseRowsResult.error)
+      throw new Error(purchaseRowsResult.error.message);
     if (albumRowsResult.error) throw new Error(albumRowsResult.error.message);
-    if (albumPostRowsResult.error) throw new Error(albumPostRowsResult.error.message);
-    if (directPurchaseRowsResult.error) throw new Error(directPurchaseRowsResult.error.message);
+    if (albumPostRowsResult.error)
+      throw new Error(albumPostRowsResult.error.message);
+    if (directPurchaseRowsResult.error)
+      throw new Error(directPurchaseRowsResult.error.message);
 
     const purchaseRows = purchaseRowsResult.data ?? [];
     const directPurchaseRows = directPurchaseRowsResult.data ?? [];
@@ -156,18 +197,30 @@ export async function GET(request: Request) {
     );
 
     const buyersResult = buyerIds.length
-      ? await admin.from("users").select("id,username,avatar_url").in("id", buyerIds)
+      ? await admin
+          .from("users")
+          .select("id,username,avatar_url")
+          .in("id", buyerIds)
       : { data: [], error: null };
     if (buyersResult.error) throw new Error(buyersResult.error.message);
 
     const postMap = new Map(postRows.map((row) => [row.id, row]));
-    const albumMap = new Map((albumRowsResult.data ?? []).map((row) => [row.id, row]));
-    const directMessageMap = new Map(directMessageRows.map((row) => [row.id, row]));
-    const buyerMap = new Map((buyersResult.data ?? []).map((row) => [row.id, row]));
+    const albumMap = new Map(
+      (albumRowsResult.data ?? []).map((row) => [row.id, row]),
+    );
+    const directMessageMap = new Map(
+      directMessageRows.map((row) => [row.id, row]),
+    );
+    const buyerMap = new Map(
+      (buyersResult.data ?? []).map((row) => [row.id, row]),
+    );
     const albumCountMap = new Map<string, number>();
 
     (albumPostRowsResult.data ?? []).forEach((row) => {
-      albumCountMap.set(row.album_id, (albumCountMap.get(row.album_id) ?? 0) + 1);
+      albumCountMap.set(
+        row.album_id,
+        (albumCountMap.get(row.album_id) ?? 0) + 1,
+      );
     });
 
     const grouped = new Map<string, SaleItem>();
@@ -179,23 +232,37 @@ export async function GET(request: Request) {
       const album = albumMap.get(albumId);
       const groupKey = `${albumId}-${row.user_id}`;
       const current = grouped.get(groupKey);
-      const mediaCount = albumCountMap.get(albumId) ?? (post?.media_type ? 1 : 0);
-      const type = mediaCount > 1 ? "Album" : post?.media_type === "video" ? "Video" : "Foto";
-      const albumMediaRows = Array.isArray(album?.album_posts) ? album.album_posts : [];
+      const mediaCount =
+        albumCountMap.get(albumId) ?? (post?.media_type ? 1 : 0);
+      const type =
+        mediaCount > 1
+          ? "Album"
+          : post?.media_type === "video"
+            ? "Video"
+            : "Foto";
+      const albumMediaRows = Array.isArray(album?.album_posts)
+        ? album.album_posts
+        : [];
       const imageCount =
         albumMediaRows.length > 0
-          ? albumMediaRows.filter((item: any) => item?.post?.media_type !== "video").length
+          ? albumMediaRows.filter(
+              (item: any) => item?.post?.media_type !== "video",
+            ).length
           : post?.media_type === "video"
             ? 0
             : 1;
       const videoCount =
         albumMediaRows.length > 0
-          ? albumMediaRows.filter((item: any) => item?.post?.media_type === "video").length
+          ? albumMediaRows.filter(
+              (item: any) => item?.post?.media_type === "video",
+            ).length
           : post?.media_type === "video"
             ? 1
             : 0;
       const normalizedSaleAmount =
-        Number(album?.price || 0) > 0 ? Number(album?.price || 0) : Number(row.amount || 0);
+        Number(album?.price || 0) > 0
+          ? Number(album?.price || 0)
+          : Number(row.amount || 0);
       const purchaseAmount = Number(row.amount || 0);
       const base: SaleItem = current ?? {
         id: groupKey,
@@ -217,11 +284,19 @@ export async function GET(request: Request) {
       grouped.set(groupKey, {
         ...base,
         count: 1,
-        total: base.total > 0 ? base.total : purchaseAmount > 0 ? normalizedSaleAmount : 0,
+        total:
+          base.total > 0
+            ? base.total
+            : purchaseAmount > 0
+              ? normalizedSaleAmount
+              : 0,
       });
     });
 
-    const tipAmountMap = await resolveTipAmountMap(admin, tipRowsResult.data ?? []);
+    const tipAmountMap = await resolveTipAmountMap(
+      admin,
+      tipRowsResult.data ?? [],
+    );
     (tipRowsResult.data ?? []).forEach((row) => {
       const amount = Number(tipAmountMap.get(row.id) || 0);
       if (!amount) return;
@@ -278,26 +353,28 @@ export async function GET(request: Request) {
         createdAt:
           (base.createdAt ?? "") > (row.created_at ?? message.created_at ?? "")
             ? base.createdAt
-            : row.created_at ?? message.created_at,
+            : (row.created_at ?? message.created_at),
       });
     });
 
-    const withdrawals: WithdrawalItem[] = (withdrawalsResult.data ?? []).map((row) => {
-      const status =
-        row.status === "paid"
-          ? ("sent" as const)
-          : row.status === "rejected" || row.status === "cancelled"
-            ? ("rejected" as const)
-            : ("requested" as const);
-      return {
-        id: row.id,
-        amount: Number(row.amount || 0),
-        status,
-        statusLabel: getWithdrawalStatusLabel(status),
-        requestedAt: row.requested_at,
-        monthKey: row.month_key || "",
-      };
-    });
+    const withdrawals: WithdrawalItem[] = (withdrawalsResult.data ?? []).map(
+      (row) => {
+        const status =
+          row.status === "paid"
+            ? ("sent" as const)
+            : row.status === "rejected" || row.status === "cancelled"
+              ? ("rejected" as const)
+              : ("requested" as const);
+        return {
+          id: row.id,
+          amount: Number(row.amount || 0),
+          status,
+          statusLabel: getWithdrawalStatusLabel(status),
+          requestedAt: row.requested_at,
+          monthKey: row.month_key || "",
+        };
+      },
+    );
 
     const payoutMetaResult = await getPayoutMetaEntries(admin, userId, [
       PAYOUT_META_KEYS.defaultAccount,
@@ -309,8 +386,9 @@ export async function GET(request: Request) {
       ),
       withdrawals,
       payoutProfile:
-        coercePayoutProfile(payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount)) ??
-        null,
+        coercePayoutProfile(
+          payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount),
+        ) ?? null,
       availableToWithdraw: Number(balanceResult.data?.cash_available ?? 0),
       reservedToWithdraw: Number(balanceResult.data?.cash_reserved ?? 0),
     });
@@ -318,7 +396,9 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "No se pudieron cargar las ventas.",
+          error instanceof Error
+            ? error.message
+            : "No se pudieron cargar las ventas.",
       },
       { status: 500 },
     );

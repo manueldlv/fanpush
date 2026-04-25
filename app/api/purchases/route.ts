@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { inferDisplayKind, PUBLIC_MEDIA_BUCKET, PREMIUM_MEDIA_BUCKET } from "@/lib/media";
+import {
+  inferDisplayKind,
+  PUBLIC_MEDIA_BUCKET,
+  PREMIUM_MEDIA_BUCKET,
+} from "@/lib/media";
 import { parseTipNoteFromMessage, resolveTipAmountMap } from "@/lib/earnings";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
+import { createSignedUrlMap } from "@/lib/server/storage";
 
 type PurchaseResponseItem = {
   id: string;
@@ -27,39 +32,51 @@ type SentTipResponseItem = {
   createdAt: string;
 };
 
+const PURCHASE_HISTORY_LIMIT = 100;
+const TIP_HISTORY_LIMIT = 100;
+
 const resolvePublicUrl = (
   admin: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>["admin"]>,
   value: string | null,
 ) => {
   if (!value) return null;
   if (value.startsWith("http")) return value;
-  return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+  return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
+    .publicUrl;
 };
 
 export async function GET(request: Request) {
   try {
     const { admin, user, error } = await getAuthenticatedUser(request);
     if (error || !admin || !user) {
-      return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "No autorizado." },
+        { status: 401 },
+      );
     }
 
     const { data: purchaseRows, error: purchaseError } = await admin
       .from("purchases")
       .select("id,post_id,payment_id,amount,status,created_at")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(PURCHASE_HISTORY_LIMIT);
 
     if (purchaseError) throw new Error(purchaseError.message);
 
-    const { data: directMessagePurchaseRows, error: directPurchaseError } = await admin
-      .from("direct_message_purchases")
-      .select("message_id,amount,created_at")
-      .eq("buyer_user_id", user.id)
-      .order("created_at", { ascending: false });
+    const { data: directMessagePurchaseRows, error: directPurchaseError } =
+      await admin
+        .from("direct_message_purchases")
+        .select("message_id,amount,created_at")
+        .eq("buyer_user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(PURCHASE_HISTORY_LIMIT);
 
     if (directPurchaseError) throw new Error(directPurchaseError.message);
 
-    const postIds = Array.from(new Set((purchaseRows ?? []).map((row) => row.post_id)));
+    const postIds = Array.from(
+      new Set((purchaseRows ?? []).map((row) => row.post_id)),
+    );
     const directMessageIds = Array.from(
       new Set((directMessagePurchaseRows ?? []).map((row) => row.message_id)),
     );
@@ -67,35 +84,47 @@ export async function GET(request: Request) {
     const { data: postRows, error: postsError } = postIds.length
       ? await admin
           .from("posts")
-          .select("id,user_id,media_url,media_type,is_locked,caption,album_posts(album_id)")
+          .select(
+            "id,user_id,media_url,media_type,is_locked,caption,album_posts(album_id)",
+          )
           .in("id", postIds)
       : { data: [], error: null };
 
     if (postsError) throw new Error(postsError.message);
 
-    const { data: directMessageRows, error: directMessagesError } = directMessageIds.length
-      ? await admin
-          .from("direct_messages")
-          .select("id,sender_id,metadata,created_at")
-          .in("id", directMessageIds)
-      : { data: [], error: null };
+    const { data: directMessageRows, error: directMessagesError } =
+      directMessageIds.length
+        ? await admin
+            .from("direct_messages")
+            .select("id,sender_id,metadata,created_at")
+            .in("id", directMessageIds)
+        : { data: [], error: null };
 
     if (directMessagesError) throw new Error(directMessagesError.message);
 
-    const creatorIds = Array.from(new Set((postRows ?? []).map((row) => row.user_id)));
+    const creatorIds = Array.from(
+      new Set((postRows ?? []).map((row) => row.user_id)),
+    );
     const directCreatorIds = Array.from(
       new Set((directMessageRows ?? []).map((row) => row.sender_id)),
     );
 
     const { data: creators, error: creatorsError } = creatorIds.length
-      ? await admin.from("users").select("id,username,avatar_url").in("id", creatorIds)
+      ? await admin
+          .from("users")
+          .select("id,username,avatar_url")
+          .in("id", creatorIds)
       : { data: [], error: null };
 
     if (creatorsError) throw new Error(creatorsError.message);
 
-    const { data: directCreators, error: directCreatorsError } = directCreatorIds.length
-      ? await admin.from("users").select("id,username,avatar_url").in("id", directCreatorIds)
-      : { data: [], error: null };
+    const { data: directCreators, error: directCreatorsError } =
+      directCreatorIds.length
+        ? await admin
+            .from("users")
+            .select("id,username,avatar_url")
+            .in("id", directCreatorIds)
+        : { data: [], error: null };
 
     if (directCreatorsError) throw new Error(directCreatorsError.message);
 
@@ -110,7 +139,27 @@ export async function GET(request: Request) {
     );
 
     const postMap = new Map((postRows ?? []).map((row) => [row.id, row]));
-    const directMessageMap = new Map((directMessageRows ?? []).map((row) => [row.id, row]));
+    const directMessageMap = new Map(
+      (directMessageRows ?? []).map((row) => [row.id, row]),
+    );
+    const directPremiumPaths = (directMessageRows ?? []).flatMap((message) => {
+      const attachments = Array.isArray((message.metadata as any)?.attachments)
+        ? ((message.metadata as any).attachments as Array<
+            Record<string, unknown>
+          >)
+        : [];
+      return attachments
+        .map((item) =>
+          typeof item.premiumPath === "string" ? item.premiumPath : null,
+        )
+        .filter((path): path is string => Boolean(path));
+    });
+    const directSignedPremiumUrls = await createSignedUrlMap({
+      admin,
+      bucket: PREMIUM_MEDIA_BUCKET,
+      paths: directPremiumPaths,
+      expiresIn: 60 * 5,
+    });
 
     const albumIds = Array.from(
       new Set(
@@ -174,7 +223,9 @@ export async function GET(request: Request) {
       }
     });
 
-    const postItems: PurchaseResponseItem[] = Array.from(groupedPurchaseRows.values()).map((row) => {
+    const postItems: PurchaseResponseItem[] = Array.from(
+      groupedPurchaseRows.values(),
+    ).map((row) => {
       const post = postMap.get(row.post_id);
       const albumId = row.album_id;
       const album = albumMap.get(albumId);
@@ -195,7 +246,8 @@ export async function GET(request: Request) {
         .filter((item) => item.url);
 
       const albumCovers = albumMedia.map((item) => item.url);
-      const fallbackCover = resolvePublicUrl(admin, post?.media_url ?? null) ?? "";
+      const fallbackCover =
+        resolvePublicUrl(admin, post?.media_url ?? null) ?? "";
 
       return {
         id: albumId,
@@ -207,7 +259,12 @@ export async function GET(request: Request) {
         }),
         price: Number(row.amount || 0),
         cover: albumCovers[0] ?? fallbackCover,
-        covers: albumCovers.length > 0 ? albumCovers : fallbackCover ? [fallbackCover] : [],
+        covers:
+          albumCovers.length > 0
+            ? albumCovers
+            : fallbackCover
+              ? [fallbackCover]
+              : [],
         media:
           albumMedia.length > 0
             ? albumMedia
@@ -220,72 +277,72 @@ export async function GET(request: Request) {
       };
     });
 
-    const chatItems = await Promise.all(
-      (directMessagePurchaseRows ?? []).map(async (row) => {
-        const message = directMessageMap.get(row.message_id);
-        if (!message) return null;
+    const chatItems = (directMessagePurchaseRows ?? []).map((row) => {
+      const message = directMessageMap.get(row.message_id);
+      if (!message) return null;
 
-        const creator = creatorMap.get(message.sender_id);
-        const attachments = Array.isArray((message.metadata as any)?.attachments)
-          ? ((message.metadata as any).attachments as Array<Record<string, unknown>>)
-          : [];
+      const creator = creatorMap.get(message.sender_id);
+      const attachments = Array.isArray((message.metadata as any)?.attachments)
+        ? ((message.metadata as any).attachments as Array<
+            Record<string, unknown>
+          >)
+        : [];
 
-        const resolvedMedia = (
-          await Promise.all(
-            attachments.map(async (item) => {
-              const rawPremium =
-                typeof item.premiumPath === "string" ? item.premiumPath : null;
-              const rawPublic = typeof item.publicPath === "string" ? item.publicPath : null;
-              const rawPreview = typeof item.previewPath === "string" ? item.previewPath : null;
+      const resolvedMedia = attachments
+        .map((item) => {
+          const rawPremium =
+            typeof item.premiumPath === "string" ? item.premiumPath : null;
+          const rawPublic =
+            typeof item.publicPath === "string" ? item.publicPath : null;
+          const rawPreview =
+            typeof item.previewPath === "string" ? item.previewPath : null;
 
-              let url = "";
-              if (rawPremium) {
-                const signed = await admin.storage
-                  .from(PREMIUM_MEDIA_BUCKET)
-                  .createSignedUrl(rawPremium, 60 * 5);
-                url =
-                  signed.data?.signedUrl ??
-                  resolvePublicUrl(admin, rawPublic ?? rawPreview) ??
-                  "";
-              } else {
-                url = resolvePublicUrl(admin, rawPublic ?? rawPreview) ?? "";
-              }
+          let url = "";
+          if (rawPremium) {
+            url =
+              directSignedPremiumUrls.get(rawPremium) ??
+              resolvePublicUrl(admin, rawPublic ?? rawPreview) ??
+              "";
+          } else {
+            url = resolvePublicUrl(admin, rawPublic ?? rawPreview) ?? "";
+          }
 
-              const kind =
-                item.kind === "video" ? ("video" as const) : ("image" as const);
+          const kind =
+            item.kind === "video" ? ("video" as const) : ("image" as const);
 
-              return url ? { url, kind } : null;
-            }),
-          )
-        ).filter((item): item is { url: string; kind: "image" | "video" } => Boolean(item));
+          return url ? { url, kind } : null;
+        })
+        .filter((item): item is { url: string; kind: "image" | "video" } =>
+          Boolean(item),
+        );
 
-        const fallbackCover = resolvedMedia[0]?.url ?? "";
+      const fallbackCover = resolvedMedia[0]?.url ?? "";
 
-        return {
-          id: `chat-${row.message_id}`,
-          title: `Chat con @${creator?.username ?? "usuario"}`,
-          creator: creator?.username ?? "usuario",
-          date: new Date(row.created_at).toLocaleDateString("es-AR", {
-            day: "2-digit",
-            month: "short",
-          }),
-          price: Number(row.amount || 0),
-          cover: fallbackCover,
-          covers: resolvedMedia.map((item) => item.url),
-          media: resolvedMedia,
-          status: "Desbloqueado",
-          source: "chat" as const,
-          createdAt: row.created_at,
-        } satisfies PurchaseResponseItem;
-      }),
-    );
+      return {
+        id: `chat-${row.message_id}`,
+        title: `Chat con @${creator?.username ?? "usuario"}`,
+        creator: creator?.username ?? "usuario",
+        date: new Date(row.created_at).toLocaleDateString("es-AR", {
+          day: "2-digit",
+          month: "short",
+        }),
+        price: Number(row.amount || 0),
+        cover: fallbackCover,
+        covers: resolvedMedia.map((item) => item.url),
+        media: resolvedMedia,
+        status: "Desbloqueado",
+        source: "chat" as const,
+        createdAt: row.created_at,
+      } satisfies PurchaseResponseItem;
+    });
 
     const { data: tipRows, error: tipRowsError } = await admin
       .from("notifications")
       .select("id,user_id,entity_id,message,created_at")
       .eq("actor_id", user.id)
       .eq("type", "tip")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(TIP_HISTORY_LIMIT);
 
     if (tipRowsError) throw new Error(tipRowsError.message);
 
@@ -334,7 +391,10 @@ export async function GET(request: Request) {
     >;
 
     const items = [...postItems, ...normalizedChatItems]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
       .map(({ createdAt: _createdAt, ...item }) => item);
 
     return NextResponse.json({ ok: true, items, sentTips });

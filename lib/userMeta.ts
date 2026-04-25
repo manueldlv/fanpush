@@ -5,13 +5,14 @@ export const USER_META_KEYS = {
   payoutProfile: "payout.profile",
   accountState: "account.state",
   notificationPreferences: "notification.preferences",
+  balanceBaselineDone: "balance_baseline_done",
 } as const;
 
 const isMissingUserMetaRelationError = (message?: string | null) =>
   Boolean(
     message &&
-      (/relation .* does not exist/i.test(message) ||
-        /could not find the table .* in the schema cache/i.test(message)),
+    (/relation .* does not exist/i.test(message) ||
+      /could not find the table .* in the schema cache/i.test(message)),
   );
 
 export const getUserMetaEntries = async (
@@ -66,7 +67,9 @@ export const upsertUserMetaValue = async (
 
   if (error) {
     if (isMissingUserMetaRelationError(error.message)) return false;
-    throw new Error(`No se pudo guardar user_meta (${metaKey}): ${error.message}`);
+    throw new Error(
+      `No se pudo guardar user_meta (${metaKey}): ${error.message}`,
+    );
   }
 
   return true;

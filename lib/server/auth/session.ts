@@ -1,4 +1,8 @@
-import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
+import {
+  createClient,
+  type SupabaseClient,
+  type User,
+} from "@supabase/supabase-js";
 import { grantRoleByCode } from "@/lib/server/auth/roles";
 
 const readTrimmedEnv = (key: string) => {
@@ -28,24 +32,37 @@ export const getBearerToken = (header: string | null) => {
   return header.slice("Bearer ".length).trim();
 };
 
+let cachedAdminClient: SupabaseClient | null = null;
+const preparedUserRowsAt = new Map<string, number>();
+const PREPARED_USER_ROWS_TTL_MS = 5 * 60 * 1000;
+
+const hasFreshPreparedUserRows = (userId: string) => {
+  const preparedAt = preparedUserRowsAt.get(userId);
+  return Boolean(
+    preparedAt && Date.now() - preparedAt < PREPARED_USER_ROWS_TTL_MS,
+  );
+};
+
 export const getAdminSupabase = () => {
   if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) return null;
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+  if (cachedAdminClient) return cachedAdminClient;
+  cachedAdminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  return cachedAdminClient;
 };
 
 export const ensureServerUserRows = async (
   admin: ReturnType<typeof getAdminSupabase>,
   user: User,
 ) => {
-  if (!admin || !user?.id) return;
+  if (!admin || !user?.id) return false;
 
   const fallbackUsername =
     typeof user.user_metadata?.username === "string" &&
     user.user_metadata.username.trim()
       ? user.user_metadata.username.trim()
-      : user.email?.split("@")[0] ?? "usuario";
+      : (user.email?.split("@")[0] ?? "usuario");
 
   const fallbackFullName =
     typeof user.user_metadata?.full_name === "string"
@@ -57,14 +74,22 @@ export const ensureServerUserRows = async (
     { data: existingProfile, error: profileSelectError },
   ] = await Promise.all([
     admin.from("users").select("id,username").eq("id", user.id).maybeSingle(),
-    admin.from("profiles").select("id,full_name,email").eq("id", user.id).maybeSingle(),
+    admin
+      .from("profiles")
+      .select("id,full_name,email")
+      .eq("id", user.id)
+      .maybeSingle(),
   ]);
 
   if (userSelectError) {
-    throw new Error(`No se pudo validar el usuario público: ${userSelectError.message}`);
+    throw new Error(
+      `No se pudo validar el usuario público: ${userSelectError.message}`,
+    );
   }
   if (profileSelectError) {
-    throw new Error(`No se pudo validar el perfil: ${profileSelectError.message}`);
+    throw new Error(
+      `No se pudo validar el perfil: ${profileSelectError.message}`,
+    );
   }
 
   if (!existingUser) {
@@ -73,7 +98,9 @@ export const ensureServerUserRows = async (
       username: fallbackUsername,
     });
     if (insertUserError) {
-      throw new Error(`No se pudo crear el usuario público: ${insertUserError.message}`);
+      throw new Error(
+        `No se pudo crear el usuario público: ${insertUserError.message}`,
+      );
     }
   } else if (!existingUser.username?.trim()) {
     const { error: updateUserError } = await admin
@@ -81,7 +108,9 @@ export const ensureServerUserRows = async (
       .update({ username: fallbackUsername })
       .eq("id", user.id);
     if (updateUserError) {
-      throw new Error(`No se pudo completar el username: ${updateUserError.message}`);
+      throw new Error(
+        `No se pudo completar el username: ${updateUserError.message}`,
+      );
     }
   }
 
@@ -92,7 +121,9 @@ export const ensureServerUserRows = async (
       email: user.email ?? "",
     });
     if (insertProfileError) {
-      throw new Error(`No se pudo crear el perfil: ${insertProfileError.message}`);
+      throw new Error(
+        `No se pudo crear el perfil: ${insertProfileError.message}`,
+      );
     }
   } else if (
     (!existingProfile.full_name?.trim() && fallbackFullName) ||
@@ -106,13 +137,17 @@ export const ensureServerUserRows = async (
           : fallbackFullName,
         email: existingProfile.email?.trim()
           ? existingProfile.email
-          : user.email ?? "",
+          : (user.email ?? ""),
       })
       .eq("id", user.id);
     if (updateProfileError) {
-      throw new Error(`No se pudo completar el perfil: ${updateProfileError.message}`);
+      throw new Error(
+        `No se pudo completar el perfil: ${updateProfileError.message}`,
+      );
     }
   }
+
+  return !existingUser;
 };
 
 export const getAuthenticatedUser = async (
@@ -125,7 +160,8 @@ export const getAuthenticatedUser = async (
     return {
       admin,
       user: null,
-      error: "Falta configurar NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+      error:
+        "Falta configurar NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY.",
     };
   }
 
@@ -163,8 +199,13 @@ export const getAuthenticatedUser = async (
   }
 
   try {
-    await ensureServerUserRows(admin, user);
-    await grantRoleByCode(admin, user.id, "user", user.id);
+    if (!hasFreshPreparedUserRows(user.id)) {
+      const createdPublicUser = await ensureServerUserRows(admin, user);
+      if (createdPublicUser) {
+        await grantRoleByCode(admin, user.id, "user", user.id);
+      }
+      preparedUserRowsAt.set(user.id, Date.now());
+    }
   } catch (ensureError) {
     return {
       admin,

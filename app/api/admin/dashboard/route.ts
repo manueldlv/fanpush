@@ -11,10 +11,7 @@ import {
 import { parsePayoutProfile } from "@/lib/payouts";
 import { coercePayoutProfile } from "@/lib/payouts";
 import { parseUploadModerationMeta } from "@/lib/contentClassification";
-import {
-  parseModerationAction,
-  parseContentReport,
-} from "@/lib/reports";
+import { parseModerationAction, parseContentReport } from "@/lib/reports";
 import {
   parseModerationArchive,
   parseModerationContentState,
@@ -37,6 +34,11 @@ import {
   getPlatformShareForReferralCount,
   getReferralTier,
 } from "@/lib/referrals";
+
+const DASHBOARD_USER_LIMIT = 500;
+const DASHBOARD_CONTENT_LIMIT = 500;
+const DASHBOARD_RELATION_LIMIT = 5000;
+const DASHBOARD_FINANCE_EVENT_LIMIT = 5000;
 
 export async function GET(request: Request) {
   try {
@@ -81,12 +83,14 @@ export async function GET(request: Request) {
       admin
         .from("purchases")
         .select("id, user_id, post_id, amount, created_at")
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(DASHBOARD_FINANCE_EVENT_LIMIT),
       admin
         .from("notifications")
         .select("id, actor_id, user_id, entity_id, message, created_at")
         .eq("type", "tip")
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(DASHBOARD_FINANCE_EVENT_LIMIT),
       admin
         .from("purchases")
         .select("id, user_id, post_id, amount, created_at")
@@ -104,7 +108,10 @@ export async function GET(request: Request) {
         .select("id,user_id,amount,status,requested_at,month_key")
         .order("requested_at", { ascending: false })
         .limit(30),
-      admin.from("payouts_meta").select("user_id,meta_key,meta_value,updated_at"),
+      admin
+        .from("payouts_meta")
+        .select("user_id,meta_key,meta_value,updated_at")
+        .limit(DASHBOARD_USER_LIMIT),
       admin
         .from("notifications")
         .select("id,user_id,actor_id,entity_id,message,created_at")
@@ -147,25 +154,37 @@ export async function GET(request: Request) {
         .eq("type", "moderation_content_state")
         .order("created_at", { ascending: false })
         .limit(200),
-      admin.from("users").select("id,username,avatar_url,created_at"),
-      admin.from("profiles").select("id,full_name,email,created_at"),
-      admin.from("follows").select("follower_id,following_id"),
+      admin
+        .from("users")
+        .select("id,username,avatar_url,created_at")
+        .limit(DASHBOARD_USER_LIMIT),
+      admin
+        .from("profiles")
+        .select("id,full_name,email,created_at")
+        .limit(DASHBOARD_USER_LIMIT),
+      admin
+        .from("follows")
+        .select("follower_id,following_id")
+        .limit(DASHBOARD_RELATION_LIMIT),
       admin
         .from("albums")
         .select(
           "id,user_id,description,price,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,caption,created_at,likes_count))",
         )
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(DASHBOARD_CONTENT_LIMIT),
       admin
         .from("user_commission_profiles")
         .select(
           "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by",
         )
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(DASHBOARD_USER_LIMIT),
       admin
         .from("user_referrals")
         .select("referrer_user_id,referred_user_id,created_at")
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(DASHBOARD_RELATION_LIMIT),
     ]);
 
     const purchasePostIds = Array.from(
@@ -175,7 +194,9 @@ export async function GET(request: Request) {
     const [{ data: postOwnerRows }] = await Promise.all([
       purchasePostIds.length
         ? admin.from("posts").select("id, user_id").in("id", purchasePostIds)
-        : Promise.resolve({ data: [] as Array<{ id: string; user_id: string }> }),
+        : Promise.resolve({
+            data: [] as Array<{ id: string; user_id: string }>,
+          }),
     ]);
 
     const allUsersRows = allUsersRowsResult.data ?? [];
@@ -189,7 +210,9 @@ export async function GET(request: Request) {
     const payoutMetaMap = new Map(
       (payoutMetaRowsResult.data ?? [])
         .filter((row) => row.meta_key === PAYOUT_META_KEYS.defaultAccount)
-        .map((row) => [row.user_id, coercePayoutProfile(row.meta_value)] as const)
+        .map(
+          (row) => [row.user_id, coercePayoutProfile(row.meta_value)] as const,
+        )
         .filter((entry) => Boolean(entry[1])),
     );
     const referralRows = userReferralsRowsResult.data ?? [];
@@ -239,7 +262,10 @@ export async function GET(request: Request) {
       }))
       .filter((entry) => Boolean(entry.parsed));
 
-    const authorStatusMap = new Map<string, "pending" | "approved" | "rejected">();
+    const authorStatusMap = new Map<
+      string,
+      "pending" | "approved" | "rejected"
+    >();
     authorApplications.forEach((entry) => {
       if (!entry.parsed) return;
       if (!authorStatusMap.has(entry.userId)) {
@@ -260,7 +286,10 @@ export async function GET(request: Request) {
     let purchasePlatformFeeTotal = 0;
     let tipPlatformFeeTotal = 0;
     const addSales = (userId: string, purchaseAmount = 0, tipAmount = 0) => {
-      const current = salesByUser.get(userId) ?? { purchasesGross: 0, tipsGross: 0 };
+      const current = salesByUser.get(userId) ?? {
+        purchasesGross: 0,
+        tipsGross: 0,
+      };
       current.purchasesGross += purchaseAmount;
       current.tipsGross += tipAmount;
       salesByUser.set(userId, current);
@@ -295,11 +324,14 @@ export async function GET(request: Request) {
       purchasePlatformFeeTotal += platformFee;
     });
 
-    const tipAmountMap = await resolveTipAmountMap(admin, allTips as Array<{
-      id: string;
-      entity_id?: string | null;
-      message?: string | null;
-    }>);
+    const tipAmountMap = await resolveTipAmountMap(
+      admin,
+      allTips as Array<{
+        id: string;
+        entity_id?: string | null;
+        message?: string | null;
+      }>,
+    );
 
     allTips.forEach((row) => {
       const amount = Number(tipAmountMap.get(row.id) || 0);
@@ -357,7 +389,8 @@ export async function GET(request: Request) {
           .createSignedUrl(value, 60 * 30);
         return data?.signedUrl ?? null;
       }
-      return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+      return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
+        .publicUrl;
     };
 
     const latestContentStateByAlbum = new Map<
@@ -373,7 +406,9 @@ export async function GET(request: Request) {
     const usersDetailed = allUsersRows
       .map((row) => {
         const profile = profileMap.get(row.id);
-        const authoredAlbums = allAlbums.filter((album) => album.user_id === row.id);
+        const authoredAlbums = allAlbums.filter(
+          (album) => album.user_id === row.id,
+        );
         const followers = follows
           .filter((follow) => follow.following_id === row.id)
           .map((follow) => {
@@ -401,7 +436,10 @@ export async function GET(request: Request) {
 
         const commissionProfile = commissionMap.get(row.id) ?? null;
         const creatorShare = getCreatorShareFromProfile(commissionProfile);
-        const grosses = salesByUser.get(row.id) ?? { purchasesGross: 0, tipsGross: 0 };
+        const grosses = salesByUser.get(row.id) ?? {
+          purchasesGross: 0,
+          tipsGross: 0,
+        };
         const spending = spendingByUser.get(row.id) ?? {
           purchaseSpend: 0,
           tipsSent: 0,
@@ -412,13 +450,12 @@ export async function GET(request: Request) {
         const platformFee = totalGross - creatorNet;
         const authorStatus = authorStatusMap.get(row.id) ?? "idle";
         const latestAuthorApplication =
-          authorApplications.find((entry) => entry.userId === row.id)?.parsed ?? null;
+          authorApplications.find((entry) => entry.userId === row.id)?.parsed ??
+          null;
         const referralEntries = referralsByUser.get(row.id) ?? [];
         const referralCount = referralEntries.length;
         const referralTier = getReferralTier(referralCount);
-        const referralCreatorSharePercent = Math.round(
-          creatorShare * 100,
-        );
+        const referralCreatorSharePercent = Math.round(creatorShare * 100);
         const referralPlatformSharePercent = commissionProfile
           ? Math.round((commissionProfile.platformShare ?? 0.3) * 100)
           : Math.round(getPlatformShareForReferralCount(referralCount) * 100);
@@ -473,14 +510,20 @@ export async function GET(request: Request) {
             const media = Array.isArray(album.album_posts)
               ? album.album_posts
                   .map((link) => {
-                    const post = Array.isArray(link.post) ? link.post[0] : link.post;
+                    const post = Array.isArray(link.post)
+                      ? link.post[0]
+                      : link.post;
                     if (!post) return null;
                     return {
                       id: post.id ?? link.post_id,
-                      url: post.media_url ? resolveAvatar(post.media_url) : null,
+                      url: post.media_url
+                        ? resolveAvatar(post.media_url)
+                        : null,
                       type: post.media_type ?? "image",
                       caption: post.caption ?? "",
-                      isLocked: Boolean(post.is_locked || Number(album.price || 0) > 0),
+                      isLocked: Boolean(
+                        post.is_locked || Number(album.price || 0) > 0,
+                      ),
                       createdAt: post.created_at ?? album.created_at,
                       likesCount: Number(post.likes_count || 0),
                     };
@@ -506,7 +549,9 @@ export async function GET(request: Request) {
       })
       .sort((a, b) => a.username.localeCompare(b.username));
 
-    const authorsCount = usersDetailed.filter((item) => item.role === "author").length;
+    const authorsCount = usersDetailed.filter(
+      (item) => item.role === "author",
+    ).length;
 
     const totalCreatorsNet = usersDetailed.reduce(
       (sum, item) => sum + item.creatorNet,
@@ -533,61 +578,74 @@ export async function GET(request: Request) {
       };
     });
 
-    const content = await Promise.all((recentAlbumsResult.data ?? []).map(async (album) => {
-      const albumUser = Array.isArray(album.users) ? album.users[0] : album.users;
-      const firstLink = Array.isArray(album.album_posts)
-        ? album.album_posts[0]
-        : null;
-      const firstPost =
-        firstLink && firstLink.post
-          ? Array.isArray(firstLink.post)
-            ? firstLink.post[0]
-            : firstLink.post
+    const content = await Promise.all(
+      (recentAlbumsResult.data ?? []).map(async (album) => {
+        const albumUser = Array.isArray(album.users)
+          ? album.users[0]
+          : album.users;
+        const firstLink = Array.isArray(album.album_posts)
+          ? album.album_posts[0]
           : null;
-      const moderationState = latestContentStateByAlbum.get(album.id);
-      const moderationMeta = parseUploadModerationMeta(firstPost?.caption ?? null);
-      return {
-        id: album.id,
-        description: album.description ?? "",
-        price: Number(album.price || 0),
-        createdAt: album.created_at,
-        username: albumUser?.username ?? "usuario",
-        avatar: resolveAvatar(albumUser?.avatar_url ?? null),
-        mediaUrl: await resolveModerationMediaUrl({
-          value: firstPost?.media_url ?? null,
-          ownerUserId: album.user_id,
-          isLocked: firstPost?.is_locked ?? Number(album.price || 0) > 0,
-        }),
-        mediaType: firstPost?.media_type ?? "image",
-        itemsCount: Array.isArray(album.album_posts) ? album.album_posts.length : 0,
-        moderationState: moderationState?.action ?? null,
-        contentAudience: moderationMeta?.contentAudience ?? "general",
-        moderationCategory: moderationMeta?.moderationCategory ?? "otro",
-        moderationTags: moderationMeta?.tags ?? [],
-        media: Array.isArray(album.album_posts)
-          ? (
-              await Promise.all(
-                album.album_posts.map(async (link) => {
-                const post = Array.isArray(link.post) ? link.post[0] : link.post;
-                if (!post?.media_url) return null;
-                return {
-                  id: post.id ?? link.post_id,
-                  url: await resolveModerationMediaUrl({
-                    value: post.media_url ?? null,
-                    ownerUserId: album.user_id,
-                    isLocked: post.is_locked ?? Number(album.price || 0) > 0,
+        const firstPost =
+          firstLink && firstLink.post
+            ? Array.isArray(firstLink.post)
+              ? firstLink.post[0]
+              : firstLink.post
+            : null;
+        const moderationState = latestContentStateByAlbum.get(album.id);
+        const moderationMeta = parseUploadModerationMeta(
+          firstPost?.caption ?? null,
+        );
+        return {
+          id: album.id,
+          description: album.description ?? "",
+          price: Number(album.price || 0),
+          createdAt: album.created_at,
+          username: albumUser?.username ?? "usuario",
+          avatar: resolveAvatar(albumUser?.avatar_url ?? null),
+          mediaUrl: await resolveModerationMediaUrl({
+            value: firstPost?.media_url ?? null,
+            ownerUserId: album.user_id,
+            isLocked: firstPost?.is_locked ?? Number(album.price || 0) > 0,
+          }),
+          mediaType: firstPost?.media_type ?? "image",
+          itemsCount: Array.isArray(album.album_posts)
+            ? album.album_posts.length
+            : 0,
+          moderationState: moderationState?.action ?? null,
+          contentAudience: moderationMeta?.contentAudience ?? "general",
+          moderationCategory: moderationMeta?.moderationCategory ?? "otro",
+          moderationTags: moderationMeta?.tags ?? [],
+          media: Array.isArray(album.album_posts)
+            ? (
+                await Promise.all(
+                  album.album_posts.map(async (link) => {
+                    const post = Array.isArray(link.post)
+                      ? link.post[0]
+                      : link.post;
+                    if (!post?.media_url) return null;
+                    return {
+                      id: post.id ?? link.post_id,
+                      url: await resolveModerationMediaUrl({
+                        value: post.media_url ?? null,
+                        ownerUserId: album.user_id,
+                        isLocked:
+                          post.is_locked ?? Number(album.price || 0) > 0,
+                      }),
+                      type: post.media_type ?? "image",
+                      caption: post.caption ?? "",
+                      isLocked: Boolean(
+                        post.is_locked ?? Number(album.price || 0) > 0,
+                      ),
+                      createdAt: post.created_at ?? album.created_at,
+                    };
                   }),
-                  type: post.media_type ?? "image",
-                  caption: post.caption ?? "",
-                  isLocked: Boolean(post.is_locked ?? Number(album.price || 0) > 0),
-                  createdAt: post.created_at ?? album.created_at,
-                };
-                }),
-              )
-            ).filter(Boolean)
-          : [],
-      };
-    }));
+                )
+              ).filter(Boolean)
+            : [],
+        };
+      }),
+    );
 
     return NextResponse.json({
       metrics: {
@@ -675,7 +733,9 @@ export async function GET(request: Request) {
             };
           })
           .filter(Boolean),
-        authorApplicationHistory: (authorApplicationHistoryRowsResult.data ?? [])
+        authorApplicationHistory: (
+          authorApplicationHistoryRowsResult.data ?? []
+        )
           .map((row) => {
             const parsed = parseAuthorApplicationHistory(row.message);
             if (!parsed) return null;

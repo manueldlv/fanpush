@@ -9,6 +9,11 @@ import {
   getWithdrawalPaidAmount,
   getWithdrawalReservedAmount,
 } from "@/lib/withdrawals";
+import {
+  getUserMetaEntries,
+  upsertUserMetaValue,
+  USER_META_KEYS,
+} from "@/lib/userMeta";
 
 type UserBalanceRow = {
   user_id: string;
@@ -62,7 +67,9 @@ type InternalBalanceCheckoutRow = {
   platform_fee_amount: number | string;
 };
 
-const mapBalanceRow = (row?: UserBalanceRow | null): UserBalanceSnapshot | null => {
+const mapBalanceRow = (
+  row?: UserBalanceRow | null,
+): UserBalanceSnapshot | null => {
   if (!row) return null;
   return {
     userId: row.user_id,
@@ -77,7 +84,8 @@ const mapBalanceRow = (row?: UserBalanceRow | null): UserBalanceSnapshot | null 
   };
 };
 
-const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const roundMoney = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
 
 const throwRepositoryError = (
   error: { message: string } | null,
@@ -104,7 +112,10 @@ export const getUserBalanceSnapshot = async (
   return mapBalanceRow(data);
 };
 
-const getUserLedgerEntryCount = async (admin: SupabaseClient, userId: string) => {
+const getUserLedgerEntryCount = async (
+  admin: SupabaseClient,
+  userId: string,
+) => {
   const { count, error } = await admin
     .from("ledger_entries")
     .select("id", { count: "exact", head: true })
@@ -122,10 +133,33 @@ const ensureUserBalanceRow = async (admin: SupabaseClient, userId: string) => {
   throwRepositoryError(error, "No se pudo preparar el balance del usuario");
 };
 
+const markLegacyBalanceBaselineDone = async (
+  admin: SupabaseClient,
+  userId: string,
+) => {
+  try {
+    await upsertUserMetaValue(
+      admin,
+      userId,
+      USER_META_KEYS.balanceBaselineDone,
+      "1",
+    );
+  } catch {
+    // Non-critical cache flag. The balance snapshot remains the source of truth.
+  }
+};
+
 export const ensureLegacyCreatorBalanceBaseline = async (
   admin: SupabaseClient,
   userId: string,
 ) => {
+  const baselineMeta = await getUserMetaEntries(admin, userId, [
+    USER_META_KEYS.balanceBaselineDone,
+  ]);
+  if (baselineMeta.entries.get(USER_META_KEYS.balanceBaselineDone) === "1") {
+    return getUserBalanceSnapshot(admin, userId);
+  }
+
   const [balance, ledgerEntryCount] = await Promise.all([
     getUserBalanceSnapshot(admin, userId),
     getUserLedgerEntryCount(admin, userId),
@@ -145,6 +179,7 @@ export const ensureLegacyCreatorBalanceBaseline = async (
     ].some((value) => Math.abs(value) > 0.0001);
 
   if (ledgerEntryCount > 0 || hasNonZeroBalance) {
+    await markLegacyBalanceBaselineDone(admin, userId);
     return balance;
   }
 
@@ -154,41 +189,41 @@ export const ensureLegacyCreatorBalanceBaseline = async (
       admin
         .from("withdrawal_requests")
         .select("amount,status,requested_at,month_key")
-        .eq("user_id", userId)
+        .eq("user_id", userId),
     ]);
 
   throwRepositoryError(withdrawalError, "No se pudieron leer los retiros");
 
   const reserved = getWithdrawalReservedAmount(
-    (withdrawalRows ?? [])
-      .map((row) => ({
-        amount: Number(row.amount || 0),
-        status:
-          row.status === "paid"
-            ? ("sent" as const)
-            : row.status === "rejected" || row.status === "cancelled"
-              ? ("rejected" as const)
-              : ("requested" as const),
-        requestedAt: row.requested_at,
-        monthKey: row.month_key || "",
-      })),
+    (withdrawalRows ?? []).map((row) => ({
+      amount: Number(row.amount || 0),
+      status:
+        row.status === "paid"
+          ? ("sent" as const)
+          : row.status === "rejected" || row.status === "cancelled"
+            ? ("rejected" as const)
+            : ("requested" as const),
+      requestedAt: row.requested_at,
+      monthKey: row.month_key || "",
+    })),
   );
   const withdrawn = getWithdrawalPaidAmount(
-    (withdrawalRows ?? [])
-      .map((row) => ({
-        amount: Number(row.amount || 0),
-        status:
-          row.status === "paid"
-            ? ("sent" as const)
-            : row.status === "rejected" || row.status === "cancelled"
-              ? ("rejected" as const)
-              : ("requested" as const),
-        requestedAt: row.requested_at,
-        monthKey: row.month_key || "",
-      })),
+    (withdrawalRows ?? []).map((row) => ({
+      amount: Number(row.amount || 0),
+      status:
+        row.status === "paid"
+          ? ("sent" as const)
+          : row.status === "rejected" || row.status === "cancelled"
+            ? ("rejected" as const)
+            : ("requested" as const),
+      requestedAt: row.requested_at,
+      monthKey: row.month_key || "",
+    })),
   );
 
-  const cashAvailable = roundMoney(Math.max(earnings.creatorNet - reserved - withdrawn, 0));
+  const cashAvailable = roundMoney(
+    Math.max(earnings.creatorNet - reserved - withdrawn, 0),
+  );
   const cashReserved = roundMoney(reserved);
   const lifetimeEarned = roundMoney(earnings.creatorNet);
   const lifetimeWithdrawn = roundMoney(withdrawn);
@@ -204,9 +239,14 @@ export const ensureLegacyCreatorBalanceBaseline = async (
     { onConflict: "user_id" },
   );
 
-  throwRepositoryError(upsertError, "No se pudo inicializar el balance del usuario");
+  throwRepositoryError(
+    upsertError,
+    "No se pudo inicializar el balance del usuario",
+  );
 
-  return getUserBalanceSnapshot(admin, userId);
+  const snapshot = await getUserBalanceSnapshot(admin, userId);
+  await markLegacyBalanceBaselineDone(admin, userId);
+  return snapshot;
 };
 
 export const applyUserBalanceDelta = async (
@@ -236,9 +276,16 @@ const getCommissionSplitForAmount = async (
   recipientUserId: string,
   transactionAmount: number,
 ): Promise<LedgerCommissionSplit> => {
-  const commissionProfile = await getLatestUserCommissionProfile(admin, recipientUserId);
-  const creatorShareRate = getCreatorShareFromProfile(commissionProfile?.record);
-  const platformShareRate = getPlatformShareFromProfile(commissionProfile?.record);
+  const commissionProfile = await getLatestUserCommissionProfile(
+    admin,
+    recipientUserId,
+  );
+  const creatorShareRate = getCreatorShareFromProfile(
+    commissionProfile?.record,
+  );
+  const platformShareRate = getPlatformShareFromProfile(
+    commissionProfile?.record,
+  );
   const creatorAmount = roundMoney(transactionAmount * creatorShareRate);
   const platformFeeAmount = roundMoney(transactionAmount - creatorAmount);
 
@@ -337,7 +384,10 @@ export const recordMercadoPagoCreatorCreditTransaction = async ({
     .select("id")
     .single();
 
-  throwRepositoryError(transactionError, "No se pudo crear la transacción del ledger");
+  throwRepositoryError(
+    transactionError,
+    "No se pudo crear la transacción del ledger",
+  );
   if (!transaction) {
     throw new Error("No se recibió la transacción creada del ledger.");
   }
@@ -470,7 +520,10 @@ export const recordMercadoPagoDepositTransaction = async ({
       },
     });
 
-  throwRepositoryError(providerMovementError, "No se pudo registrar el movimiento externo");
+  throwRepositoryError(
+    providerMovementError,
+    "No se pudo registrar el movimiento externo",
+  );
 
   await applyUserBalanceDelta(admin, userId, {
     cashAvailable: roundedAmount,
@@ -518,7 +571,9 @@ export const processInternalAlbumPurchase = async ({
 
   throwRepositoryError(error, "No se pudo procesar la compra con saldo");
   const row = Array.isArray(data) ? data[0] : data;
-  return mapInternalBalanceCheckoutRow(row as InternalBalanceCheckoutRow | null);
+  return mapInternalBalanceCheckoutRow(
+    row as InternalBalanceCheckoutRow | null,
+  );
 };
 
 export const processInternalTipPayment = async ({
@@ -540,7 +595,9 @@ export const processInternalTipPayment = async ({
 
   throwRepositoryError(error, "No se pudo procesar la propina con saldo");
   const row = Array.isArray(data) ? data[0] : data;
-  return mapInternalBalanceCheckoutRow(row as InternalBalanceCheckoutRow | null);
+  return mapInternalBalanceCheckoutRow(
+    row as InternalBalanceCheckoutRow | null,
+  );
 };
 
 export const reserveWithdrawalLedgerBalance = async ({
@@ -588,7 +645,10 @@ export const reserveWithdrawalLedgerBalance = async ({
     .select("id")
     .single();
 
-  throwRepositoryError(transactionError, "No se pudo crear el ledger del retiro");
+  throwRepositoryError(
+    transactionError,
+    "No se pudo crear el ledger del retiro",
+  );
   if (!transaction) {
     throw new Error("No se recibió la transacción del retiro.");
   }
@@ -621,16 +681,21 @@ export const reserveWithdrawalLedgerBalance = async ({
     cashReserved: roundMoney(amount),
   });
 
-  const { error: requestInsertError } = await admin.from("withdrawal_requests").insert({
-    id: withdrawalId,
-    user_id: userId,
-    amount: roundMoney(amount),
-    status: "requested",
-    ledger_transaction_id: transaction.id,
-    month_key: monthKey,
-  });
+  const { error: requestInsertError } = await admin
+    .from("withdrawal_requests")
+    .insert({
+      id: withdrawalId,
+      user_id: userId,
+      amount: roundMoney(amount),
+      status: "requested",
+      ledger_transaction_id: transaction.id,
+      month_key: monthKey,
+    });
 
-  throwRepositoryError(requestInsertError, "No se pudo guardar el retiro en tabla");
+  throwRepositoryError(
+    requestInsertError,
+    "No se pudo guardar el retiro en tabla",
+  );
 
   return {
     alreadyRecorded: false,
@@ -665,7 +730,10 @@ export const settleWithdrawalAsPaid = async ({
     .eq("source_id", withdrawalId)
     .maybeSingle();
 
-  throwRepositoryError(payoutReadError, "No se pudo validar el pago del retiro");
+  throwRepositoryError(
+    payoutReadError,
+    "No se pudo validar el pago del retiro",
+  );
   if (requestRow.status === "paid" && existingPayout) return;
 
   if (!existingPayout) {
@@ -685,7 +753,10 @@ export const settleWithdrawalAsPaid = async ({
       .select("id")
       .single();
 
-    throwRepositoryError(transactionError, "No se pudo registrar el pago del retiro");
+    throwRepositoryError(
+      transactionError,
+      "No se pudo registrar el pago del retiro",
+    );
     if (!transaction) {
       throw new Error("No se recibió la transacción de pago del retiro.");
     }
@@ -762,7 +833,10 @@ export const releaseRejectedWithdrawalReservation = async ({
     .eq("source_id", withdrawalId)
     .maybeSingle();
 
-  throwRepositoryError(releaseReadError, "No se pudo validar la liberación del retiro");
+  throwRepositoryError(
+    releaseReadError,
+    "No se pudo validar la liberación del retiro",
+  );
   if (requestRow.status === "rejected" && existingRelease) return;
 
   if (!existingRelease) {

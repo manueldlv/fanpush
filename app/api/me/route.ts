@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { getAuthorApplicationForUser } from "@/lib/authorApplications";
-import { canAccessFinanceWhileBlocked, coerceAccountState } from "@/lib/accountState";
+import {
+  canAccessFinanceWhileBlocked,
+  coerceAccountState,
+} from "@/lib/accountState";
 import { loadCreatorEarnings } from "@/lib/earnings";
 import { getPayoutMetaEntries, PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { coercePayoutProfile, parsePayoutProfile } from "@/lib/payouts";
-import { coerceProfileDetails, parseProfileDetails } from "@/lib/profileDetails";
+import {
+  coerceProfileDetails,
+  parseProfileDetails,
+} from "@/lib/profileDetails";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
 import { getUserAccessSnapshot } from "@/lib/server/auth/roles";
 import { ensureLegacyCreatorBalanceBaseline } from "@/lib/server/repositories/ledger";
@@ -67,11 +73,16 @@ export async function GET(request: Request) {
     if (profileRowError) {
       throw new Error(`No se pudo leer el perfil: ${profileRowError.message}`);
     }
-    const profileDetails =
-      coerceProfileDetails(userMetaResult.entries.get(USER_META_KEYS.profileDetails));
+    const profileDetails = coerceProfileDetails(
+      userMetaResult.entries.get(USER_META_KEYS.profileDetails),
+    );
     const payoutProfile =
-      coercePayoutProfile(payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount)) ??
-      coercePayoutProfile(userMetaResult.entries.get(USER_META_KEYS.payoutProfile));
+      coercePayoutProfile(
+        payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount),
+      ) ??
+      coercePayoutProfile(
+        userMetaResult.entries.get(USER_META_KEYS.payoutProfile),
+      );
     const accountState = coerceAccountState(
       userMetaResult.entries.get(USER_META_KEYS.accountState),
     );

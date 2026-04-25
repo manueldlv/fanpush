@@ -18,15 +18,18 @@ type FeedData = {
   purchasedPostIds: string[];
 };
 
+const FEED_ALBUM_LIMIT = 30;
+const MEDIA_ACCESS_BATCH_SIZE = 50;
+
 const buildError = (error: unknown, fallback: string) => ({
   error: error instanceof Error ? error.message : fallback,
 });
 
-const normalizeSingleRelation = <T,>(
+const normalizeSingleRelation = <T>(
   value: T | T[] | null | undefined,
 ): T | null => {
   if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
 const buildLikesCountMap = (
@@ -41,10 +44,14 @@ const buildLikesCountMap = (
   return likesByPostId;
 };
 
-const resolvePublicUrl = (supabase: NonNullable<ReturnType<typeof getSupabaseClient>>, value: string | null) => {
+const resolvePublicUrl = (
+  supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  value: string | null,
+) => {
   if (!value) return "";
   if (value.startsWith("http")) return value;
-  return supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+  return supabase.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
+    .publicUrl;
 };
 
 const resolveAccessibleMedia = async (
@@ -52,23 +59,39 @@ const resolveAccessibleMedia = async (
   accessToken: string,
   incomingPosts: Post[],
 ) => {
-  const allPostIds = incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean);
+  const allPostIds = Array.from(
+    new Set(incomingPosts.flatMap((post) => post.mediaPostIds).filter(Boolean)),
+  );
   if (allPostIds.length === 0) return incomingPosts;
 
-  const response = await fetch("/api/media/access", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ postIds: allPostIds }),
-  });
+  const batches = Array.from(
+    { length: Math.ceil(allPostIds.length / MEDIA_ACCESS_BATCH_SIZE) },
+    (_, index) =>
+      allPostIds.slice(
+        index * MEDIA_ACCESS_BATCH_SIZE,
+        (index + 1) * MEDIA_ACCESS_BATCH_SIZE,
+      ),
+  );
+  const resolvedItems: Record<string, ResolvedAccessMedia> = {};
 
-  if (!response.ok) return incomingPosts;
-  const result = (await response.json()) as {
-    items?: Record<string, ResolvedAccessMedia>;
-  };
-  const resolvedItems = result.items ?? {};
+  await Promise.all(
+    batches.map(async (postIds) => {
+      const response = await fetch("/api/media/access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ postIds }),
+      });
+
+      if (!response.ok) return;
+      const result = (await response.json()) as {
+        items?: Record<string, ResolvedAccessMedia>;
+      };
+      Object.assign(resolvedItems, result.items ?? {});
+    }),
+  );
 
   return incomingPosts.map((post) => ({
     ...post,
@@ -107,14 +130,17 @@ export const feedApi = createApi({
               "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
             )
             .eq("visibility", "published")
-            .order("created_at", { ascending: false });
+            .order("created_at", { ascending: false })
+            .limit(FEED_ALBUM_LIMIT);
           if (error) throw error;
 
           const allMediaPostIds = (data ?? [])
             .flatMap((album) =>
-              ((album.album_posts ?? []) as unknown as Array<{
-                post: { id: string | null } | null;
-              }>).map((item) => item.post?.id ?? ""),
+              (
+                (album.album_posts ?? []) as unknown as Array<{
+                  post: { id: string | null } | null;
+                }>
+              ).map((item) => item.post?.id ?? ""),
             )
             .filter(Boolean);
 
@@ -128,76 +154,85 @@ export const feedApi = createApi({
           const likesByPostId = buildLikesCountMap(allLikesRows);
 
           const mapped: Post[] =
-            (await Promise.all(
-              (data ?? []).map(async (post) => {
-                const albumPosts = (post.album_posts ?? []) as unknown as Array<{
-                  post: {
-                    id: string | null;
-                    media_url: string | null;
-                    media_type: string | null;
-                    is_locked: boolean | null;
-                    likes_count: number | null;
-                    caption?: string | null;
-                  } | null;
-                }>;
-                const albumUser = normalizeSingleRelation(
-                  post.users as { username: string | null; avatar_url: string | null } | {
-                    username: string | null;
-                    avatar_url: string | null;
-                  }[] | null | undefined,
-                );
-                const mediaWithUrls: Post["media"] = await Promise.all(
-                  albumPosts.map(async (item) =>
-                    buildInitialPostMediaState({
-                      previewUrl: resolvePublicUrl(supabase, item.post?.media_url ?? ""),
-                      previewKind: inferDisplayKind(
-                        item.post?.media_url,
-                        item.post?.media_type,
-                        item.post?.is_locked,
-                      ),
-                      locked: item.post?.is_locked ?? false,
-                    }),
+            (data ?? []).map((post) => {
+              const albumPosts = (post.album_posts ?? []) as unknown as Array<{
+                post: {
+                  id: string | null;
+                  media_url: string | null;
+                  media_type: string | null;
+                  is_locked: boolean | null;
+                  likes_count: number | null;
+                  caption?: string | null;
+                } | null;
+              }>;
+              const albumUser = normalizeSingleRelation(
+                post.users as
+                  | { username: string | null; avatar_url: string | null }
+                  | {
+                      username: string | null;
+                      avatar_url: string | null;
+                    }[]
+                  | null
+                  | undefined,
+              );
+              const mediaWithUrls: Post["media"] = albumPosts.map((item) =>
+                buildInitialPostMediaState({
+                  previewUrl: resolvePublicUrl(
+                    supabase,
+                    item.post?.media_url ?? "",
                   ),
-                );
-                const mediaPostIds = albumPosts
-                  .map((item) => item.post?.id ?? "")
-                  .filter(Boolean);
-                const postMeta = parseUploadModerationMeta(
-                  albumPosts[0]?.post?.caption ?? null,
-                );
-                const avatarUrl = resolvePublicUrl(
-                  supabase,
-                  albumUser?.avatar_url ?? "",
-                );
-                return {
-                  id: post.id,
-                  userId: post.user_id,
-                  mediaPostIds,
-                  author: albumUser?.username ?? "usuario",
-                  verified: false,
-                  time: "Ahora",
-                  suggestion: "Sugerencia para ti",
-                  caption: post.description ?? "",
-                  likes: mediaPostIds.reduce(
-                    (sum, postId) => sum + (likesByPostId.get(postId) ?? 0),
-                    0,
+                  previewKind: inferDisplayKind(
+                    item.post?.media_url,
+                    item.post?.media_type,
+                    item.post?.is_locked,
                   ),
-                  avatar: avatarUrl || null,
-                  price: post.price ?? 0,
-                  tipEnabled: postMeta?.tipsEnabled ?? false,
-                  media: mediaWithUrls,
-                } satisfies Post;
-              }),
-            )) ?? [];
+                  locked: item.post?.is_locked ?? false,
+                }),
+              );
+              const mediaPostIds = albumPosts
+                .map((item) => item.post?.id ?? "")
+                .filter(Boolean);
+              const postMeta = parseUploadModerationMeta(
+                albumPosts[0]?.post?.caption ?? null,
+              );
+              const avatarUrl = resolvePublicUrl(
+                supabase,
+                albumUser?.avatar_url ?? "",
+              );
+              return {
+                id: post.id,
+                userId: post.user_id,
+                mediaPostIds,
+                author: albumUser?.username ?? "usuario",
+                verified: false,
+                time: "Ahora",
+                suggestion: "Sugerencia para ti",
+                caption: post.description ?? "",
+                likes: mediaPostIds.reduce(
+                  (sum, postId) => sum + (likesByPostId.get(postId) ?? 0),
+                  0,
+                ),
+                avatar: avatarUrl || null,
+                price: post.price ?? 0,
+                tipEnabled: postMeta?.tipsEnabled ?? false,
+                media: mediaWithUrls,
+              } satisfies Post;
+            }) ?? [];
 
-          const allPostIds = mapped.flatMap((post) => post.mediaPostIds).filter(Boolean);
+          const allPostIds = mapped
+            .flatMap((post) => post.mediaPostIds)
+            .filter(Boolean);
           let resolvedMapped = mapped;
           const accessToken =
             allPostIds.length > 0
               ? await getSessionAccessTokenWithRetry(supabase)
-              : sessionData.session?.access_token ?? null;
+              : (sessionData.session?.access_token ?? null);
           if (accessToken && allPostIds.length > 0) {
-            resolvedMapped = await resolveAccessibleMedia(supabase, accessToken, mapped);
+            resolvedMapped = await resolveAccessibleMedia(
+              supabase,
+              accessToken,
+              mapped,
+            );
           }
 
           const { data: likesRows } = currentUserId

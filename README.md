@@ -36,6 +36,24 @@ npm run seed:dummy:clean
 
 Guía completa en [docs/dummy-seed-guide.md](/Users/devforce/Documents/GitHub/fanpush/docs/dummy-seed-guide.md).
 
+## Supabase Migrations
+
+Levantar `npm run dev` no aplica migraciones de Supabase automaticamente.
+
+Para empujar las migraciones de [supabase/migrations](/Users/devforce/Documents/GitHub/fanpush/supabase/migrations:1):
+
+```bash
+npm run db:push
+```
+
+El script soporta estos modos:
+
+- `SUPABASE_DB_URL`
+- `SUPABASE_HOST`, `SUPABASE_PORT`, `SUPABASE_USER`, `SUPABASE_DATABASE`, `SUPABASE_PASSWORD`
+- proyecto linkeado con `supabase link` y `supabase/config.toml`
+
+Si no hay ninguna de esas configuraciones, el script falla con instrucciones claras.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

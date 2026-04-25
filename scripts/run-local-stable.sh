@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 source "$ROOT_DIR/scripts/port-utils.sh"
 extract_port_args "${PORT:-3000}" "$@"
+stop_repo_server_on_port "$ROOT_DIR" "$REQUESTED_PORT"
 resolved_port="$(find_available_port "$REQUESTED_PORT")"
 
 if [ "$resolved_port" != "$REQUESTED_PORT" ]; then

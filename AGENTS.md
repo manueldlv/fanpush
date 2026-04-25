@@ -6,9 +6,10 @@ This repository is a Next.js 14 App Router project. Route pages and API handlers
 ## Build, Test, and Development Commands
 Use `npm install` to install dependencies.
 
-- `npm run dev`: builds and serves locally on `127.0.0.1:3000` via `scripts/run-local-stable.sh`.
+- `npm run dev`: starts `next dev` on `127.0.0.1:3000` via `scripts/dev-safe.sh` to avoid stale production chunks during local work.
 - `npm run dev:watch`: starts `next dev` with the safer cleanup wrapper in `scripts/dev-safe.sh`.
-- `npm run dev:mobile`: serves on `0.0.0.0:3000` for device testing.
+- `npm run dev:mobile`: serves `next dev` on `0.0.0.0:3000` for device testing.
+- `npm run dev:preview` / `npm run dev:preview:mobile`: build and serve a production preview locally via `scripts/run-local-stable.sh`.
 - `npm run build`: production build with `next build`.
 - `npm run start`: runs the production server.
 - `npm run lint`: runs ESLint across the repo.

@@ -1,5 +1,46 @@
 #!/bin/zsh
 
+port_owner_pid() {
+  local port="$1"
+  local pids
+  pids="$(lsof -ti "tcp:$port" 2>/dev/null || true)"
+  printf '%s\n' "${pids%%$'\n'*}"
+}
+
+pid_cwd() {
+  local pid="$1"
+  local lines
+  local line
+  lines="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null || true)"
+
+  for line in ${(f)lines}; do
+    if [[ "$line" == n* ]]; then
+      printf '%s\n' "${line#n}"
+      return 0
+    fi
+  done
+}
+
+stop_repo_server_on_port() {
+  local root_dir="$1"
+  local port="$2"
+  local pid
+  pid="$(port_owner_pid "$port")"
+
+  if [ -z "$pid" ]; then
+    return 0
+  fi
+
+  local cwd
+  cwd="$(pid_cwd "$pid")"
+
+  if [ "$cwd" = "$root_dir" ]; then
+    printf 'Puerto %s ocupado por un servidor previo del repo. Cerrando PID %s.\n' "$port" "$pid"
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+  fi
+}
+
 extract_port_args() {
   local default_port="$1"
   shift

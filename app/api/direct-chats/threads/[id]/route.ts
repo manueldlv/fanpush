@@ -13,11 +13,20 @@ export async function GET(
       return NextResponse.json({ error: error ?? "No autorizado." }, { status: 401 });
     }
 
+    const url = new URL(request.url);
+    const before = url.searchParams.get("before");
+    const requestedLimit = Number(url.searchParams.get("limit") ?? 25);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(Math.floor(requestedLimit), 50))
+      : 25;
+
     const thread = await getDirectThread({
       admin,
       viewerUserId: user.id,
       threadId: params.id,
       markAsRead: true,
+      limit,
+      before,
     });
 
     if (!thread) {

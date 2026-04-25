@@ -220,6 +220,7 @@ export async function POST(
       viewerUserId: user.id,
       threadId: params.id,
       markAsRead: true,
+      limit: 25,
     });
 
     return NextResponse.json({ ok: true, thread });

@@ -10,6 +10,7 @@ import {
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import { createSignedUrlMap } from "@/lib/server/storage";
 import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 
 type ThreadRow = {
@@ -125,6 +126,10 @@ type DirectMessageView =
 
 export type DirectThreadDetail = DirectThreadSummary & {
   messages: DirectMessageView[];
+  pageInfo: {
+    hasMoreOlder: boolean;
+    oldestCursor: string | null;
+  };
 };
 
 export type DirectBlockedUser = {
@@ -150,7 +155,8 @@ const resolvePublicUrl = (
 ) => {
   if (!value) return "";
   if (value.startsWith("http")) return value;
-  return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data.publicUrl;
+  return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
+    .publicUrl;
 };
 
 const formatRelativeMessageTime = (value: string) => {
@@ -190,21 +196,26 @@ const formatMessageTimestamp = (value: string) => {
 const toOrderedPair = (a: string, b: string) =>
   a < b ? { low: a, high: b } : { low: b, high: a };
 
-const parseAttachments = (metadata: Record<string, unknown> | null | undefined) => {
+const parseAttachments = (
+  metadata: Record<string, unknown> | null | undefined,
+) => {
   const raw = metadata?.attachments;
   if (!Array.isArray(raw)) return [] as DirectChatAttachmentMeta[];
   return raw.reduce<DirectChatAttachmentMeta[]>((attachments, entry) => {
     if (!entry || typeof entry !== "object") return attachments;
     const item = entry as Record<string, unknown>;
-    const kind = item.kind === "video" ? "video" : item.kind === "foto" ? "foto" : null;
+    const kind =
+      item.kind === "video" ? "video" : item.kind === "foto" ? "foto" : null;
     if (!kind) return attachments;
     attachments.push({
       id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
       name: typeof item.name === "string" ? item.name : "archivo",
       kind,
       previewMode: item.previewMode === "locked" ? "locked" : "preview",
-      previewPath: typeof item.previewPath === "string" ? item.previewPath : null,
-      premiumPath: typeof item.premiumPath === "string" ? item.premiumPath : null,
+      previewPath:
+        typeof item.previewPath === "string" ? item.previewPath : null,
+      premiumPath:
+        typeof item.premiumPath === "string" ? item.premiumPath : null,
       publicPath: typeof item.publicPath === "string" ? item.publicPath : null,
     });
     return attachments;
@@ -212,8 +223,12 @@ const parseAttachments = (metadata: Record<string, unknown> | null | undefined) 
 };
 
 const buildPremiumCaption = (attachments: DirectChatAttachmentMeta[]) => {
-  const photos = attachments.filter((attachment) => attachment.kind === "foto").length;
-  const videos = attachments.filter((attachment) => attachment.kind === "video").length;
+  const photos = attachments.filter(
+    (attachment) => attachment.kind === "foto",
+  ).length;
+  const videos = attachments.filter(
+    (attachment) => attachment.kind === "video",
+  ).length;
   const parts: string[] = [];
   if (videos > 0) parts.push(`${videos} ${videos === 1 ? "video" : "videos"}`);
   if (photos > 0) parts.push(`${photos} ${photos === 1 ? "foto" : "fotos"}`);
@@ -257,25 +272,40 @@ const createThreadParticipantMap = async (
     { data: userRows, error: usersError },
     { data: profileRows, error: profilesError },
     { data: metaRows, error: metaError },
-  ] =
-    await Promise.all([
-      admin.from("users").select("id,username,avatar_url").in("id", uniqueUserIds),
-      admin.from("profiles").select("id,full_name").in("id", uniqueUserIds),
-      admin
-        .from("user_meta")
-        .select("user_id,meta_key,meta_value")
-        .in("user_id", uniqueUserIds)
-        .eq("meta_key", USER_META_KEYS.accountState),
-    ]);
+  ] = await Promise.all([
+    admin
+      .from("users")
+      .select("id,username,avatar_url")
+      .in("id", uniqueUserIds),
+    admin.from("profiles").select("id,full_name").in("id", uniqueUserIds),
+    admin
+      .from("user_meta")
+      .select("user_id,meta_key,meta_value")
+      .in("user_id", uniqueUserIds)
+      .eq("meta_key", USER_META_KEYS.accountState),
+  ]);
 
   throwRepositoryError(usersError, "No se pudieron leer los usuarios del chat");
-  throwRepositoryError(profilesError, "No se pudieron leer los perfiles del chat");
-  throwRepositoryError(metaError, "No se pudo leer el estado de cuenta del chat");
+  throwRepositoryError(
+    profilesError,
+    "No se pudieron leer los perfiles del chat",
+  );
+  throwRepositoryError(
+    metaError,
+    "No se pudo leer el estado de cuenta del chat",
+  );
 
-  const userMap = new Map((userRows ?? []).map((row) => [row.id, row as UserRow]));
-  const profileMap = new Map((profileRows ?? []).map((row) => [row.id, row as ProfileRow]));
+  const userMap = new Map(
+    (userRows ?? []).map((row) => [row.id, row as UserRow]),
+  );
+  const profileMap = new Map(
+    (profileRows ?? []).map((row) => [row.id, row as ProfileRow]),
+  );
   const accountStateMap = new Map(
-    (metaRows ?? []).map((row) => [row.user_id as string, coerceAccountState(row.meta_value)]),
+    (metaRows ?? []).map((row) => [
+      row.user_id as string,
+      coerceAccountState(row.meta_value),
+    ]),
   );
   const result = new Map<string, DirectThreadSummary>();
 
@@ -284,14 +314,21 @@ const createThreadParticipantMap = async (
     const profile = profileMap.get(userId);
     const username = user?.username?.trim() || "usuario";
     const accountState = accountStateMap.get(userId);
-    const unavailable = accountState ? isPubliclyUnavailableAccount(accountState) : false;
+    const unavailable = accountState
+      ? isPubliclyUnavailableAccount(accountState)
+      : false;
     result.set(userId, {
       id: "",
       participantUserId: userId,
       username,
-      fullName: unavailable ? "Cuenta no disponible" : profile?.full_name?.trim() || username,
+      fullName: unavailable
+        ? "Cuenta no disponible"
+        : profile?.full_name?.trim() || username,
       handle: username,
-      preview: unavailable && accountState ? getUnavailableAccountMessage(accountState) : "",
+      preview:
+        unavailable && accountState
+          ? getUnavailableAccountMessage(accountState)
+          : "",
       avatarUrl: unavailable ? null : resolvePublicUrl(admin, user?.avatar_url),
       participantIsAuthor: false,
       lastSeen: "Ahora",
@@ -316,7 +353,9 @@ const ensureDirectThreadPair = async (
   const { low, high } = toOrderedPair(viewerUserId, otherUserId);
   const { data: existing, error: existingError } = await admin
     .from("direct_threads")
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
     .eq("participant_low", low)
     .eq("participant_high", high)
     .maybeSingle();
@@ -332,28 +371,35 @@ const ensureDirectThreadPair = async (
       last_message_preview: null,
       last_sender_id: null,
     })
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
     .single();
 
   throwRepositoryError(createError, "No se pudo crear el chat");
   if (!created) throw new Error("No se pudo crear el chat.");
 
-  const { error: membersError } = await admin.from("direct_thread_members").upsert(
-    [
-      {
-        thread_id: created.id,
-        user_id: viewerUserId,
-        last_read_at: new Date().toISOString(),
-      },
-      {
-        thread_id: created.id,
-        user_id: otherUserId,
-      },
-    ],
-    { onConflict: "thread_id,user_id" },
-  );
+  const { error: membersError } = await admin
+    .from("direct_thread_members")
+    .upsert(
+      [
+        {
+          thread_id: created.id,
+          user_id: viewerUserId,
+          last_read_at: new Date().toISOString(),
+        },
+        {
+          thread_id: created.id,
+          user_id: otherUserId,
+        },
+      ],
+      { onConflict: "thread_id,user_id" },
+    );
 
-  throwRepositoryError(membersError, "No se pudieron preparar los miembros del chat");
+  throwRepositoryError(
+    membersError,
+    "No se pudieron preparar los miembros del chat",
+  );
   return created as ThreadRow;
 };
 
@@ -385,24 +431,26 @@ const touchThreadAfterMessage = async ({
 
   throwRepositoryError(threadError, "No se pudo actualizar el hilo del chat");
 
-  const { error: memberError } = await admin.from("direct_thread_members").upsert(
-    [
-      {
-        thread_id: thread.id,
-        user_id: senderUserId,
-        hidden: false,
-        force_unread: false,
-        last_read_at: now,
-      },
-      {
-        thread_id: thread.id,
-        user_id: otherUserId,
-        hidden: false,
-        force_unread: true,
-      },
-    ],
-    { onConflict: "thread_id,user_id" },
-  );
+  const { error: memberError } = await admin
+    .from("direct_thread_members")
+    .upsert(
+      [
+        {
+          thread_id: thread.id,
+          user_id: senderUserId,
+          hidden: false,
+          force_unread: false,
+          last_read_at: now,
+        },
+        {
+          thread_id: thread.id,
+          user_id: otherUserId,
+          hidden: false,
+          force_unread: true,
+        },
+      ],
+      { onConflict: "thread_id,user_id" },
+    );
 
   throwRepositoryError(memberError, "No se pudo actualizar el estado del chat");
 };
@@ -464,36 +512,49 @@ export const listDirectThreads = async (
   const threadIds = (memberRows ?? []).map((row) => row.thread_id as string);
   if (threadIds.length === 0) return [];
 
-  const [{ data: threadRows, error: threadsError }, { data: blockedRows, error: blockedError }] =
-    await Promise.all([
-      admin
-        .from("direct_threads")
-        .select(
-          "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
-        )
-        .in("id", threadIds),
-      admin
-        .from("direct_user_blocks")
-        .select("blocked_user_id")
-        .eq("blocker_user_id", viewerUserId),
-    ]);
+  const [
+    { data: threadRows, error: threadsError },
+    { data: blockedRows, error: blockedError },
+  ] = await Promise.all([
+    admin
+      .from("direct_threads")
+      .select(
+        "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+      )
+      .in("id", threadIds),
+    admin
+      .from("direct_user_blocks")
+      .select("blocked_user_id")
+      .eq("blocker_user_id", viewerUserId),
+  ]);
 
   throwRepositoryError(threadsError, "No se pudieron leer los hilos del chat");
   throwRepositoryError(blockedError, "No se pudo validar el bloqueo del chat");
 
-  const threadMap = new Map((threadRows ?? []).map((row) => [row.id, row as ThreadRow]));
-  const blockedIds = new Set((blockedRows ?? []).map((row) => row.blocked_user_id as string));
-  const participantIds = (threadRows ?? []).map((row) =>
-    row.participant_low === viewerUserId ? row.participant_high : row.participant_low,
+  const threadMap = new Map(
+    (threadRows ?? []).map((row) => [row.id, row as ThreadRow]),
   );
-  const participantMap = await createThreadParticipantMap(admin, participantIds);
+  const blockedIds = new Set(
+    (blockedRows ?? []).map((row) => row.blocked_user_id as string),
+  );
+  const participantIds = (threadRows ?? []).map((row) =>
+    row.participant_low === viewerUserId
+      ? row.participant_high
+      : row.participant_low,
+  );
+  const participantMap = await createThreadParticipantMap(
+    admin,
+    participantIds,
+  );
 
   return (memberRows ?? [])
     .map((member) => {
       const thread = threadMap.get(member.thread_id as string);
       if (!thread) return null;
       const otherUserId =
-        thread.participant_low === viewerUserId ? thread.participant_high : thread.participant_low;
+        thread.participant_low === viewerUserId
+          ? thread.participant_high
+          : thread.participant_low;
       if (blockedIds.has(otherUserId)) return null;
       const participant = participantMap.get(otherUserId);
       if (!participant) return null;
@@ -510,7 +571,8 @@ export const listDirectThreads = async (
         ...participant,
         id: thread.id,
         participantUserId: otherUserId,
-        preview: thread.last_message_preview?.trim() || "Iniciá la conversación",
+        preview:
+          thread.last_message_preview?.trim() || "Iniciá la conversación",
         lastSeen: formatRelativeMessageTime(thread.last_message_at),
         lastMessageAt: thread.last_message_at,
         unread,
@@ -522,7 +584,10 @@ export const listDirectThreads = async (
       if (Number(b.pinned) !== Number(a.pinned)) {
         return Number(b.pinned) - Number(a.pinned);
       }
-      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+      return (
+        new Date(b.lastMessageAt).getTime() -
+        new Date(a.lastMessageAt).getTime()
+      );
     });
 };
 
@@ -547,7 +612,8 @@ export const openDirectThreadByUsername = async ({
     .maybeSingle();
 
   throwRepositoryError(userError, "No se pudo abrir el chat");
-  if (!userRow?.id) throw new Error("No encontramos al usuario para abrir el chat.");
+  if (!userRow?.id)
+    throw new Error("No encontramos al usuario para abrir el chat.");
 
   const accountStateResult = await getUserMetaEntries(admin, userRow.id, [
     USER_META_KEYS.accountState,
@@ -584,11 +650,15 @@ export const getDirectThread = async ({
   viewerUserId,
   threadId,
   markAsRead,
+  limit = 25,
+  before,
 }: {
   admin: SupabaseClient;
   viewerUserId: string;
   threadId: string;
   markAsRead: boolean;
+  limit?: number;
+  before?: string | null;
 }): Promise<DirectThreadDetail | null> => {
   const { data: memberRow, error: memberError } = await admin
     .from("direct_thread_members")
@@ -602,7 +672,9 @@ export const getDirectThread = async ({
 
   const { data: threadRow, error: threadError } = await admin
     .from("direct_threads")
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
     .eq("id", threadId)
     .maybeSingle();
 
@@ -617,15 +689,27 @@ export const getDirectThread = async ({
   const participant = participantMap.get(otherUserId);
   if (!participant) return null;
 
-  const { data: messageRows, error: messagesError } = await admin
+  let messagesQuery = admin
     .from("direct_messages")
     .select("id,thread_id,sender_id,kind,body,metadata,created_at")
-    .eq("thread_id", threadId)
-    .order("created_at", { ascending: true });
+    .eq("thread_id", threadId);
 
-  throwRepositoryError(messagesError, "No se pudieron leer los mensajes del chat");
+  if (before) {
+    messagesQuery = messagesQuery.lt("created_at", before);
+  }
 
-  const premiumMessageIds = (messageRows ?? [])
+  const { data: messageRows, error: messagesError } = await messagesQuery
+    .order("created_at", { ascending: false })
+    .limit(Math.max(1, Math.min(limit, 50)));
+
+  throwRepositoryError(
+    messagesError,
+    "No se pudieron leer los mensajes del chat",
+  );
+
+  const orderedMessageRows = [...(messageRows ?? [])].reverse();
+
+  const premiumMessageIds = orderedMessageRows
     .filter((message) => message.kind === "premium")
     .map((message) => message.id);
   const { data: purchaseRows, error: purchasesError } = premiumMessageIds.length
@@ -636,103 +720,127 @@ export const getDirectThread = async ({
         .in("message_id", premiumMessageIds)
     : { data: [], error: null };
 
-  throwRepositoryError(purchasesError, "No se pudieron leer las compras del chat");
-  const purchasedIds = new Set((purchaseRows ?? []).map((row) => row.message_id as string));
+  throwRepositoryError(
+    purchasesError,
+    "No se pudieron leer las compras del chat",
+  );
+  const purchasedIds = new Set(
+    (purchaseRows ?? []).map((row) => row.message_id as string),
+  );
+  const attachmentsByMessageId = new Map<string, DirectChatAttachmentMeta[]>();
+  const premiumPathsToSign: string[] = [];
 
-  const messages: DirectMessageView[] = await Promise.all(
-    (messageRows ?? []).map(async (message) => {
-      if (message.kind === "system") {
-        const systemBody =
-          typeof message.metadata?.recipientUserId === "string" &&
-          message.metadata.recipientUserId === viewerUserId &&
-          typeof message.metadata?.recipientBody === "string"
-            ? message.metadata.recipientBody
-            : message.body?.trim() || "";
-        return {
-          id: message.id,
-          kind: "system",
-          sender: "system",
-          body: systemBody,
-          createdAt: formatMessageTimestamp(message.created_at),
-        } satisfies DirectMessageView;
-      }
+  orderedMessageRows.forEach((message) => {
+    const attachments = parseAttachments(message.metadata);
+    attachmentsByMessageId.set(message.id, attachments);
+    const canSeePremium =
+      message.kind === "attachment" ||
+      message.sender_id === viewerUserId ||
+      purchasedIds.has(message.id);
+    if (!canSeePremium) return;
+    attachments.forEach((attachment) => {
+      if (attachment.premiumPath)
+        premiumPathsToSign.push(attachment.premiumPath);
+    });
+  });
 
-      if (message.kind === "text") {
-        return {
-          id: message.id,
-          kind: "text",
-          sender: message.sender_id === viewerUserId ? "me" : "them",
-          body: message.body?.trim() || "",
-          createdAt: formatMessageTimestamp(message.created_at),
-        } satisfies DirectMessageView;
-      }
+  const signedPremiumUrls = await createSignedUrlMap({
+    admin,
+    bucket: PREMIUM_MEDIA_BUCKET,
+    paths: premiumPathsToSign,
+    expiresIn: 60 * 5,
+  });
 
-      const attachments = parseAttachments(message.metadata);
-      const canSeePremium =
-        message.kind === "attachment" ||
-        message.sender_id === viewerUserId ||
-        purchasedIds.has(message.id);
-
-      const resolvedPreviews = await Promise.all(
-        attachments.map(async (attachment) => {
-          const resolvedPath =
-            canSeePremium && attachment.premiumPath
-              ? await admin.storage
-                  .from(PREMIUM_MEDIA_BUCKET)
-                  .createSignedUrl(attachment.premiumPath, 60 * 5)
-                  .then((result) => result.data?.signedUrl || resolvePublicUrl(admin, attachment.previewPath))
-              : attachment.publicPath
-                ? resolvePublicUrl(admin, attachment.publicPath)
-                : resolvePublicUrl(admin, attachment.previewPath);
-
-          return {
-            id: attachment.id,
-            name: attachment.name,
-            kind: attachment.kind,
-            previewUrl: resolvedPath || "",
-            previewMode:
-              attachment.previewMode === "locked" ? ("locked" as const) : ("preview" as const),
-          };
-        }),
-      );
-
-      if (message.kind === "attachment") {
-        return {
-          id: message.id,
-          kind: "attachment",
-          sender: message.sender_id === viewerUserId ? "me" : "them",
-          attachments: resolvedPreviews,
-          createdAt: formatMessageTimestamp(message.created_at),
-        } satisfies DirectMessageView;
-      }
-
-      const title =
-        typeof message.metadata?.title === "string"
-          ? message.metadata.title
-          : "Contenido privado";
-      const caption =
-        typeof message.metadata?.caption === "string"
-          ? message.metadata.caption
-          : buildPremiumCaption(attachments);
-      const price =
-        typeof message.metadata?.price === "number"
-          ? message.metadata.price
-          : Number(message.metadata?.price ?? 0);
-
+  const messages: DirectMessageView[] = orderedMessageRows.map((message) => {
+    if (message.kind === "system") {
+      const systemBody =
+        typeof message.metadata?.recipientUserId === "string" &&
+        message.metadata.recipientUserId === viewerUserId &&
+        typeof message.metadata?.recipientBody === "string"
+          ? message.metadata.recipientBody
+          : message.body?.trim() || "";
       return {
         id: message.id,
-        kind: "premium",
-        sender: message.sender_id === viewerUserId ? "me" : "them",
-        title,
-        caption,
-        price,
-        attachmentCount: attachments.length,
-        attachmentPreviews: resolvedPreviews,
-        status: canSeePremium ? "purchased" : "locked",
+        kind: "system",
+        sender: "system",
+        body: systemBody,
         createdAt: formatMessageTimestamp(message.created_at),
       } satisfies DirectMessageView;
-    }),
-  );
+    }
+
+    if (message.kind === "text") {
+      return {
+        id: message.id,
+        kind: "text",
+        sender: message.sender_id === viewerUserId ? "me" : "them",
+        body: message.body?.trim() || "",
+        createdAt: formatMessageTimestamp(message.created_at),
+      } satisfies DirectMessageView;
+    }
+
+    const attachments = attachmentsByMessageId.get(message.id) ?? [];
+    const canSeePremium =
+      message.kind === "attachment" ||
+      message.sender_id === viewerUserId ||
+      purchasedIds.has(message.id);
+
+    const resolvedPreviews = attachments.map((attachment) => {
+      const resolvedPath =
+        canSeePremium && attachment.premiumPath
+          ? signedPremiumUrls.get(attachment.premiumPath) ||
+            resolvePublicUrl(admin, attachment.previewPath)
+          : attachment.publicPath
+            ? resolvePublicUrl(admin, attachment.publicPath)
+            : resolvePublicUrl(admin, attachment.previewPath);
+
+      return {
+        id: attachment.id,
+        name: attachment.name,
+        kind: attachment.kind,
+        previewUrl: resolvedPath || "",
+        previewMode:
+          attachment.previewMode === "locked"
+            ? ("locked" as const)
+            : ("preview" as const),
+      };
+    });
+
+    if (message.kind === "attachment") {
+      return {
+        id: message.id,
+        kind: "attachment",
+        sender: message.sender_id === viewerUserId ? "me" : "them",
+        attachments: resolvedPreviews,
+        createdAt: formatMessageTimestamp(message.created_at),
+      } satisfies DirectMessageView;
+    }
+
+    const title =
+      typeof message.metadata?.title === "string"
+        ? message.metadata.title
+        : "Contenido privado";
+    const caption =
+      typeof message.metadata?.caption === "string"
+        ? message.metadata.caption
+        : buildPremiumCaption(attachments);
+    const price =
+      typeof message.metadata?.price === "number"
+        ? message.metadata.price
+        : Number(message.metadata?.price ?? 0);
+
+    return {
+      id: message.id,
+      kind: "premium",
+      sender: message.sender_id === viewerUserId ? "me" : "them",
+      title,
+      caption,
+      price,
+      attachmentCount: attachments.length,
+      attachmentPreviews: resolvedPreviews,
+      status: canSeePremium ? "purchased" : "locked",
+      createdAt: formatMessageTimestamp(message.created_at),
+    } satisfies DirectMessageView;
+  });
 
   if (markAsRead) {
     const now = new Date().toISOString();
@@ -767,6 +875,11 @@ export const getDirectThread = async ({
     unread,
     pinned: Boolean(memberRow.pinned),
     messages,
+    pageInfo: {
+      hasMoreOlder:
+        (messageRows?.length ?? 0) >= Math.max(1, Math.min(limit, 50)),
+      oldestCursor: orderedMessageRows[0]?.created_at ?? null,
+    },
   };
 };
 
@@ -788,13 +901,19 @@ export const sendDirectTextMessage = async ({
 
   const { data: threadRow, error: threadError } = await admin
     .from("direct_threads")
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
     .eq("id", threadId)
     .maybeSingle();
 
   throwRepositoryError(threadError, "No se pudo validar el chat");
   if (!threadRow) throw new Error("No encontramos el chat.");
-  if (![threadRow.participant_low, threadRow.participant_high].includes(viewerUserId)) {
+  if (
+    ![threadRow.participant_low, threadRow.participant_high].includes(
+      viewerUserId,
+    )
+  ) {
     throw new Error("No autorizado para responder en este chat.");
   }
 
@@ -837,13 +956,19 @@ export const sendDirectMediaMessage = async ({
 
   const { data: threadRow, error: threadError } = await admin
     .from("direct_threads")
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
     .eq("id", threadId)
     .maybeSingle();
 
   throwRepositoryError(threadError, "No se pudo validar el chat");
   if (!threadRow) throw new Error("No encontramos el chat.");
-  if (![threadRow.participant_low, threadRow.participant_high].includes(viewerUserId)) {
+  if (
+    ![threadRow.participant_low, threadRow.participant_high].includes(
+      viewerUserId,
+    )
+  ) {
     throw new Error("No autorizado para enviar contenido en este chat.");
   }
 
@@ -903,13 +1028,19 @@ export const sendDirectSystemMessage = async ({
 
   const { data: threadRow, error: threadError } = await admin
     .from("direct_threads")
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
     .eq("id", threadId)
     .maybeSingle();
 
   throwRepositoryError(threadError, "No se pudo validar el chat");
   if (!threadRow) throw new Error("No encontramos el chat.");
-  if (![threadRow.participant_low, threadRow.participant_high].includes(actorUserId)) {
+  if (
+    ![threadRow.participant_low, threadRow.participant_high].includes(
+      actorUserId,
+    )
+  ) {
     throw new Error("No autorizado para registrar actividad en este chat.");
   }
 
@@ -927,7 +1058,10 @@ export const sendDirectSystemMessage = async ({
         : null,
   });
 
-  throwRepositoryError(messageError, "No se pudo registrar la actividad del chat");
+  throwRepositoryError(
+    messageError,
+    "No se pudo registrar la actividad del chat",
+  );
   await touchThreadAfterMessage({
     admin,
     thread: threadRow as ThreadRow,
@@ -962,17 +1096,26 @@ export const deleteDirectMessage = async ({
 
   const { data: threadRow, error: threadError } = await admin
     .from("direct_threads")
-    .select("id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id,created_at")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id,created_at",
+    )
     .eq("id", messageRow.thread_id)
     .maybeSingle();
 
   throwRepositoryError(threadError, "No se pudo validar el chat del mensaje");
   if (!threadRow) throw new Error("No encontramos el chat del mensaje.");
-  if (![threadRow.participant_low, threadRow.participant_high].includes(viewerUserId)) {
+  if (
+    ![threadRow.participant_low, threadRow.participant_high].includes(
+      viewerUserId,
+    )
+  ) {
     throw new Error("No autorizado para eliminar mensajes en este chat.");
   }
 
-  const { error: deleteError } = await admin.from("direct_messages").delete().eq("id", messageId);
+  const { error: deleteError } = await admin
+    .from("direct_messages")
+    .delete()
+    .eq("id", messageId);
   throwRepositoryError(deleteError, "No se pudo eliminar el mensaje");
 
   const { data: latestMessage, error: latestError } = await admin
@@ -1025,7 +1168,10 @@ export const deleteDirectMessage = async ({
     })
     .eq("id", messageRow.thread_id);
 
-  throwRepositoryError(updateThreadError, "No se pudo actualizar el chat después de eliminar");
+  throwRepositoryError(
+    updateThreadError,
+    "No se pudo actualizar el chat después de eliminar",
+  );
 };
 
 export const toggleDirectThreadPinned = async ({
@@ -1053,7 +1199,10 @@ export const toggleDirectThreadPinned = async ({
       .eq("user_id", viewerUserId)
       .eq("pinned", true);
 
-    throwRepositoryError(countError, "No se pudo validar el límite de chats pineados");
+    throwRepositoryError(
+      countError,
+      "No se pudo validar el límite de chats pineados",
+    );
 
     if ((count ?? 0) >= 5) {
       throw new Error("Puedes pinear hasta 5 chats.");
@@ -1159,10 +1308,13 @@ export const purchaseDirectPremiumMessage = async ({
   viewerUserId: string;
   messageId: string;
 }) => {
-  const { data, error } = await admin.rpc("process_internal_direct_message_purchase", {
-    p_buyer_user_id: viewerUserId,
-    p_message_id: messageId,
-  });
+  const { data, error } = await admin.rpc(
+    "process_internal_direct_message_purchase",
+    {
+      p_buyer_user_id: viewerUserId,
+      p_message_id: messageId,
+    },
+  );
 
   throwRepositoryError(error, "No se pudo comprar el contenido del chat");
   const row = Array.isArray(data) ? data[0] : data;

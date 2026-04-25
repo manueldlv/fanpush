@@ -24,85 +24,46 @@ import {
 import SidebarLeft from "@/components/SidebarLeft";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
+import type {
+  AttachmentPreview,
+  ChatPreviewState,
+  MessageItem,
+  PremiumMessageItem,
+  ThreadItem,
+  ThreadSummaryItem,
+} from "@/lib/chatTypes";
 import {
   CHAT_BLOCKED_USERS_UPDATED_EVENT,
 } from "@/lib/chatPreferences";
+import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
-import { isInsufficientBalanceMessage } from "@/lib/purchaseRedirect";
+import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
+import {
+  confirmOutgoingText,
+  enqueueOutgoingText,
+  failOutgoingText,
+  hydrateThreadDetailError,
+  hydrateThreadDetailStart,
+  hydrateThreadDetailSuccess,
+  hydrateThreadsError,
+  hydrateThreadsStart,
+  hydrateThreadsSuccess,
+  loadOlderError,
+  loadOlderStart,
+  loadOlderSuccess,
+  markThreadReadLocal,
+  removeThread,
+  setActiveThreadId,
+  upsertThreadFromDetail,
+} from "@/lib/redux/slices/chatSlice";
+import {
+  isInsufficientBalanceMessage,
+  redirectToSaldo,
+  shouldRedirectToSaldo,
+} from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
-
-type AttachmentPreview = {
-  id: string;
-  name: string;
-  kind: "foto" | "video";
-  previewUrl: string;
-  previewMode?: "preview" | "locked";
-  file?: File;
-};
-
-type MessageItem =
-  | {
-      id: string;
-      kind: "text";
-      sender: "me" | "them";
-      body: string;
-      createdAt: string;
-    }
-  | {
-      id: string;
-      kind: "attachment";
-      sender: "me" | "them";
-      body?: string;
-      attachments: AttachmentPreview[];
-      createdAt: string;
-    }
-  | {
-      id: string;
-      kind: "system";
-      sender: "system";
-      body: string;
-      createdAt: string;
-    }
-  | {
-      id: string;
-      kind: "premium";
-      sender: "me" | "them";
-      title: string;
-      caption: string;
-      price: number;
-      attachmentCount: number;
-      attachmentPreviews: AttachmentPreview[];
-      status: "locked" | "purchased";
-      createdAt: string;
-    };
-
-type PremiumMessageItem = Extract<MessageItem, { kind: "premium" }>;
-
-type ChatPreviewState = {
-  attachments: AttachmentPreview[];
-  index: number;
-  unlocked: boolean;
-};
-
-type ThreadItem = {
-  id: string;
-  participantUserId: string;
-  username: string;
-  fullName: string;
-  handle: string;
-  preview: string;
-  avatarUrl: string | null;
-  participantIsAuthor: boolean;
-  lastSeen: string;
-  lastMessageAt?: string;
-  unread?: boolean;
-  pinned?: boolean;
-  messages: MessageItem[];
-};
-
-type ThreadSummaryItem = Omit<ThreadItem, "messages">;
 
 const formatUnits = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -165,10 +126,33 @@ const isEmojiOnlyMessage = (value: string) => {
   return Boolean(trimmed) && emojiOnlyRegex.test(trimmed);
 };
 
+const formatThreadUsername = (username: string | null | undefined) => {
+  const normalized = username?.trim().replace(/^@+/, "");
+  return normalized ? `@${normalized}` : "@usuario";
+};
+
+const ChatThreadSkeleton = () => (
+  <>
+    {Array.from({ length: 5 }).map((_, index) => (
+      <div
+        key={`chat-thread-skeleton-${index}`}
+        className="grid grid-cols-[42px_minmax(0,1fr)_18px] items-center gap-3 px-5 py-2.5"
+      >
+        <div className="h-[42px] w-[42px] animate-pulse rounded-full bg-[#f1f1f1]" />
+        <div className="min-w-0 space-y-2">
+          <div className="h-4 w-28 animate-pulse rounded-full bg-[#f1f1f1]" />
+          <div className="h-3 w-40 animate-pulse rounded-full bg-[#f3f3f3]" />
+        </div>
+        <div className="h-4 w-4 animate-pulse rounded-full bg-[#f1f1f1]" />
+      </div>
+    ))}
+  </>
+);
+
 const chatRequest = async <T,>(input: string, init?: RequestInit) => {
   const supabase = getSupabaseClient();
-  const session = supabase
-    ? await supabase.auth.getSession().then((result) => result.data.session)
+  const accessToken = supabase
+    ? await getSessionAccessTokenWithRetry(supabase)
     : null;
 
   const response = await fetch(input, {
@@ -176,9 +160,7 @@ const chatRequest = async <T,>(input: string, init?: RequestInit) => {
     credentials: "include",
     headers: {
       ...(init?.headers ?? {}),
-      ...(session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
   });
   const result = (await response.json()) as T & { error?: string };
@@ -207,6 +189,26 @@ const toThreadDetail = (thread: ThreadItem): ThreadItem => ({
   ...toThreadSummary(thread),
   messages: thread.messages ?? [],
 });
+
+const normalizePageInfo = (
+  pageInfo?: {
+    hasMoreOlder?: boolean;
+    oldestCursor?: string | null;
+  },
+) => ({
+  hasMoreOlder: Boolean(pageInfo?.hasMoreOlder),
+  oldestCursor: pageInfo?.oldestCursor ?? null,
+});
+
+type ThreadResponse = {
+  ok: true;
+  thread: ThreadItem & {
+    pageInfo?: {
+      hasMoreOlder?: boolean;
+      oldestCursor?: string | null;
+    };
+  };
+};
 
 function PremiumComposer({
   open,
@@ -756,20 +758,23 @@ function AttachmentMessageCard({
 export default function MensajesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const dispatch = useAppDispatch();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const emojiRef = useRef<HTMLDivElement | null>(null);
   const composeMenuRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const paidPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const paidVideoInputRef = useRef<HTMLInputElement | null>(null);
   const paidPackInputRef = useRef<HTMLInputElement | null>(null);
   const prefillHandledRef = useRef(false);
   const { data: viewer, refetch: refetchViewer } = useGetViewerQuery();
+  const threadsHydrated = useAppSelector((state) => state.chat.threadsHydrated);
+  const loadingThreads = useAppSelector((state) => state.chat.loadingThreads);
+  const threadOrder = useAppSelector((state) => state.chat.threadOrder);
+  const threadsById = useAppSelector((state) => state.chat.threadsById);
+  const selectedThreadId = useAppSelector((state) => state.chat.activeThreadId) ?? "";
   const prefillUsername = searchParams.get("user");
-
-  const [threads, setThreads] = useState<ThreadSummaryItem[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState<string>("");
-  const [selectedThread, setSelectedThread] = useState<ThreadItem | null>(null);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [emojiQuery, setEmojiQuery] = useState("");
@@ -792,11 +797,20 @@ export default function MensajesPage() {
     type: "delete" | "block";
     thread: ThreadSummaryItem;
   } | null>(null);
-  const [loadingThreads, setLoadingThreads] = useState(true);
-  const [loadingThread, setLoadingThread] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const canSendPremium = Boolean(viewer?.access.canCreate);
+  const threads = threadOrder
+    .map((threadId) => threadsById[threadId]?.summary)
+    .filter(Boolean) as ThreadSummaryItem[];
+  const selectedThreadCache = selectedThreadId ? threadsById[selectedThreadId] : null;
+  const selectedThread = selectedThreadCache
+    ? ({
+        ...selectedThreadCache.summary,
+        messages: selectedThreadCache.messages,
+      } as ThreadItem)
+    : null;
+  const loadingThread = selectedThreadCache?.initialLoading ?? false;
 
   const filteredThreads = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -819,39 +833,39 @@ export default function MensajesPage() {
 
   useEffect(() => {
     if (!selectedThreadId && filteredThreads[0]) {
-      setSelectedThreadId(filteredThreads[0].id);
+      dispatch(setActiveThreadId(filteredThreads[0].id));
     }
-  }, [filteredThreads, selectedThreadId]);
+  }, [dispatch, filteredThreads, selectedThreadId]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadThreads = async () => {
-      setLoadingThreads(true);
+      dispatch(hydrateThreadsStart());
       try {
         const result = await chatRequest<{
           ok: true;
           threads: ThreadSummaryItem[];
         }>("/api/direct-chats");
         if (cancelled) return;
-        setThreads(result.threads.map(toThreadSummary));
+        dispatch(hydrateThreadsSuccess(result.threads.map(toThreadSummary)));
         setChatError(null);
       } catch (error) {
         if (cancelled) return;
-        setThreads([]);
+        dispatch(hydrateThreadsError());
         setChatError(
           error instanceof Error ? error.message : "No se pudieron cargar los chats.",
         );
-      } finally {
-        if (!cancelled) setLoadingThreads(false);
       }
     };
 
-    void loadThreads();
+    if (!threadsHydrated) {
+      void loadThreads();
+    }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dispatch, threadsHydrated]);
 
   useEffect(() => {
     if (!prefillUsername || prefillHandledRef.current) return;
@@ -859,22 +873,19 @@ export default function MensajesPage() {
 
     const openPrefilledThread = async () => {
       try {
-        const result = await chatRequest<{
-          ok: true;
-          thread: ThreadItem;
-        }>("/api/direct-chats", {
+        const result = await chatRequest<ThreadResponse>("/api/direct-chats", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: prefillUsername }),
         });
         const detail = toThreadDetail(result.thread);
-        setSelectedThread(detail);
-        setSelectedThreadId(detail.id);
-        setThreads((current) => {
-          const summary = toThreadSummary(detail);
-          const withoutCurrent = current.filter((item) => item.id !== summary.id);
-          return [summary, ...withoutCurrent];
-        });
+        dispatch(
+          upsertThreadFromDetail({
+            thread: detail,
+            pageInfo: normalizePageInfo(result.thread.pageInfo),
+          }),
+        );
+        dispatch(setActiveThreadId(detail.id));
         setChatError(null);
       } catch (error) {
         setChatError(
@@ -887,36 +898,38 @@ export default function MensajesPage() {
   }, [prefillUsername]);
 
   useEffect(() => {
-    if (!selectedThreadId) {
-      setSelectedThread(null);
+    if (!selectedThreadId) return;
+    if (selectedThreadCache?.hydrated) {
+      dispatch(markThreadReadLocal({ threadId: selectedThreadId }));
       return;
     }
-    if (selectedThread?.id === selectedThreadId) return;
 
     let cancelled = false;
     const loadThread = async () => {
-      setLoadingThread(true);
+      dispatch(hydrateThreadDetailStart({ threadId: selectedThreadId }));
       try {
-        const result = await chatRequest<{
-          ok: true;
-          thread: ThreadItem;
-        }>(`/api/direct-chats/threads/${selectedThreadId}`);
+        const result = await chatRequest<ThreadResponse>(
+          `/api/direct-chats/threads/${selectedThreadId}?limit=25`,
+        );
         if (cancelled) return;
         const detail = toThreadDetail(result.thread);
-        setSelectedThread(detail);
-        setThreads((current) =>
-          current.map((thread) =>
-            thread.id === detail.id ? toThreadSummary(detail) : thread,
-          ),
+        dispatch(
+          hydrateThreadDetailSuccess({
+            thread: detail,
+            pageInfo: {
+              hasMoreOlder: Boolean(result.thread.pageInfo?.hasMoreOlder),
+              oldestCursor: result.thread.pageInfo?.oldestCursor ?? null,
+            },
+          }),
         );
+        dispatch(markThreadReadLocal({ threadId: selectedThreadId }));
         setChatError(null);
       } catch (error) {
         if (cancelled) return;
+        dispatch(hydrateThreadDetailError({ threadId: selectedThreadId }));
         setChatError(
           error instanceof Error ? error.message : "No se pudo cargar el chat.",
         );
-      } finally {
-        if (!cancelled) setLoadingThread(false);
       }
     };
 
@@ -924,33 +937,69 @@ export default function MensajesPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedThreadId, selectedThread?.id]);
+  }, [dispatch, selectedThreadCache?.hydrated, selectedThreadId]);
 
   const appendTextMessage = async () => {
     const body = draft.trim();
     if (!body || !selectedThread) return;
+    const localId = `local-${Date.now()}-${crypto.randomUUID()}`;
+    const optimisticMessage: MessageItem = {
+      id: localId,
+      localId,
+      kind: "text",
+      sender: "me",
+      body,
+      createdAt: "Ahora",
+      deliveryStatus: "local",
+      syncError: null,
+    };
+    dispatch(
+      enqueueOutgoingText({
+        threadId: selectedThread.id,
+        message: optimisticMessage,
+      }),
+    );
+    setDraft("");
     setSendingMessage(true);
     try {
       const formData = new FormData();
       formData.append("kind", "text");
       formData.append("body", body);
-      const result = await chatRequest<{
-        ok: true;
-        thread: ThreadItem;
-      }>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
+      const result = await chatRequest<ThreadResponse>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
         method: "POST",
         body: formData,
       });
       const detail = toThreadDetail(result.thread);
-      setSelectedThread(detail);
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === detail.id ? toThreadSummary(detail) : thread,
-        ),
+      const confirmedMessage = detail.messages[detail.messages.length - 1];
+      if (confirmedMessage?.kind === "text" && confirmedMessage.sender === "me") {
+        dispatch(
+          confirmOutgoingText({
+            threadId: selectedThread.id,
+            localId,
+            serverMessage: {
+              ...confirmedMessage,
+              deliveryStatus: "sent",
+              syncError: null,
+            },
+          }),
+        );
+      }
+      dispatch(
+        upsertThreadFromDetail({
+          thread: detail,
+          pageInfo: normalizePageInfo(result.thread.pageInfo),
+        }),
       );
-      setDraft("");
       setChatError(null);
     } catch (error) {
+      dispatch(
+        failOutgoingText({
+          threadId: selectedThread.id,
+          localId,
+          error:
+            error instanceof Error ? error.message : "No se pudo enviar el mensaje.",
+        }),
+      );
       setChatError(
         error instanceof Error ? error.message : "No se pudo enviar el mensaje.",
       );
@@ -982,20 +1031,17 @@ export default function MensajesPage() {
           formData.append(`original_${index}`, attachment.file);
         }
       });
-      const result = await chatRequest<{
-        ok: true;
-        thread: ThreadItem;
-      }>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
+      const result = await chatRequest<ThreadResponse>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
         method: "POST",
         body: formData,
       });
       attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
       const detail = toThreadDetail(result.thread);
-      setSelectedThread(detail);
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === detail.id ? toThreadSummary(detail) : thread,
-        ),
+      dispatch(
+        upsertThreadFromDetail({
+          thread: detail,
+          pageInfo: normalizePageInfo(result.thread.pageInfo),
+        }),
       );
       setChatError(null);
     } catch (error) {
@@ -1069,20 +1115,17 @@ export default function MensajesPage() {
   const threadMenuActions = {
     togglePinned: async (threadId: string) => {
       try {
-        const result = await chatRequest<{
-          ok: true;
-          thread: ThreadItem;
-        }>(`/api/direct-chats/threads/${threadId}/actions`, {
+        const result = await chatRequest<ThreadResponse>(`/api/direct-chats/threads/${threadId}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "togglePinned" }),
         });
         const detail = toThreadDetail(result.thread);
-        setSelectedThread((current) => (current?.id === detail.id ? detail : current));
-        setThreads((current) =>
-          current.map((thread) =>
-            thread.id === detail.id ? toThreadSummary(detail) : thread,
-          ),
+        dispatch(
+          upsertThreadFromDetail({
+            thread: detail,
+            pageInfo: normalizePageInfo(result.thread.pageInfo),
+          }),
         );
         setChatError(null);
       } catch (error) {
@@ -1094,20 +1137,17 @@ export default function MensajesPage() {
     },
     toggleUnread: async (threadId: string) => {
       try {
-        const result = await chatRequest<{
-          ok: true;
-          thread: ThreadItem;
-        }>(`/api/direct-chats/threads/${threadId}/actions`, {
+        const result = await chatRequest<ThreadResponse>(`/api/direct-chats/threads/${threadId}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "toggleUnread" }),
         });
         const detail = toThreadDetail(result.thread);
-        setSelectedThread((current) => (current?.id === detail.id ? detail : current));
-        setThreads((current) =>
-          current.map((thread) =>
-            thread.id === detail.id ? toThreadSummary(detail) : thread,
-          ),
+        dispatch(
+          upsertThreadFromDetail({
+            thread: detail,
+            pageInfo: normalizePageInfo(result.thread.pageInfo),
+          }),
         );
         setChatError(null);
       } catch (error) {
@@ -1127,14 +1167,7 @@ export default function MensajesPage() {
             body: JSON.stringify({ action: "delete" }),
           },
         );
-        setThreads((current) => {
-          const nextThreads = current.filter((thread) => thread.id !== threadId);
-          if (selectedThreadId === threadId) {
-            setSelectedThread(null);
-            setSelectedThreadId(nextThreads[0]?.id ?? "");
-          }
-          return nextThreads;
-        });
+        dispatch(removeThread({ threadId }));
         setChatError(null);
       } catch (error) {
         setChatError(
@@ -1153,14 +1186,7 @@ export default function MensajesPage() {
             body: JSON.stringify({ action: "block" }),
           },
         );
-        setThreads((current) => {
-          const nextThreads = current.filter((item) => item.id !== thread.id);
-          if (selectedThreadId === thread.id) {
-            setSelectedThread(null);
-            setSelectedThreadId(nextThreads[0]?.id ?? "");
-          }
-          return nextThreads;
-        });
+        dispatch(removeThread({ threadId: thread.id }));
         window.dispatchEvent(new CustomEvent(CHAT_BLOCKED_USERS_UPDATED_EVENT));
         setChatError(null);
       } catch (error) {
@@ -1174,22 +1200,42 @@ export default function MensajesPage() {
 
   const unlockPremiumMessage = async (messageId: string) => {
     if (!selectedThread) return;
+    const messageItem = selectedThread.messages.find((item) => item.id === messageId);
+    const requiredAmount =
+      messageItem && "price" in messageItem ? Number(messageItem.price ?? 0) : 0;
+    const availableBalance = viewer?.commerce.balance ?? 0;
+    if (
+      shouldRedirectToSaldo({
+        availableBalance,
+        requiredAmount,
+      })
+    ) {
+      setChatError("No tienes saldo suficiente para comprar este contenido. Te redirigimos para cargar saldo.");
+      window.setTimeout(() => {
+        redirectToSaldo({
+          reason: "insufficient-balance",
+          requiredAmount,
+          currentBalance: availableBalance,
+          kind: "chat",
+          targetId: messageId,
+          targetLabel: selectedThread.username,
+          targetAvatar: selectedThread.avatarUrl,
+        });
+      }, 250);
+      return;
+    }
     try {
       setUnlockingMessageId(messageId);
       setChatError(null);
-      const result = await chatRequest<{
-        ok: true;
-        thread: ThreadItem;
-        balance: number;
-      }>(`/api/direct-chats/messages/${messageId}/purchase`, {
+      const result = await chatRequest<ThreadResponse & { balance: number }>(`/api/direct-chats/messages/${messageId}/purchase`, {
         method: "POST",
       });
       const detail = toThreadDetail(result.thread);
-      setSelectedThread(detail);
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === detail.id ? toThreadSummary(detail) : thread,
-        ),
+      dispatch(
+        upsertThreadFromDetail({
+          thread: detail,
+          pageInfo: normalizePageInfo(result.thread.pageInfo),
+        }),
       );
       window.dispatchEvent(new Event("purchases-updated"));
       window.dispatchEvent(new Event("balance-updated"));
@@ -1202,7 +1248,15 @@ export default function MensajesPage() {
       if (isInsufficientBalanceMessage(message)) {
         setChatError("No tienes saldo suficiente para comprar este contenido. Te redirigimos para cargar saldo.");
         window.setTimeout(() => {
-          window.location.assign("/saldo?reason=insufficient-balance");
+          redirectToSaldo({
+            reason: "insufficient-balance",
+            requiredAmount,
+            currentBalance: availableBalance,
+            kind: "chat",
+            targetId: messageId,
+            targetLabel: selectedThread.username,
+            targetAvatar: selectedThread.avatarUrl,
+          });
         }, 1200);
         return;
       }
@@ -1218,18 +1272,15 @@ export default function MensajesPage() {
   const deleteMessage = async (messageId: string) => {
     if (!selectedThread) return;
     try {
-      const result = await chatRequest<{
-        ok: true;
-        thread: ThreadItem;
-      }>(`/api/direct-chats/messages/${messageId}?threadId=${selectedThread.id}`, {
+      const result = await chatRequest<ThreadResponse>(`/api/direct-chats/messages/${messageId}?threadId=${selectedThread.id}`, {
         method: "DELETE",
       });
       const detail = toThreadDetail(result.thread);
-      setSelectedThread(detail);
-      setThreads((current) =>
-        current.map((thread) =>
-          thread.id === detail.id ? toThreadSummary(detail) : thread,
-        ),
+      dispatch(
+        upsertThreadFromDetail({
+          thread: detail,
+          pageInfo: normalizePageInfo(result.thread.pageInfo),
+        }),
       );
       setMessageMenuId(null);
       setChatError(null);
@@ -1303,6 +1354,59 @@ export default function MensajesPage() {
     emojiQuery.trim() ? emoji.includes(emojiQuery.trim()) : true,
   );
 
+  const loadOlderMessages = async () => {
+    if (!selectedThreadId || !selectedThreadCache?.oldestCursor || selectedThreadCache.loadingOlder) {
+      return;
+    }
+    const container = messagesContainerRef.current;
+    const previousHeight = container?.scrollHeight ?? 0;
+    dispatch(loadOlderStart({ threadId: selectedThreadId }));
+    try {
+      const result = await chatRequest<ThreadResponse>(
+        `/api/direct-chats/threads/${selectedThreadId}?limit=25&before=${encodeURIComponent(
+          selectedThreadCache.oldestCursor,
+        )}`,
+      );
+      const detail = toThreadDetail(result.thread);
+      dispatch(
+        loadOlderSuccess({
+          threadId: selectedThreadId,
+          messages: detail.messages,
+          pageInfo: {
+            hasMoreOlder: Boolean(result.thread.pageInfo?.hasMoreOlder),
+            oldestCursor: result.thread.pageInfo?.oldestCursor ?? null,
+          },
+        }),
+      );
+      window.requestAnimationFrame(() => {
+        if (!container) return;
+        const nextHeight = container.scrollHeight;
+        container.scrollTop = nextHeight - previousHeight + container.scrollTop;
+      });
+    } catch (error) {
+      dispatch(loadOlderError({ threadId: selectedThreadId }));
+      setChatError(
+        error instanceof Error ? error.message : "No se pudieron cargar más mensajes.",
+      );
+    }
+  };
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !selectedThreadCache) return;
+    const onScroll = () => {
+      if (
+        container.scrollTop < 120 &&
+        selectedThreadCache.hasMoreOlder &&
+        !selectedThreadCache.loadingOlder
+      ) {
+        void loadOlderMessages();
+      }
+    };
+    container.addEventListener("scroll", onScroll);
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [selectedThreadCache]);
+
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#161823] md:h-screen md:overflow-hidden">
       <SidebarLeft />
@@ -1328,10 +1432,7 @@ export default function MensajesPage() {
                 attachment.previewMode === "locked" ? "locked" : "preview",
               );
             });
-            const result = await chatRequest<{
-              ok: true;
-              thread: ThreadItem;
-            }>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
+            const result = await chatRequest<ThreadResponse>(`/api/direct-chats/threads/${selectedThread.id}/messages`, {
               method: "POST",
               body: formData,
             });
@@ -1339,11 +1440,11 @@ export default function MensajesPage() {
               URL.revokeObjectURL(attachment.previewUrl),
             );
             const detail = toThreadDetail(result.thread);
-            setSelectedThread(detail);
-            setThreads((current) =>
-              current.map((thread) =>
-                thread.id === detail.id ? toThreadSummary(detail) : thread,
-              ),
+            dispatch(
+              upsertThreadFromDetail({
+                thread: detail,
+                pageInfo: normalizePageInfo(result.thread.pageInfo),
+              }),
             );
             setPremiumOpen(false);
             setChatError(null);
@@ -1362,6 +1463,7 @@ export default function MensajesPage() {
         open={tipOpen}
         availableBalance={viewer?.commerce.balance ?? 0}
         recipientLabel={selectedThread?.username ?? "usuario"}
+        recipientAvatar={selectedThread?.avatarUrl ?? null}
         recipientUserId={selectedThread?.participantUserId ?? null}
         threadId={selectedThread?.id ?? null}
         onClose={() => setTipOpen(false)}
@@ -1541,7 +1643,7 @@ export default function MensajesPage() {
 
             <div className="flex flex-col pb-5">
               {loadingThreads ? (
-                <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">Cargando chats...</div>
+                <ChatThreadSkeleton />
               ) : filteredThreads.length === 0 ? (
                 search.trim() ? (
                   <div className="px-5 py-8 text-[14px] text-[#8b8b8b]">
@@ -1568,20 +1670,20 @@ export default function MensajesPage() {
                   <button
                     key={thread.id}
                     type="button"
-                    onClick={() => setSelectedThreadId(thread.id)}
+                    onClick={() => dispatch(setActiveThreadId(thread.id))}
                     className={`grid grid-cols-[42px_minmax(0,1fr)_18px] items-center gap-3 px-5 py-2.5 text-left transition ${
                       active ? "bg-[#f7f7f7]" : "hover:bg-[#fafafa]"
                     }`}
                   >
                     <UserAvatar
                       src={thread.avatarUrl}
-                      alt={thread.fullName}
+                      alt={thread.username}
                       sizeClassName="h-[42px] w-[42px]"
                       iconClassName="h-4 w-4"
                     />
                     <div className="min-w-0">
                       <div className="truncate text-[15px] font-semibold tracking-[-0.02em] text-[#161823]">
-                        {thread.fullName}
+                        {formatThreadUsername(thread.username)}
                       </div>
                       <div
                         className={`truncate text-[12px] ${
@@ -1593,7 +1695,7 @@ export default function MensajesPage() {
                     </div>
                     <div className="relative" ref={openMenuId === thread.id ? menuRef : null}>
                       {thread.unread ? (
-                        <span className="absolute -left-3 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#ff334b]" />
+                        <span className="absolute -left-3 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#5A3EE7]" />
                       ) : null}
                       <button
                         type="button"
@@ -1676,7 +1778,7 @@ export default function MensajesPage() {
                   <div className="flex items-center gap-3">
                     <UserAvatar
                       src={selectedThread.avatarUrl}
-                      alt={selectedThread.fullName}
+                      alt={selectedThread.username}
                       sizeClassName="h-[42px] w-[42px]"
                       iconClassName="h-4 w-4"
                     />
@@ -1688,9 +1790,11 @@ export default function MensajesPage() {
                         }
                         className="text-left text-[18px] font-semibold tracking-[-0.03em] text-[#161823]"
                       >
-                        {selectedThread.fullName}
+                        {formatThreadUsername(selectedThread.username)}
                       </button>
-                      <div className="text-[13px] text-[#6b7280]">{selectedThread.handle}</div>
+                      <div className="text-[13px] text-[#6b7280]">
+                        {selectedThread.fullName}
+                      </div>
                     </div>
                   </div>
                   <button
@@ -1702,10 +1806,18 @@ export default function MensajesPage() {
                   </button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
+                <div
+                  ref={messagesContainerRef}
+                  className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6"
+                >
                   {loadingThread ? (
                     <div className="pb-4 text-center text-[14px] text-[#8b8b8b]">
                       Cargando conversación...
+                    </div>
+                  ) : null}
+                  {selectedThreadCache?.loadingOlder ? (
+                    <div className="pb-4 text-center text-[12px] text-[#8b8b8b]">
+                      Cargando mensajes anteriores...
                     </div>
                   ) : null}
                   <div className="flex min-h-full w-full flex-col justify-end gap-4">
@@ -1817,7 +1929,7 @@ export default function MensajesPage() {
                                   <div
                                     className={`inline-flex max-w-[430px] rounded-full px-4 py-2.5 font-semibold ${
                                       isEmojiOnlyMessage(message.body)
-                                        ? "text-[30px] leading-none"
+                                        ? "text-[56px] leading-none"
                                         : "text-[14px]"
                                     } ${
                                       own
@@ -1827,6 +1939,15 @@ export default function MensajesPage() {
                                   >
                                     {message.body}
                                   </div>
+                                  {own && message.kind === "text" ? (
+                                    <div className="mt-1 flex justify-end pr-3 text-[11px] text-[#8b8b8b]">
+                                      {message.deliveryStatus === "local" ? "✓" : null}
+                                      {message.deliveryStatus === "sent" ? "✓✓" : null}
+                                      {message.deliveryStatus === "failed"
+                                        ? "No enviado"
+                                        : null}
+                                    </div>
+                                  ) : null}
                                 </div>
                               )}
                             </div>
@@ -1935,7 +2056,27 @@ export default function MensajesPage() {
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => setTipOpen(true)}
+                      onClick={() => {
+                        const availableBalance = viewer?.commerce.balance ?? 0;
+                        if (
+                          shouldRedirectToSaldo({
+                            availableBalance,
+                            requiredAmount: MIN_CONTENT_PRICE_ARS,
+                          })
+                        ) {
+                          redirectToSaldo({
+                            reason: "insufficient-balance",
+                            requiredAmount: MIN_CONTENT_PRICE_ARS,
+                            currentBalance: availableBalance,
+                            kind: "tip",
+                            targetId: selectedThread?.participantUserId ?? null,
+                            targetLabel: selectedThread?.username ?? "usuario",
+                            targetAvatar: selectedThread?.avatarUrl ?? null,
+                          });
+                          return;
+                        }
+                        setTipOpen(true);
+                      }}
                       disabled={!selectedThread || sendingMessage}
                       className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#8b8b8b] transition hover:bg-white hover:text-[#161823] disabled:opacity-50"
                       aria-label="Enviar propina"
@@ -1966,7 +2107,11 @@ export default function MensajesPage() {
                       }}
                       placeholder="Envía un mensaje ..."
                       disabled={!selectedThread || sendingMessage}
-                      className="w-full bg-transparent text-[14px] text-[#161823] outline-none placeholder:text-[#8b8b8b]"
+                      className={`w-full bg-transparent text-[#161823] outline-none placeholder:text-[#8b8b8b] ${
+                        isEmojiOnlyMessage(draft)
+                          ? "text-[34px] leading-none"
+                          : "text-[16px]"
+                      }`}
                     />
                     <button
                       type="button"

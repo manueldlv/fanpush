@@ -16,6 +16,7 @@ import modalsReducer from "@/lib/redux/slices/modalsSlice";
 import notificationsReducer from "@/lib/redux/slices/notificationsSlice";
 import postsReducer from "@/lib/redux/slices/postsSlice";
 import searchReducer from "@/lib/redux/slices/searchSlice";
+import chatReducer from "@/lib/redux/slices/chatSlice";
 import uiReducer from "@/lib/redux/slices/uiSlice";
 
 export const makeStore = () =>
@@ -27,6 +28,7 @@ export const makeStore = () =>
       ui: uiReducer,
       search: searchReducer,
       posts: postsReducer,
+      chat: chatReducer,
       notifications: notificationsReducer,
       [authApi.reducerPath]: authApi.reducer,
       [commerceApi.reducerPath]: commerceApi.reducer,

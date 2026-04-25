@@ -2,6 +2,39 @@
   "version": 1,
   "items": [
     {
+      "id": "2026-04-25-03-full-project-execution-roadmap",
+      "type": "plan",
+      "title": "Roadmap completo de ejecucion por etapas para remediar hallazgos criticos del proyecto",
+      "status": "approved",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "needs_approval",
+      "plan": "vibe-coding/plans/2026-04-25-03-full-project-execution-roadmap.md",
+      "changelog": "vibe-coding/changelog/2026-04-25-03-full-project-execution-roadmap.md"
+    },
+    {
+      "id": "2026-04-25-02-critical-remediation-execution-plan",
+      "type": "plan",
+      "title": "Plan de ejecucion para remediar hallazgos criticos sin romper contratos ni reglas activas",
+      "status": "approved",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "needs_approval",
+      "plan": "vibe-coding/plans/2026-04-25-02-critical-remediation-execution-plan.md",
+      "changelog": "vibe-coding/changelog/2026-04-25-02-critical-remediation-execution-plan.md"
+    },
+    {
+      "id": "2026-04-25-01-critical-technical-audit",
+      "type": "plan",
+      "title": "Auditoria tecnica critica por etapas del producto y su persistencia",
+      "status": "approved",
+      "requested_by": "matias",
+      "approved_by": "matias",
+      "scope": "plan-only",
+      "plan": "vibe-coding/plans/2026-04-25-01-critical-technical-audit.md",
+      "changelog": "vibe-coding/changelog/2026-04-25-01-critical-technical-audit.md"
+    },
+    {
       "id": "2026-03-30-01-notification-center-ui",
       "type": "execution",
       "title": "Separar centro de notificaciones y mensajes",

@@ -298,7 +298,7 @@ export const createVirtualAlbumFromExistingPosts = async ({
       user_id: ownerUserId,
       description: description.trim() || "Contenido privado",
       price,
-      visibility: "private",
+      visibility: "draft",
     })
     .select("id")
     .single();
@@ -334,7 +334,7 @@ export const listChatPickerContent = async ({
       "id,description,price,visibility,created_at,album_posts(position,post:posts(id,media_url,media_type,is_locked,created_at))",
     )
     .eq("user_id", ownerUserId)
-    .in("visibility", ["published", "private"])
+    .in("visibility", ["published", "draft"])
     .order("created_at", { ascending: false })
     .limit(100);
 

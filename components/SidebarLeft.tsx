@@ -7,6 +7,7 @@ import {
   Bookmark,
   Compass,
   Wallet,
+  Headset,
   Home,
   LogOut,
   DollarSign,
@@ -25,6 +26,7 @@ import {
   getSessionAccessTokenWithRetry,
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
+import { FANPUSH_WHATSAPP_SUPPORT_URL } from "@/lib/support";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export default function SidebarLeft() {
@@ -137,7 +139,7 @@ export default function SidebarLeft() {
       <span className="relative">
         {icon}
         {badgeCount > 0 ? (
-          <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#5A3EE7] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+          <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#ff334b] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
             {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         ) : null}
@@ -168,7 +170,7 @@ export default function SidebarLeft() {
 
   const mobileBadge = (count: number) =>
     count > 0 ? (
-      <span className="absolute right-0 top-0 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#5A3EE7] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+      <span className="absolute right-0 top-0 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#ff334b] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
         {count > 99 ? "99+" : count}
       </span>
     ) : null;
@@ -302,6 +304,15 @@ export default function SidebarLeft() {
               <User className={iconClass(pathname === "/perfil")} />
               <span>Perfil</span>
             </Link>
+            <a
+              href={FANPUSH_WHATSAPP_SUPPORT_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={itemClass(false)}
+            >
+              <Headset className={iconClass(false)} />
+              <span>Ayuda en línea</span>
+            </a>
           </nav>
 
           {!financeOnlyAccess ? (

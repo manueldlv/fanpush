@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase";
 import Image from "next/image";
-import type { CSSProperties } from "react";
 import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from "lucide-react";
 import {
   useRegisterMutation,
@@ -217,7 +216,6 @@ export default function AuthPage() {
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<
     "idle" | "checking" | "available" | "taken" | "invalid"
@@ -249,9 +247,9 @@ export default function AuthPage() {
     ? "Te enviaremos un enlace seguro para recuperar el acceso."
     : reset
       ? "Elige una contraseña segura para volver a entrar."
-      : mode === "login"
-        ? "Accede a tus compras, creadores y contenido desbloqueado."
-        : "Crea tu cuenta para comprar, apoyar creadores y publicar contenido.";
+    : mode === "login"
+      ? "Accede a tus compras, mensajes y contenido desbloqueado."
+      : "Crea tu cuenta para comprar, seguir perfiles y desbloquear contenido.";
 
   const resumePendingCheckout = () => {
     const pendingCheckout = readPendingCheckout();
@@ -268,102 +266,6 @@ export default function AuthPage() {
     }
     window.location.assign(`${checkoutUrl.pathname}${checkoutUrl.search}`);
     return true;
-  };
-
-  const pageStyle: CSSProperties = {
-    minHeight: "100vh",
-    background: "#ffffff",
-    color: "#18181b",
-  };
-
-  const shellStyle: CSSProperties = {
-    margin: isMobile ? "0 auto" : "0 0 0 50px",
-    minHeight: "100vh",
-    width: isMobile ? "100%" : "calc(100vw - 50px)",
-    maxWidth: "none",
-    display: "grid",
-    gridTemplateColumns: isMobile
-      ? "minmax(0, 1fr)"
-      : "minmax(0, 1.2fr) minmax(320px, 1fr)",
-  };
-
-  const leftPanelStyle: CSSProperties = {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRight: isMobile ? "none" : "1px solid #e4e4e7",
-    background: "#ffffff",
-    padding: isMobile ? "32px 20px 12px" : "0",
-    marginTop: isMobile ? "0" : "50px",
-    marginBottom: isMobile ? "0" : "50px",
-    marginLeft: isMobile ? "0" : "50px",
-    minHeight: isMobile ? undefined : "calc(100vh - 100px)",
-    overflow: "hidden",
-    borderRadius: isMobile ? "0" : "32px",
-  };
-
-  const rightPanelStyle: CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: isMobile ? "12px 20px 40px" : "48px 24px",
-  };
-
-  const contentStyle: CSSProperties = {
-    width: "100%",
-    maxWidth: isMobile ? "100%" : "420px",
-  };
-
-  const formStyle: CSSProperties = {
-    marginTop: "16px",
-    border: "1px solid #e4e4e7",
-    borderRadius: "20px",
-    background: "#ffffff",
-    padding: isMobile ? "22px" : "28px",
-    boxShadow: "0 12px 30px rgba(15,23,42,0.06)",
-  };
-
-  const segmentedStyle: CSSProperties = {
-    display: "flex",
-    gap: "8px",
-  };
-
-  const inputStyle: CSSProperties = {
-    width: "100%",
-    height: "52px",
-    borderRadius: "14px",
-    border: "1px solid #e4e4e7",
-    padding: "12px 16px",
-    fontSize: "14px",
-    lineHeight: "20px",
-    outline: "none",
-    background: "#ffffff",
-    color: "#18181b",
-  };
-
-  const primaryButtonStyle: CSSProperties = {
-    width: "100%",
-    borderRadius: "14px",
-    background: "#3b82f6",
-    color: "#ffffff",
-    padding: "12px 16px",
-    fontSize: "14px",
-    fontWeight: 600,
-    border: "none",
-    cursor: "pointer",
-  };
-
-  const secondaryButtonStyle: CSSProperties = {
-    width: "100%",
-    borderRadius: "14px",
-    border: "1px solid #e4e4e7",
-    background: "#ffffff",
-    color: "#18181b",
-    padding: "12px 16px",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
   };
 
   const enterResetMode = () => {
@@ -598,17 +500,11 @@ export default function AuthPage() {
   }, [forgot, mode, reset, username]);
 
   useEffect(() => {
-    const updateViewport = () => {
-      setIsMobile(window.innerWidth < 1024);
-    };
-
     setMounted(true);
-    updateViewport();
-    window.addEventListener("resize", updateViewport);
 
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return () => window.removeEventListener("resize", updateViewport);
+      return () => {};
     }
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     const search =
@@ -678,7 +574,6 @@ export default function AuthPage() {
       }
     });
     return () => {
-      window.removeEventListener("resize", updateViewport);
       sub?.subscription?.unsubscribe();
     };
   }, []);
@@ -694,75 +589,47 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900" style={pageStyle}>
-      <div
-        className="mx-auto grid min-h-screen w-full max-w-[1400px] grid-cols-1 gap-0 lg:grid-cols-[1.2fr_1fr]"
-        style={shellStyle}
-      >
-        <div
-          className={`relative items-center justify-center bg-white ${
-            isMobile ? "flex" : "hidden lg:flex"
-          }`}
-          style={leftPanelStyle}
-        >
-          <video
-            className="absolute inset-0 h-full w-full rounded-[32px] object-cover"
-            src="/auth-login-bg.mp4"
-            autoPlay
-            muted
-            loop
-            playsInline
-          />
-          <div className="absolute inset-0 rounded-[32px] bg-black/10" />
-          <div
-            className={`${isMobile ? "absolute left-5 top-5" : "absolute left-10 top-10"} z-10`}
-          >
-            <Image
-              src="/fanpush-logo.png"
-              alt="FanPush"
-              width={isMobile ? 84 : 110}
-              height={isMobile ? 84 : 110}
-              priority
-            />
-          </div>
-        </div>
-
-        <div
-          className="flex items-center justify-center px-6 py-12"
-          style={rightPanelStyle}
-        >
-          <div className="w-full max-w-[420px]" style={contentStyle}>
-            <div className="mb-6 text-left">
-              <div className="text-[35px] font-bold leading-tight text-zinc-900">{title}</div>
-              <p className="mt-2 text-sm leading-6 text-zinc-500">{subtitle}</p>
+    <div className="min-h-screen bg-white text-zinc-900">
+      <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[minmax(560px,0.92fr)_minmax(0,1.08fr)]">
+        <div className="relative flex min-h-screen items-start bg-white px-6 py-8 sm:px-10 lg:px-14 lg:py-10">
+          <div className="mx-auto flex w-full max-w-[520px] flex-1 flex-col justify-between">
+            <div>
+              <Image
+                src="/fanpush-logo.png"
+                alt="FanPush"
+                width={89}
+                height={67}
+                priority
+                className="h-[58px] w-auto sm:h-[66px]"
+              />
             </div>
 
-            <form
-              className="rounded-[20px] border border-zinc-200 bg-white p-6 shadow-sm"
-              style={formStyle}
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleSubmit();
-              }}
-            >
+            <div className="my-10 lg:my-12">
+              <div className="mb-8 text-left">
+                <div className="text-[34px] font-semibold leading-[1.02] tracking-[-0.03em] text-zinc-900 sm:text-[42px]">
+                  {title}
+                </div>
+                <p className="mt-4 max-w-[420px] text-[15px] leading-7 text-zinc-500 sm:text-[16px]">
+                  {subtitle}
+                </p>
+              </div>
+
+              <form
+                className="rounded-[24px] border border-black/8 bg-white p-5 shadow-[0_18px_48px_rgba(24,24,27,0.08)] sm:p-7"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleSubmit();
+                }}
+              >
               {!forgot ? (
-                <div className="flex items-center gap-2" style={segmentedStyle}>
+                <div className="flex items-center gap-2 rounded-[16px] bg-[#f2ede5] p-1.5">
                   <button
                     type="button"
                     onClick={() => setMode("login")}
-                    style={{
-                      ...secondaryButtonStyle,
-                      borderRadius: "12px",
-                      width: "100%",
-                      background: mode === "login" ? "#18181b" : "#f4f4f5",
-                      color: mode === "login" ? "#ffffff" : "#3f3f46",
-                      border: "none",
-                      padding: "10px 12px",
-                    }}
-                    className={`flex-1 rounded-[12px] px-3 py-2 text-sm font-semibold transition ${
+                    className={`flex-1 rounded-[12px] px-3 py-3 text-sm font-semibold transition ${
                       mode === "login"
-                        ? "bg-zinc-900 text-white"
-                        : "bg-zinc-100 text-zinc-700"
+                        ? "bg-zinc-900 text-white shadow-sm"
+                        : "bg-transparent text-zinc-600"
                     }`}
                   >
                     Iniciar sesión
@@ -770,19 +637,10 @@ export default function AuthPage() {
                   <button
                     type="button"
                     onClick={() => setMode("register")}
-                    style={{
-                      ...secondaryButtonStyle,
-                      borderRadius: "12px",
-                      width: "100%",
-                      background: mode === "register" ? "#18181b" : "#f4f4f5",
-                      color: mode === "register" ? "#ffffff" : "#3f3f46",
-                      border: "none",
-                      padding: "10px 12px",
-                    }}
-                    className={`flex-1 rounded-[12px] px-3 py-2 text-sm font-semibold transition ${
+                    className={`flex-1 rounded-[12px] px-3 py-3 text-sm font-semibold transition ${
                       mode === "register"
-                        ? "bg-zinc-900 text-white"
-                        : "bg-zinc-100 text-zinc-700"
+                        ? "bg-zinc-900 text-white shadow-sm"
+                        : "bg-transparent text-zinc-600"
                     }`}
                   >
                     Crear cuenta
@@ -797,7 +655,6 @@ export default function AuthPage() {
                     placeholder="Nombre completo"
                     value={fullName}
                     onChange={(event) => setFullName(event.target.value)}
-                    style={inputStyle}
                     className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
                   />
                 ) : null}
@@ -810,7 +667,6 @@ export default function AuthPage() {
                       onChange={(event) =>
                         setUsername(normalizeUsername(event.target.value))
                       }
-                      style={{ ...inputStyle, paddingRight: "44px" }}
                       className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 pr-11 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
                     />
                     <span className="pointer-events-none absolute right-3 top-0 flex h-[52px] items-center justify-center text-zinc-400">
@@ -845,7 +701,6 @@ export default function AuthPage() {
                     placeholder="Correo electrónico"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    style={inputStyle}
                     className="h-[52px] w-full rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
                   />
                 ) : null}
@@ -956,8 +811,7 @@ export default function AuthPage() {
                     !reset &&
                     usernameStatus !== "available")
                 }
-                style={primaryButtonStyle}
-                className="mt-6 w-full rounded-[14px] bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-70"
+                className="mt-6 w-full rounded-[14px] bg-[#1a1a1f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {submitting
                   ? "Procesando..."
@@ -1000,16 +854,41 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => setMode("register")}
-                  style={secondaryButtonStyle}
                   className="mt-4 w-full rounded-[14px] border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-300"
                 >
                   Crear una cuenta
                 </button>
               ) : null}
-            </form>
+              </form>
+            </div>
 
-            <div className="mt-6 text-center text-xs text-zinc-500">
+            <div className="max-w-[420px] text-left text-xs leading-6 text-zinc-500">
               Al continuar confirmas que eres mayor de 18 años y aceptas los términos y condiciones de Fanpush.
+            </div>
+          </div>
+        </div>
+
+        <div className="relative hidden min-h-screen overflow-hidden bg-[#d7cab0] lg:block">
+          <Image
+            src="/auth-side-image.png"
+            alt="Fanpush community"
+            fill
+            priority
+            className="object-cover object-center"
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(24,24,27,0.26),rgba(24,24,27,0.55))]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_22%,rgba(255,255,255,0.24),transparent_24%),radial-gradient(circle_at_82%_16%,rgba(255,212,147,0.18),transparent_22%),linear-gradient(135deg,rgba(0,0,0,0.12),rgba(0,0,0,0.28))]" />
+          <div className="relative flex h-full flex-col justify-end px-10 py-12 text-white xl:px-12 xl:py-12">
+            <div className="relative z-10 max-w-[580px] rounded-[28px] border border-white/14 bg-black/30 p-7 backdrop-blur-[8px] xl:max-w-[660px] xl:p-8">
+              <div className="mt-5 max-w-[560px] text-[34px] font-semibold leading-[0.98] tracking-[-0.04em] text-white [text-shadow:0_2px_18px_rgba(0,0,0,0.45)] xl:text-[46px]">
+                Publicá, conectá y convertí tu contenido en comunidad.
+              </div>
+              <p
+                className="relative z-10 mt-5 max-w-[500px] text-[16px] leading-7 [text-shadow:0_2px_14px_rgba(0,0,0,0.72)]"
+                style={{ color: "#ffffff", opacity: 1 }}
+              >
+                Entra para compartir contenido, hablar con tu audiencia y mover todo desde un solo lugar.
+              </p>
             </div>
           </div>
         </div>

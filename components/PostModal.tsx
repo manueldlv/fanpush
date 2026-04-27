@@ -46,6 +46,7 @@ type PostModalProps = {
   onClose: () => void;
   currentUserId?: string | null;
   onDelete?: (postId: string) => void | Promise<void>;
+  onEdit?: (post: Post) => void;
   onPurchase?: (postId: string) => void | boolean | Promise<void | boolean>;
   onTip?: (post: Post) => void;
   isFavorite?: boolean;
@@ -64,6 +65,7 @@ export default function PostModal({
   onClose,
   currentUserId,
   onDelete,
+  onEdit,
   onPurchase,
   onTip,
   isFavorite = false,
@@ -212,16 +214,13 @@ export default function PostModal({
       if (error) return;
 
       const approvedRows = data ?? [];
-      const uniqueBuyers = new Set(
-        approvedRows.map((row) => row.user_id).filter(Boolean),
-      );
       const gross = approvedRows.reduce(
         (sum, row) => sum + Number(row.amount || 0),
         0,
       );
 
       if (!cancelled) {
-        setOwnerSalesCount(uniqueBuyers.size);
+        setOwnerSalesCount(approvedRows.length);
         setOwnerSalesGross(gross);
       }
     };
@@ -643,16 +642,28 @@ export default function PostModal({
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setConfirmDelete(true);
-                }}
-                className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
-              >
-                Eliminar publicacion
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onEdit?.(post);
+                    setMenuOpen(false);
+                  }}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+                >
+                  Editar publicacion
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setConfirmDelete(true);
+                  }}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+                >
+                  Eliminar publicacion
+                </button>
+              </>
             )}
             <button
               type="button"

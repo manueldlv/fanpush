@@ -18,6 +18,13 @@ type FeedData = {
   purchasedPostIds: string[];
 };
 
+type AuthorPromotionRow = {
+  user_id: string | null;
+  is_active: boolean | null;
+  promote_in_feed: boolean | null;
+  feed_rank: number | null;
+};
+
 const FEED_ALBUM_LIMIT = 30;
 const MEDIA_ACCESS_BATCH_SIZE = 50;
 
@@ -123,18 +130,56 @@ export const feedApi = createApi({
                 .select("following_id")
                 .eq("follower_id", currentUserId)
             : { data: [] };
+          const { data: promotionRows } = await supabase
+            .from("author_promotions")
+            .select("user_id,is_active,promote_in_feed,feed_rank")
+            .eq("is_active", true)
+            .eq("promote_in_feed", true);
 
-          const { data, error } = await supabase
-            .from("albums")
-            .select(
-              "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
-            )
-            .eq("visibility", "published")
-            .order("created_at", { ascending: false })
-            .limit(FEED_ALBUM_LIMIT);
-          if (error) throw error;
+          const prioritizedAuthorIds = Array.from(
+            new Set(
+              ((promotionRows ?? []) as AuthorPromotionRow[])
+                .filter((row) => row.user_id && row.promote_in_feed && row.is_active !== false)
+                .map((row) => row.user_id as string),
+            ),
+          );
 
-          const allMediaPostIds = (data ?? [])
+          const [
+            { data: recentAlbums, error: recentAlbumsError },
+            { data: promotedAlbums, error: promotedAlbumsError },
+          ] = await Promise.all([
+            supabase
+              .from("albums")
+              .select(
+                "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
+              )
+              .eq("visibility", "published")
+              .order("created_at", { ascending: false })
+              .limit(FEED_ALBUM_LIMIT),
+            prioritizedAuthorIds.length
+              ? supabase
+                  .from("albums")
+                  .select(
+                    "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
+                  )
+                  .eq("visibility", "published")
+                  .in("user_id", prioritizedAuthorIds)
+                  .order("created_at", { ascending: false })
+                  .limit(FEED_ALBUM_LIMIT)
+              : Promise.resolve({ data: [], error: null }),
+          ]);
+          if (recentAlbumsError) throw recentAlbumsError;
+          if (promotedAlbumsError) throw promotedAlbumsError;
+          const data = Array.from(
+            new Map(
+              [...(promotedAlbums ?? []), ...(recentAlbums ?? [])].map((album) => [
+                album.id,
+                album,
+              ]),
+            ).values(),
+          );
+
+          const allMediaPostIds = data
             .flatMap((album) =>
               (
                 (album.album_posts ?? []) as unknown as Array<{
@@ -152,9 +197,14 @@ export const feedApi = createApi({
             : { data: [] };
 
           const likesByPostId = buildLikesCountMap(allLikesRows);
+          const feedPromotionMap = new Map<string, number>();
+          for (const row of (promotionRows ?? []) as AuthorPromotionRow[]) {
+            if (!row.user_id || !row.promote_in_feed || row.is_active === false) continue;
+            feedPromotionMap.set(row.user_id, Number(row.feed_rank ?? 9999));
+          }
 
           const mapped: Post[] =
-            (data ?? []).map((post) => {
+            data.map((post) => {
               const albumPosts = (post.album_posts ?? []) as unknown as Array<{
                 post: {
                   id: string | null;
@@ -206,7 +256,9 @@ export const feedApi = createApi({
                 author: albumUser?.username ?? "usuario",
                 verified: false,
                 time: "Ahora",
-                suggestion: "Sugerencia para ti",
+                suggestion: feedPromotionMap.has(post.user_id)
+                  ? "Autor destacado"
+                  : "Sugerencia para ti",
                 caption: post.description ?? "",
                 likes: mediaPostIds.reduce(
                   (sum, postId) => sum + (likesByPostId.get(postId) ?? 0),
@@ -217,7 +269,19 @@ export const feedApi = createApi({
                 tipEnabled: postMeta?.tipsEnabled ?? false,
                 media: mediaWithUrls,
               } satisfies Post;
-            }) ?? [];
+            })
+              .sort((a, b) => {
+                const aRank = feedPromotionMap.get(a.userId) ?? Number.MAX_SAFE_INTEGER;
+                const bRank = feedPromotionMap.get(b.userId) ?? Number.MAX_SAFE_INTEGER;
+                if (aRank !== bRank) return aRank - bRank;
+
+                const aSource = data.find((item) => item.id === a.id);
+                const bSource = data.find((item) => item.id === b.id);
+                return (
+                  new Date(bSource?.created_at ?? 0).getTime() -
+                  new Date(aSource?.created_at ?? 0).getTime()
+                );
+              }) ?? [];
 
           const allPostIds = mapped
             .flatMap((post) => post.mediaPostIds)

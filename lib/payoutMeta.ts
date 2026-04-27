@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { coercePayoutProfile } from "@/lib/payouts";
+import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 
 export const PAYOUT_META_KEYS = {
   defaultAccount: "accounts.default",
@@ -75,5 +76,13 @@ export const getDefaultPayoutProfile = async (
   userId: string,
 ) => {
   const result = await getPayoutMetaEntries(client, userId, [PAYOUT_META_KEYS.defaultAccount]);
-  return coercePayoutProfile(result.entries.get(PAYOUT_META_KEYS.defaultAccount));
+  const payoutProfile = coercePayoutProfile(
+    result.entries.get(PAYOUT_META_KEYS.defaultAccount),
+  );
+  if (payoutProfile) return payoutProfile;
+
+  const userMetaResult = await getUserMetaEntries(client, userId, [
+    USER_META_KEYS.payoutProfile,
+  ]);
+  return coercePayoutProfile(userMetaResult.entries.get(USER_META_KEYS.payoutProfile));
 };

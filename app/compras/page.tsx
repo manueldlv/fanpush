@@ -372,8 +372,8 @@ export default function ComprasPage() {
                       onClick={() => setActiveTab("purchases")}
                       className={`rounded-[12px] px-4 py-2.5 text-sm font-semibold transition ${
                         activeTab === "purchases"
-                          ? "bg-zinc-900 text-white"
-                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                          ? "bg-zinc-100 text-zinc-950"
+                          : "bg-white text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                       }`}
                     >
                       Compras
@@ -383,8 +383,8 @@ export default function ComprasPage() {
                       onClick={() => setActiveTab("tips")}
                       className={`rounded-[12px] px-4 py-2.5 text-sm font-semibold transition ${
                         activeTab === "tips"
-                          ? "bg-zinc-900 text-white"
-                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                          ? "bg-zinc-100 text-zinc-950"
+                          : "bg-white text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                       }`}
                     >
                       Propinas enviadas

@@ -1,0 +1,18 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="creatorWing" x1="8" y1="38" x2="120" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C4D7FF"/>
+      <stop offset="0.45" stop-color="#6EA8FF"/>
+      <stop offset="1" stop-color="#273CFF"/>
+    </linearGradient>
+    <linearGradient id="creatorCore" x1="38" y1="24" x2="90" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F9FF"/>
+      <stop offset="1" stop-color="#7DA8FF"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 70L38 50L48 60L30 86L18 70Z" fill="url(#creatorWing)"/>
+  <path d="M110 70L90 50L80 60L98 86L110 70Z" fill="url(#creatorWing)"/>
+  <path d="M64 12L98 32V76L64 110L30 76V32L64 12Z" fill="url(#creatorWing)"/>
+  <path d="M64 20L91 36V72L64 100L37 72V36L64 20Z" fill="#1E293B" fill-opacity="0.8"/>
+  <path d="M64 36L78 45L74 64L64 74L54 64L50 45L64 36Z" fill="url(#creatorCore)"/>
+</svg>

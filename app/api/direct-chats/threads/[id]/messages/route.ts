@@ -161,7 +161,7 @@ export async function POST(
             ownerUserId: user.id,
             description: title,
             price,
-            visibility: "private",
+            visibility: "draft",
             items: normalizedAttachments.map((attachment) => ({
               file: attachment.file as File,
               previewFile: (attachment.previewFile as File | undefined) ?? null,

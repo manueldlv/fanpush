@@ -22,6 +22,11 @@ import {
   type ContentAudience,
   type ModerationCategory,
 } from "@/lib/contentClassification";
+import {
+  getReferralBenefitForLevel,
+  getReferralProgress,
+  getReferralTierForLevel,
+} from "@/lib/referrals";
 import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
 import { cn, formatARS } from "@/lib/utils";
 
@@ -173,6 +178,17 @@ type AdminDashboardData = {
         referredAt: string | null;
       }>;
       referralTierLabel: string;
+      promotion: {
+        isActive: boolean;
+        promoteInFeed: boolean;
+        feedRank: number;
+        promoteInSuggestions: boolean;
+        suggestionsRank: number;
+        promoteInExplore: boolean;
+        exploreRank: number;
+        note: string;
+        updatedAt: string | null;
+      };
       referralCreatorSharePercent: number;
       referralPlatformSharePercent: number;
       commissionPercent: number;
@@ -271,8 +287,15 @@ export default function AdminPage() {
     "all",
   );
   const [authorsView, setAuthorsView] = useState<
-    "pending" | "history" | "archived"
+    "pending" | "history" | "archived" | "promotion"
   >("pending");
+  const [promotionSearch, setPromotionSearch] = useState("");
+  const [promotionSort, setPromotionSort] = useState<
+    "sales" | "followers" | "posts" | "recent"
+  >("sales");
+  const [updatingPromotionUserId, setUpdatingPromotionUserId] = useState<
+    string | null
+  >(null);
   const [reportsView, setReportsView] = useState<
     "pending" | "history" | "archived"
   >("pending");
@@ -321,6 +344,10 @@ export default function AdminPage() {
     archivingId: null,
     restoringId: null,
   });
+  const [selectedReportReason, setSelectedReportReason] = useState<{
+    title: string;
+    reason: string;
+  } | null>(null);
   const [authorRejectState, setAuthorRejectState] = useState<{
     target: {
       id: string;
@@ -611,6 +638,36 @@ export default function AdminPage() {
     }
     return users;
   }, [data, usersView]);
+  const normalizedPromotionSearch = promotionSearch.trim().toLowerCase();
+  const curatedAuthors = useMemo(() => {
+    const authors = (data?.commerce.users ?? []).filter(
+      (item) => item.role === "author",
+    );
+
+    const filtered = authors.filter((item) => {
+      if (!normalizedPromotionSearch) return true;
+      return `${item.username} ${item.fullName} ${item.email}`
+        .toLowerCase()
+        .includes(normalizedPromotionSearch);
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (promotionSort === "followers") {
+        return b.followersCount - a.followersCount;
+      }
+      if (promotionSort === "posts") {
+        return b.posts.length - a.posts.length;
+      }
+      if (promotionSort === "recent") {
+        return (
+          new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
+        );
+      }
+      return b.salesGross - a.salesGross;
+    });
+
+    return sorted;
+  }, [data, normalizedPromotionSearch, promotionSort]);
 
   const handleDeleteContent = async (albumId: string, reason: string) => {
     try {
@@ -654,6 +711,128 @@ export default function AdminPage() {
       );
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleUpdateAuthorPromotion = async (
+    userId: string,
+    patch: Partial<AdminDashboardData["commerce"]["users"][number]["promotion"]>,
+  ) => {
+    const previousPromotion =
+      data?.commerce.users.find((item) => item.id === userId)?.promotion;
+    try {
+      setUpdatingPromotionUserId(userId);
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const currentPromotion =
+        data?.commerce.users.find((item) => item.id === userId)?.promotion;
+      if (!currentPromotion) {
+        throw new Error("No encontramos la configuración del autor.");
+      }
+
+      const nextPromotion = {
+        ...currentPromotion,
+        ...patch,
+      };
+      nextPromotion.isActive =
+        nextPromotion.promoteInFeed ||
+        nextPromotion.promoteInSuggestions ||
+        nextPromotion.promoteInExplore;
+
+      const optimisticPromotion = nextPromotion;
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              commerce: {
+                ...prev.commerce,
+                users: prev.commerce.users.map((item) =>
+                  item.id === userId
+                    ? {
+                        ...item,
+                        promotion: optimisticPromotion,
+                      }
+                    : item,
+                ),
+              },
+            }
+          : prev,
+      );
+
+      const response = await fetch(`/api/admin/users/${userId}/promotion`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          isActive: nextPromotion.isActive,
+          promoteInFeed: nextPromotion.promoteInFeed,
+          feedRank: nextPromotion.feedRank,
+          promoteInSuggestions: nextPromotion.promoteInSuggestions,
+          suggestionsRank: nextPromotion.suggestionsRank,
+          promoteInExplore: nextPromotion.promoteInExplore,
+          exploreRank: nextPromotion.exploreRank,
+          note: nextPromotion.note,
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        promotion?: AdminDashboardData["commerce"]["users"][number]["promotion"];
+      };
+      if (!response.ok || !result.promotion) {
+        throw new Error(result.error ?? "No se pudo guardar la promoción.");
+      }
+
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              commerce: {
+                ...prev.commerce,
+                users: prev.commerce.users.map((item) =>
+                  item.id === userId
+                    ? {
+                        ...item,
+                        promotion: result.promotion!,
+                      }
+                    : item,
+                ),
+              },
+            }
+          : prev,
+      );
+    } catch (err) {
+      if (previousPromotion) {
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                commerce: {
+                  ...prev.commerce,
+                  users: prev.commerce.users.map((item) =>
+                    item.id === userId
+                      ? {
+                          ...item,
+                          promotion: previousPromotion,
+                        }
+                      : item,
+                  ),
+                },
+              }
+            : prev,
+        );
+      }
+      setError(
+        err instanceof Error ? err.message : "No se pudo guardar la promoción.",
+      );
+    } finally {
+      setUpdatingPromotionUserId(null);
     }
   };
 
@@ -1824,6 +2003,18 @@ export default function AdminPage() {
                 >
                   Archivadas
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthorsView("promotion")}
+                  className={cn(
+                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
+                    authorsView === "promotion"
+                      ? "bg-zinc-950 text-white"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
+                  )}
+                >
+                  Curación manual
+                </button>
               </div>
             </div>
 
@@ -2215,6 +2406,204 @@ export default function AdminPage() {
                 </div>
               </div>
             ) : null}
+
+            {authorsView === "promotion" ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="text-lg font-semibold text-zinc-950">
+                      Curación manual de autores
+                    </div>
+                    <div className="mt-1 max-w-[760px] text-sm text-zinc-500">
+                      Define qué autores quieres empujar manualmente en feed, sugerencias y explorar. Sirve para destacar cuentas clave, ordenar exposición y dar publicidad interna sin depender de follows.
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                      <input
+                        value={promotionSearch}
+                        onChange={(event) => setPromotionSearch(event.target.value)}
+                        placeholder="Buscar autor"
+                        className="h-11 rounded-[14px] border border-zinc-200 bg-white pl-10 pr-4 text-sm text-zinc-900 outline-none"
+                      />
+                    </div>
+                    <select
+                      value={promotionSort}
+                      onChange={(event) =>
+                        setPromotionSort(
+                          event.target.value as typeof promotionSort,
+                        )
+                      }
+                      className="h-11 rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none"
+                    >
+                      <option value="sales">Ordenar por ventas</option>
+                      <option value="followers">Ordenar por seguidores</option>
+                      <option value="posts">Ordenar por posts</option>
+                      <option value="recent">Ordenar por alta reciente</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-5 overflow-auto rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Autor</th>
+                        <th className="px-4 py-3 font-medium">Ventas</th>
+                        <th className="px-4 py-3 font-medium">Seguidores</th>
+                        <th className="px-4 py-3 font-medium">Feed</th>
+                        <th className="px-4 py-3 font-medium">Sugerencias</th>
+                        <th className="px-4 py-3 font-medium">Explorar</th>
+                        <th className="px-4 py-3 font-medium">Nota interna</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {curatedAuthors.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="px-4 py-6 text-center text-zinc-500"
+                          >
+                            No encontramos autores con ese filtro.
+                          </td>
+                        </tr>
+                      ) : (
+                        curatedAuthors.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex items-center gap-3">
+                                <UserAvatar src={item.avatar} alt={item.username} />
+                                <div>
+                                  <div className="font-medium text-zinc-900">
+                                    @{item.username}
+                                  </div>
+                                  <div className="text-xs text-zinc-500">
+                                    {item.fullName || item.email}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-900">
+                              <div className="font-medium">
+                                {formatARS(item.salesGross)}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {item.posts.length} posts
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-900">
+                              <div className="font-medium">{item.followersCount}</div>
+                              <div className="text-xs text-zinc-500">
+                                {item.followingCount} seguidos
+                              </div>
+                            </td>
+                            {(
+                              [
+                                ["promoteInFeed", "feedRank"],
+                                ["promoteInSuggestions", "suggestionsRank"],
+                                ["promoteInExplore", "exploreRank"],
+                              ] as const
+                            ).map(([flagKey, rankKey]) => (
+                              <td key={`${item.id}-${flagKey}`} className="px-4 py-3 align-top">
+                                <label className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.promotion[flagKey]}
+                                    disabled={updatingPromotionUserId === item.id}
+                                    onChange={(event) =>
+                                      void handleUpdateAuthorPromotion(item.id, {
+                                        [flagKey]: event.target.checked,
+                                      } as Partial<typeof item.promotion>)
+                                    }
+                                  />
+                                  <span className="text-xs font-medium text-zinc-700">
+                                    Activar
+                                  </span>
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={9999}
+                                  value={item.promotion[rankKey]}
+                                  disabled={updatingPromotionUserId === item.id}
+                                  onChange={(event) =>
+                                    setData((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            commerce: {
+                                              ...prev.commerce,
+                                              users: prev.commerce.users.map((user) =>
+                                                user.id === item.id
+                                                  ? {
+                                                      ...user,
+                                                      promotion: {
+                                                        ...user.promotion,
+                                                        [rankKey]: Number(event.target.value || 0),
+                                                      },
+                                                    }
+                                                  : user,
+                                              ),
+                                            },
+                                          }
+                                        : prev,
+                                    )
+                                  }
+                                  onBlur={(event) =>
+                                    void handleUpdateAuthorPromotion(item.id, {
+                                      [rankKey]: Number(event.target.value || 0),
+                                    } as Partial<typeof item.promotion>)
+                                  }
+                                  className="mt-2 h-10 w-[92px] rounded-[12px] border border-zinc-200 px-3 text-sm text-zinc-900 outline-none"
+                                />
+                              </td>
+                            ))}
+                            <td className="px-4 py-3 align-top">
+                              <textarea
+                                value={item.promotion.note}
+                                disabled={updatingPromotionUserId === item.id}
+                                onChange={(event) =>
+                                  setData((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          commerce: {
+                                            ...prev.commerce,
+                                            users: prev.commerce.users.map((user) =>
+                                              user.id === item.id
+                                                ? {
+                                                    ...user,
+                                                    promotion: {
+                                                      ...user.promotion,
+                                                      note: event.target.value,
+                                                    },
+                                                  }
+                                                : user,
+                                            ),
+                                          },
+                                        }
+                                      : prev,
+                                  )
+                                }
+                                onBlur={(event) =>
+                                  void handleUpdateAuthorPromotion(item.id, {
+                                    note: event.target.value,
+                                  })
+                                }
+                                rows={3}
+                                className="min-h-[86px] w-[240px] rounded-[12px] border border-zinc-200 px-3 py-2 text-sm text-zinc-900 outline-none"
+                                placeholder="Motivo interno, campaña, prioridad, etc."
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -2322,7 +2711,9 @@ export default function AdminPage() {
                                       : "Contenido eliminado"}
                               </td>
                               <td className="px-4 py-3 text-zinc-700">
-                                {item.reason}
+                                <div className="max-w-[280px] truncate">
+                                  {item.reason}
+                                </div>
                               </td>
                               <td className="px-4 py-3 text-zinc-500">
                                 {new Date(item.createdAt).toLocaleString(
@@ -2349,6 +2740,18 @@ export default function AdminPage() {
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedReportReason({
+                                        title: `Denuncia de @${item.reportedBy}`,
+                                        reason: item.reason || "Sin motivo",
+                                      })
+                                    }
+                                    className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
+                                  >
+                                    Ver detalle
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -2455,21 +2858,37 @@ export default function AdminPage() {
                                     : "Contenido eliminado"}
                               </td>
                               <td className="px-4 py-3 text-zinc-700">
-                                {item.reason}
+                                <div className="max-w-[280px] truncate">
+                                  {item.reason}
+                                </div>
                               </td>
                               <td className="px-4 py-3">
-                                <button
-                                  type="button"
-                                  onClick={() => handleArchiveReport(item.id)}
-                                  disabled={
-                                    reportActionState.archivingId === item.id
-                                  }
-                                  className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                >
-                                  {reportActionState.archivingId === item.id
-                                    ? "Archivando..."
-                                    : "Archivar"}
-                                </button>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedReportReason({
+                                        title: `Reporte resuelto de @${item.reportedBy}`,
+                                        reason: item.reason || "Sin motivo",
+                                      })
+                                    }
+                                    className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
+                                  >
+                                    Ver detalle
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleArchiveReport(item.id)}
+                                    disabled={
+                                      reportActionState.archivingId === item.id
+                                    }
+                                    className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                                  >
+                                    {reportActionState.archivingId === item.id
+                                      ? "Archivando..."
+                                      : "Archivar"}
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -2514,7 +2933,21 @@ export default function AdminPage() {
                                     : "Contenido eliminado"}
                               </td>
                               <td className="px-4 py-3 text-zinc-700">
-                                {item.reason}
+                                <div className="max-w-[320px] truncate">
+                                  {item.reason}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedReportReason({
+                                      title: `Acción de moderación · @${item.actor}`,
+                                      reason: item.reason || "Sin motivo",
+                                    })
+                                  }
+                                  className="mt-2 text-xs font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-4"
+                                >
+                                  Ver detalle
+                                </button>
                               </td>
                               <td className="px-4 py-3 text-zinc-700">
                                 @{item.actor}
@@ -2579,21 +3012,37 @@ export default function AdminPage() {
                                   : "Contenido eliminado"}
                             </td>
                             <td className="px-4 py-3 text-zinc-700">
-                              {item.reason}
+                              <div className="max-w-[280px] truncate">
+                                {item.reason}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => handleRestoreReport(item.id)}
-                                disabled={
-                                  reportActionState.restoringId === item.id
-                                }
-                                className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                              >
-                                {reportActionState.restoringId === item.id
-                                  ? "Restaurando..."
-                                  : "Restaurar"}
-                              </button>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedReportReason({
+                                      title: `Reporte archivado de @${item.reportedBy}`,
+                                      reason: item.reason || "Sin motivo",
+                                    })
+                                  }
+                                  className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
+                                >
+                                  Ver detalle
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreReport(item.id)}
+                                  disabled={
+                                    reportActionState.restoringId === item.id
+                                  }
+                                  className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                                >
+                                  {reportActionState.restoringId === item.id
+                                    ? "Restaurando..."
+                                    : "Restaurar"}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -2668,40 +3117,60 @@ export default function AdminPage() {
 
         {!loading && data && tab === "content" ? (
           <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-                <div>
+            <div className="rounded-[24px] border border-zinc-200 bg-white px-5 py-4 shadow-sm">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+                <div className="min-w-0">
                   <div className="text-lg font-semibold text-zinc-950">
                     Moderación de contenido
                   </div>
-                  <div className="mt-1 text-sm text-zinc-500">
-                    Cola operativa para revisar publicaciones nuevas, priorizar
-                    las reportadas y limpiar rápido lo que ya no necesita tu
-                    atención.
-                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <StatCard label="Activos" value={data.content.length} />
-                  <StatCard
-                    label="Reportados"
-                    value={reportedContent.length}
-                    tone="blue"
-                  />
-                  <StatCard
-                    label="En cola"
-                    value={visibleContentQueue.length}
-                  />
-                  <StatCard
-                    label="Eliminados"
-                    value={data.commerce.archivedContent.length}
-                    tone="emerald"
-                  />
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    {
+                      label: "Activos",
+                      value: data.content.length,
+                      tone: "default" as const,
+                    },
+                    {
+                      label: "Reportados",
+                      value: reportedContent.length,
+                      tone: "blue" as const,
+                    },
+                    {
+                      label: "En cola",
+                      value: visibleContentQueue.length,
+                      tone: "default" as const,
+                    },
+                    {
+                      label: "Eliminados",
+                      value: data.commerce.archivedContent.length,
+                      tone: "emerald" as const,
+                    },
+                  ].map((item) => (
+                    <div
+                      key={`content-metric-${item.label}`}
+                      className={cn(
+                        "min-w-[132px] rounded-[14px] border px-4 py-3",
+                        item.tone === "default" && "border-zinc-200 bg-white",
+                        item.tone === "blue" && "border-blue-200 bg-blue-50",
+                        item.tone === "emerald" &&
+                          "border-emerald-200 bg-emerald-50",
+                      )}
+                    >
+                      <div className="text-sm font-medium text-zinc-500">
+                        {item.label}
+                      </div>
+                      <div className="mt-1.5 text-[0.95rem] font-semibold text-zinc-950 md:text-[1.05rem]">
+                        {item.value}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
 
             <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm md:p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="grid gap-3 xl:grid-cols-[auto_minmax(0,1fr)] xl:items-start">
                 <div className="flex flex-wrap gap-2">
                   {[
                     {
@@ -2738,7 +3207,7 @@ export default function AdminPage() {
                         )
                       }
                       className={cn(
-                        "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                        "inline-flex items-center rounded-full border px-4 py-2 text-sm font-semibold transition",
                         contentView === section.id
                           ? "border-zinc-950 bg-zinc-950 text-white"
                           : "border-zinc-200 bg-white text-zinc-600",
@@ -2760,8 +3229,8 @@ export default function AdminPage() {
                 </div>
 
                 {contentView !== "archived" ? (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                    <label className="relative block min-w-[250px]">
+                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                    <label className="relative block min-w-0">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                       <input
                         value={contentSearch}
@@ -2772,7 +3241,7 @@ export default function AdminPage() {
                         className="w-full rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
                       />
                     </label>
-                    <label className="relative block min-w-[210px]">
+                    <label className="relative block min-w-0">
                       <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                       <select
                         value={contentFilter}
@@ -2795,7 +3264,7 @@ export default function AdminPage() {
                         <option value="video">Solo videos</option>
                       </select>
                     </label>
-                    <label className="relative block min-w-[210px]">
+                    <label className="relative block min-w-0">
                       <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                       <select
                         value={contentAudienceFilter}
@@ -2814,7 +3283,7 @@ export default function AdminPage() {
                         ))}
                       </select>
                     </label>
-                    <label className="relative block min-w-[230px]">
+                    <label className="relative block min-w-0">
                       <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                       <select
                         value={contentCategoryFilter}
@@ -3514,14 +3983,11 @@ export default function AdminPage() {
                             }
                             className="mt-2 w-full rounded-[14px] border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 outline-none"
                           >
-                            {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(
-                              (value) => (
-                                <option key={value} value={value}>
-                                  {value}% para el creador / {100 - value}%
-                                  FanPush
-                                </option>
-                              ),
-                            )}
+                            {Array.from({ length: 31 }, (_, index) => 70 + index).map((value) => (
+                              <option key={value} value={value}>
+                                {value}% para el creador / {100 - value}% FanPush
+                              </option>
+                            ))}
                           </select>
                           <button
                             type="button"
@@ -3913,6 +4379,37 @@ export default function AdminPage() {
 
               {selectedUserView === "referrals" ? (
                 <div className="space-y-6">
+                  {(() => {
+                    const progress = getReferralProgress(selectedUser.referralsCount);
+                    const currentTier = getReferralTierForLevel(progress.level);
+                    const nextTier = progress.nextLevel
+                      ? getReferralTierForLevel(progress.nextLevel)
+                      : currentTier;
+                    const nextBenefit = progress.nextLevel
+                      ? getReferralBenefitForLevel(progress.nextLevel)
+                      : getReferralBenefitForLevel(progress.level);
+                    const requiredForCurrentLevel = progress.nextLevelTarget
+                      ? progress.nextLevelTarget - progress.currentLevelMin
+                      : progress.referralsIntoLevel;
+                    const maxVisibleBars = 24;
+                    const usesCompressedProgress =
+                      requiredForCurrentLevel + 1 > maxVisibleBars;
+                    const displayedBars = usesCompressedProgress
+                      ? maxVisibleBars
+                      : Math.max(requiredForCurrentLevel + 1, 1);
+                    const progressRatio =
+                      requiredForCurrentLevel > 0
+                        ? Math.min(progress.referralsIntoLevel / requiredForCurrentLevel, 1)
+                        : 1;
+                    const filledBars = progress.nextLevel
+                      ? Math.min(
+                          Math.max(1, Math.round(progressRatio * (displayedBars - 1)) + 1),
+                          displayedBars,
+                        )
+                      : displayedBars;
+
+                    return (
+                      <>
                   <div className="grid gap-4 md:grid-cols-3">
                     <StatCard
                       label="Referidos efectivos"
@@ -3921,12 +4418,70 @@ export default function AdminPage() {
                     />
                     <StatCard
                       label="Nivel actual"
-                      value={selectedUser.referralTierLabel}
+                      value={`Nivel ${progress.level}`}
                     />
                     <StatCard
                       label="Split actual"
-                      value={`${selectedUser.referralCreatorSharePercent}% / ${selectedUser.referralPlatformSharePercent}%`}
+                      value={`${Math.round(currentTier.creatorShareRate * 100)}% / ${Math.round(currentTier.platformShareRate * 100)}%`}
                     />
+                  </div>
+
+                  <div className="rounded-[24px] border border-zinc-200 bg-zinc-50 p-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                      <div>
+                        <div className="text-lg font-semibold text-zinc-950">
+                          Progreso hacia {progress.nextLevel ? `Nivel ${progress.nextLevel}` : "Nivel máximo"}
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          {usesCompressedProgress
+                            ? "Las barras muestran el avance proporcional dentro del tramo actual."
+                            : "Cada barra representa una persona referida dentro del tramo actual."}
+                        </div>
+                      </div>
+                      <div className="text-sm font-semibold text-zinc-600">
+                        {progress.referralsIntoLevel}/{requiredForCurrentLevel}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {Array.from({ length: displayedBars }, (_, index) => (
+                        <div
+                          key={`admin-referral-bar-${index}`}
+                          className={cn(
+                            "h-9 w-3 rounded-full transition",
+                            index < filledBars
+                              ? "bg-[#ff6a13] shadow-[0_8px_18px_rgba(255,106,19,0.22)]"
+                              : "bg-zinc-200",
+                          )}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
+                      <span className="rounded-full bg-white px-3 py-1 font-medium text-zinc-700">
+                        Desde {progress.currentLevelMin} referidos
+                      </span>
+                      <span className="rounded-full bg-white px-3 py-1 font-medium text-zinc-700">
+                        Próximo salto en {progress.nextLevelTarget ?? progress.currentLevelMin}
+                      </span>
+                    </div>
+
+                    <div className="mt-5 rounded-[18px] border border-zinc-200 bg-white px-4 py-4">
+                      {progress.nextLevel ? (
+                        <p className="text-base font-semibold text-zinc-900">
+                          Le faltan {progress.referralsNeededForNextLevel} referidos para llegar a Nivel {progress.nextLevel}.
+                        </p>
+                      ) : (
+                        <p className="text-base font-semibold text-zinc-900">
+                          Ya llegó al nivel máximo del programa.
+                        </p>
+                      )}
+                      <p className="mt-1 text-sm text-zinc-500">
+                        {nextBenefit.unlocksCommissionUpgrade
+                          ? `En el siguiente nivel su comisión cambia a ${Math.round(nextTier.creatorShareRate * 100)}% para el autor y ${Math.round(nextTier.platformShareRate * 100)}% para FanPush.`
+                          : `El siguiente nivel no cambia la comisión todavía; acerca al próximo salto real en Nivel ${nextBenefit.nextCommissionLevel}.`}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="rounded-[24px] border border-zinc-200 p-5">
@@ -3981,6 +4536,9 @@ export default function AdminPage() {
                       )}
                     </div>
                   </div>
+                      </>
+                    );
+                  })()}
                 </div>
               ) : null}
             </div>
@@ -4413,6 +4971,45 @@ export default function AdminPage() {
                   ? "Enviando rechazo..."
                   : "Rechazar solicitud"}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedReportReason ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4">
+          <button
+            type="button"
+            aria-label="Cerrar detalle del reporte"
+            onClick={() => setSelectedReportReason(null)}
+            className="absolute inset-0"
+          />
+          <div className="relative w-full max-w-[680px] rounded-[28px] border border-zinc-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                  Reporte
+                </div>
+                <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">
+                  {selectedReportReason.title}
+                </h3>
+                <p className="mt-2 text-sm text-zinc-500">
+                  Texto completo enviado por el usuario o registrado en moderación.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedReportReason(null)}
+                className="rounded-[12px] border border-zinc-200 p-2 text-zinc-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-[18px] border border-zinc-200 bg-zinc-50 p-5">
+              <div className="whitespace-pre-wrap break-words text-sm leading-7 text-zinc-800">
+                {selectedReportReason.reason}
+              </div>
             </div>
           </div>
         </div>

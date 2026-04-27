@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthorPromotionsSchemaMissingError } from "@/lib/authorPromotions";
 import { resolveTipAmountMap } from "@/lib/earnings";
 import { PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
@@ -76,6 +77,7 @@ export async function GET(request: Request) {
       allAlbumsResult,
       commissionRowsResult,
       userReferralsRowsResult,
+      authorPromotionsRowsResult,
     ] = await Promise.all([
       admin.from("users").select("id", { count: "exact", head: true }),
       admin.from("albums").select("id", { count: "exact", head: true }),
@@ -185,6 +187,12 @@ export async function GET(request: Request) {
         .select("referrer_user_id,referred_user_id,created_at")
         .order("created_at", { ascending: false })
         .limit(DASHBOARD_RELATION_LIMIT),
+      admin
+        .from("author_promotions")
+        .select(
+          "user_id,is_active,promote_in_feed,feed_rank,promote_in_suggestions,suggestions_rank,promote_in_explore,explore_rank,note,updated_at",
+        )
+        .limit(DASHBOARD_USER_LIMIT),
     ]);
 
     const purchasePostIds = Array.from(
@@ -249,6 +257,27 @@ export async function GET(request: Request) {
         commissionMap.set(row.user_id, profile);
       }
     }
+    const authorPromotionRows = isAuthorPromotionsSchemaMissingError(
+      authorPromotionsRowsResult.error,
+    )
+      ? []
+      : (authorPromotionsRowsResult.data ?? []);
+    const authorPromotionMap = new Map(
+      authorPromotionRows.map((row) => [
+        row.user_id,
+        {
+          isActive: row.is_active ?? true,
+          promoteInFeed: row.promote_in_feed ?? false,
+          feedRank: Number(row.feed_rank ?? 9999),
+          promoteInSuggestions: row.promote_in_suggestions ?? false,
+          suggestionsRank: Number(row.suggestions_rank ?? 9999),
+          promoteInExplore: row.promote_in_explore ?? false,
+          exploreRank: Number(row.explore_rank ?? 9999),
+          note: typeof row.note === "string" ? row.note : "",
+          updatedAt: row.updated_at ?? null,
+        },
+      ]),
+    );
 
     const follows = followsRowsResult.data ?? [];
     const allAlbums = allAlbumsResult.data ?? [];
@@ -455,6 +484,17 @@ export async function GET(request: Request) {
         const referralEntries = referralsByUser.get(row.id) ?? [];
         const referralCount = referralEntries.length;
         const referralTier = getReferralTier(referralCount);
+        const promotion = authorPromotionMap.get(row.id) ?? {
+          isActive: false,
+          promoteInFeed: false,
+          feedRank: 9999,
+          promoteInSuggestions: false,
+          suggestionsRank: 9999,
+          promoteInExplore: false,
+          exploreRank: 9999,
+          note: "",
+          updatedAt: null,
+        };
         const referralCreatorSharePercent = Math.round(creatorShare * 100);
         const referralPlatformSharePercent = commissionProfile
           ? Math.round((commissionProfile.platformShare ?? 0.3) * 100)
@@ -494,6 +534,7 @@ export async function GET(request: Request) {
           referralsCount: referralCount,
           referrals,
           referralTierLabel: referralTier.label,
+          promotion,
           referralCreatorSharePercent,
           referralPlatformSharePercent,
           commissionPercent: Math.round(creatorShare * 100),

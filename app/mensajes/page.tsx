@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Ban,
@@ -63,6 +63,7 @@ import {
   loadOlderStart,
   loadOlderSuccess,
   markThreadReadLocal,
+  removeLocalMessage,
   removeThread,
   setActiveThreadId,
   upsertThreadFromDetail,
@@ -255,12 +256,10 @@ function PremiumComposer({
   open,
   onClose,
   onSend,
-  mode,
   initialAttachments,
 }: {
   open: boolean;
   onClose: () => void;
-  mode: "photo" | "photo-paid" | "video-paid" | "pack-paid";
   initialAttachments: AttachmentPreview[];
   onSend: (payload: {
     price: number;
@@ -271,6 +270,13 @@ function PremiumComposer({
 }) {
   const [price, setPrice] = useState("5500");
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
+  const attachmentsRef = useRef<AttachmentPreview[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const maxAttachments = 10;
+  const effectiveMode = useMemo(() => {
+    if (attachments.length !== 1) return "pack-paid";
+    return attachments[0]?.kind === "video" ? "video-paid" : "photo-paid";
+  }, [attachments]);
   const mediaLabel = useMemo(() => {
     const photos = attachments.filter((attachment) => attachment.kind === "foto").length;
     const videos = attachments.filter((attachment) => attachment.kind === "video").length;
@@ -280,29 +286,48 @@ function PremiumComposer({
     return parts.join(", ") || "Sin archivos";
   }, [attachments]);
   const composerTitle =
-    mode === "photo-paid"
+    effectiveMode === "photo-paid"
       ? "Enviar foto paga"
-      : mode === "video-paid"
+      : effectiveMode === "video-paid"
         ? "Enviar video pago"
         : "Enviar pack pago";
   const composerHelp =
-    mode === "photo-paid"
+    effectiveMode === "photo-paid"
       ? "Configura el precio para enviar esta foto paga por el chat."
-      : mode === "video-paid"
+      : effectiveMode === "video-paid"
         ? "Configura el precio para enviar este video pago por el chat."
         : "Configura el precio para enviar este pack pago por el chat.";
 
   useEffect(() => {
-    return () => {
-      attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
-    };
+    attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    return () => {
+      attachmentsRef.current.forEach((attachment) =>
+        URL.revokeObjectURL(attachment.previewUrl),
+      );
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     setAttachments(initialAttachments.map((attachment) => ({ ...attachment })));
     setPrice(String(Math.max(5500, MIN_CONTENT_PRICE_ARS)));
   }, [initialAttachments, open]);
+
+  const resetComposer = () => {
+    attachmentsRef.current.forEach((attachment) =>
+      URL.revokeObjectURL(attachment.previewUrl),
+    );
+    setAttachments([]);
+    setPrice(String(Math.max(5500, MIN_CONTENT_PRICE_ARS)));
+  };
+
+  const handleClose = useCallback(() => {
+    resetComposer();
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -313,35 +338,102 @@ function PremiumComposer({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
-
-  const resetComposer = () => {
-    setAttachments([]);
-    setPrice(String(Math.max(5500, MIN_CONTENT_PRICE_ARS)));
-  };
-
-  const handleClose = () => {
-    resetComposer();
-    onClose();
-  };
+  }, [handleClose, open]);
 
   const canSend =
     attachments.length > 0 && Number(price || 0) >= MIN_CONTENT_PRICE_ARS;
   const hasInvalidPrice =
     price.trim().length > 0 && Number(price || 0) < MIN_CONTENT_PRICE_ARS;
+  const canChoosePreview = attachments.length > 1;
+  const previewSelectionMode =
+    attachments.length <= 1
+      ? "disabled"
+      : attachments.length === 2
+        ? "single-optional"
+        : "multiple";
+  const maxPreviewCount = Math.max(0, attachments.length - 1);
+  const previewCount = attachments.filter(
+    (attachment) => attachment.previewMode === "preview",
+  ).length;
 
   const toggleAttachmentPreviewMode = (attachmentId: string) => {
-    setAttachments((current) =>
-      current.map((attachment) =>
-        attachment.id === attachmentId
-          ? {
-              ...attachment,
-              previewMode:
-                attachment.previewMode === "locked" ? "preview" : "locked",
-            }
-          : attachment,
-      ),
-    );
+    if (!canChoosePreview) return;
+    setAttachments((current) => {
+      const currentPreviewSelectionMode =
+        current.length <= 1
+          ? "disabled"
+          : current.length === 2
+            ? "single-optional"
+            : "multiple";
+      const currentPreviewCount = current.filter(
+        (attachment) => attachment.previewMode === "preview",
+      ).length;
+      const currentMaxPreviewCount = Math.max(0, current.length - 1);
+
+      return current.map((attachment) => {
+        if (attachment.id !== attachmentId) {
+          if (
+            currentPreviewSelectionMode === "single-optional" &&
+            attachment.previewMode === "preview"
+          ) {
+            return { ...attachment, previewMode: "locked" as const };
+          }
+          return attachment;
+        }
+
+        const nextMode =
+          attachment.previewMode === "locked" ? "preview" : "locked";
+        if (
+          nextMode === "preview" &&
+          currentPreviewCount >= currentMaxPreviewCount
+        ) {
+          return attachment;
+        }
+
+        return {
+          ...attachment,
+          previewMode: nextMode,
+        };
+      });
+    });
+  };
+
+  const appendFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    setAttachments((current) => {
+      const remainingSlots = Math.max(0, maxAttachments - current.length);
+      const nextFiles = files
+        .filter(
+          (file) =>
+            file.type.startsWith("image/") || file.type.startsWith("video/"),
+        )
+        .slice(0, remainingSlots);
+
+      if (nextFiles.length === 0) return current;
+
+      const nextAttachments = nextFiles.map((file, index) => ({
+        id: `${file.name}-${file.size}-${Date.now()}-${current.length + index}`,
+        name: file.name,
+        kind: (file.type.startsWith("video/") ? "video" : "foto") as
+          | "video"
+          | "foto",
+        previewUrl: URL.createObjectURL(file),
+        previewMode: "locked" as const,
+        file,
+      }));
+
+      return [...current, ...nextAttachments];
+    });
+  };
+
+  const removeAttachment = (attachmentId: string) => {
+    setAttachments((current) => {
+      const target = current.find((attachment) => attachment.id === attachmentId);
+      if (target) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return current.filter((attachment) => attachment.id !== attachmentId);
+    });
   };
 
   if (!open) return null;
@@ -374,14 +466,43 @@ function PremiumComposer({
               Archivos seleccionados
             </div>
             <div className="mt-2 text-[13px] leading-[1.45] text-zinc-500 md:text-[14px]">
-              {mode === "photo-paid"
+              {effectiveMode === "photo-paid"
                 ? "Esta foto se enviará como contenido pago en el chat."
-                : mode === "video-paid"
+                : effectiveMode === "video-paid"
                   ? "Este video se enviará como contenido pago en el chat."
                   : "Este pack se enviará como contenido pago en el chat."}
             </div>
             <div className="mt-1 text-[12px] leading-[1.45] text-zinc-500 md:text-[13px]">
-              Por defecto todos salen bloqueados. Haz click en una miniatura si quieres dejarla como vista previa.
+              {previewSelectionMode === "disabled"
+                ? "Como es un único archivo pago, se enviará bloqueado obligatoriamente."
+                : previewSelectionMode === "single-optional"
+                  ? "Si subes 2 archivos, puedes dejar 1 sola vista previa o ninguna."
+                  : `Si subes 3 o más archivos, puedes dejar hasta ${maxPreviewCount} vistas previas y al menos 1 archivo debe quedar bloqueado.`}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  appendFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachments.length >= maxAttachments}
+                className="inline-flex items-center gap-2 rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Agregar archivos
+              </button>
+              <span className="text-[12px] text-zinc-500 md:text-[13px]">
+                {attachments.length}/{maxAttachments} archivos
+              </span>
             </div>
 
             {attachments.length > 0 ? (
@@ -417,13 +538,22 @@ function PremiumComposer({
                     <button
                       type="button"
                       onClick={() => toggleAttachmentPreviewMode(attachment.id)}
+                      disabled={!canChoosePreview}
                       className={`absolute inset-0 flex items-center justify-center text-center text-[12px] font-semibold text-white transition ${
                         attachment.previewMode === "locked"
                           ? "bg-black/40"
                           : "bg-black/15"
-                      }`}
+                      } ${!canChoosePreview ? "cursor-not-allowed" : ""}`}
                     >
                       {attachment.previewMode === "locked" ? "Bloqueado" : "Vista previa"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(attachment.id)}
+                      className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white transition hover:bg-black/80"
+                      aria-label={`Quitar ${attachment.name}`}
+                    >
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 ))}
@@ -502,6 +632,16 @@ function PremiumComposer({
               <span>Entrega</span>
               <span className="font-semibold text-zinc-950">Se envía por chat</span>
             </div>
+            <div className="mt-3 flex items-center justify-between gap-4 text-[14px] text-zinc-700 md:text-[15px]">
+              <span>Vista previa</span>
+              <span className="font-semibold text-zinc-950">
+                {previewSelectionMode === "disabled"
+                  ? "No disponible"
+                  : previewSelectionMode === "single-optional"
+                    ? `${previewCount} de 1 permitida`
+                    : `${previewCount} de ${maxPreviewCount} permitidas`}
+              </span>
+            </div>
           </div>
 
           <div className="mt-7 flex flex-col-reverse gap-3 md:flex-row md:justify-end">
@@ -573,13 +713,13 @@ function PremiumMessageCard({
     <div className="relative w-full max-w-[345px] rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
       {canDelete ? (
         <div
-          className="absolute right-3 top-3"
+          className="absolute right-2 top-2 z-20"
           data-message-menu-root="true"
         >
           <button
             type="button"
             onClick={onToggleMenu}
-            className="rounded-full bg-white/95 p-1.5 text-[#6b7280] shadow-sm transition hover:bg-white hover:text-[#161823]"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/96 text-[#6b7280] shadow-sm ring-1 ring-black/5 transition hover:bg-white hover:text-[#161823]"
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
@@ -740,31 +880,30 @@ function AttachmentMessageCard({
   const uploadFailed = canDelete && deliveryStatus === "failed";
 
   return (
-    <div className="relative w-full max-w-[345px] rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
+    <div className="relative w-full max-w-[345px] overflow-visible rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
       {canDelete ? (
-        <div
-          className="absolute right-3 top-3"
-          data-message-menu-root="true"
-        >
-          <button
-            type="button"
-            onClick={onToggleMenu}
-            className="rounded-full bg-white/95 p-1.5 text-[#6b7280] shadow-sm transition hover:bg-white hover:text-[#161823]"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-          {menuOpen ? (
-            <div className="absolute right-0 top-9 z-10 min-w-[140px] rounded-[10px] border border-zinc-200 bg-white p-1 shadow-lg">
-              <button
-                type="button"
-                onClick={onDelete}
-                className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] font-medium text-red-600 transition hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Eliminar
-              </button>
-            </div>
-          ) : null}
+        <div className="mb-2 flex justify-end" data-message-menu-root="true">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={onToggleMenu}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-[#6b7280] shadow-sm ring-1 ring-black/5 transition hover:bg-white hover:text-[#161823]"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {menuOpen ? (
+              <div className="absolute right-0 top-9 z-10 min-w-[140px] rounded-[10px] border border-zinc-200 bg-white p-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] font-medium text-red-600 transition hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Eliminar
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -1083,9 +1222,6 @@ export default function MensajesPage() {
   const [emojiQuery, setEmojiQuery] = useState("");
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
-  const [premiumMode, setPremiumMode] = useState<
-    "photo" | "photo-paid" | "video-paid" | "pack-paid"
-  >("pack-paid");
   const [premiumDraftAttachments, setPremiumDraftAttachments] = useState<
     AttachmentPreview[]
   >([]);
@@ -1138,8 +1274,13 @@ export default function MensajesPage() {
             icon: <Package2 className="h-4 w-4 text-[#2563eb]" />,
           },
           {
-            key: "upload-media" as const,
-            label: "Subir foto/video",
+            key: "send-photo-free" as const,
+            label: "Enviar foto gratis",
+            icon: <ImagePlus className="h-4 w-4 text-[#0f766e]" />,
+          },
+          {
+            key: "upload-media-paid" as const,
+            label: "Subir contenido pago",
             icon: <Package2 className="h-4 w-4 text-[#16a34a]" />,
           },
         ]
@@ -1612,13 +1753,9 @@ export default function MensajesPage() {
     }
   };
 
-  const openPremiumComposerWithFiles = (
-    mode: "photo-paid" | "video-paid" | "pack-paid",
-    files: File[],
-  ) => {
+  const openPremiumComposerWithFiles = (files: File[]) => {
     const attachments = createAttachmentPreviews(files);
     setPremiumDraftAttachments(attachments);
-    setPremiumMode(mode);
     setPremiumOpen(true);
   };
 
@@ -1642,13 +1779,7 @@ export default function MensajesPage() {
       )
       .slice(0, 10);
     if (files.length > 0) {
-      const mode =
-        files.length === 1
-          ? files[0].type.startsWith("video/")
-            ? "video-paid"
-            : "photo-paid"
-          : "pack-paid";
-      openPremiumComposerWithFiles(mode, files);
+      openPremiumComposerWithFiles(files);
     }
     event.target.value = "";
   };
@@ -1845,6 +1976,22 @@ export default function MensajesPage() {
 
   const deleteMessage = async (messageId: string) => {
     if (!selectedThread) return;
+    const targetMessage = selectedThread.messages.find((message) => message.id === messageId);
+    if (
+      targetMessage?.sender === "me" &&
+      "deliveryStatus" in targetMessage &&
+      (targetMessage.deliveryStatus === "local" || targetMessage.deliveryStatus === "failed")
+    ) {
+      dispatch(
+        removeLocalMessage({
+          threadId: selectedThread.id,
+          messageId,
+        }),
+      );
+      setMessageMenuId(null);
+      setChatError(null);
+      return;
+    }
     try {
       const result = await chatRequest<ThreadResponse>(`/api/direct-chats/messages/${messageId}?threadId=${selectedThread.id}`, {
         method: "DELETE",
@@ -2017,7 +2164,6 @@ export default function MensajesPage() {
       <PremiumComposer
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
-        mode={premiumMode}
         initialAttachments={premiumDraftAttachments}
         onSend={async (payload) => {
           if (!selectedThread) return;
@@ -2693,7 +2839,11 @@ export default function MensajesPage() {
                                     void loadContentPicker();
                                     return;
                                   }
-                                  if (option.key === "upload-media") {
+                                  if (option.key === "send-photo-free") {
+                                    photoInputRef.current?.click();
+                                    return;
+                                  }
+                                  if (option.key === "upload-media-paid") {
                                     paidPackInputRef.current?.click();
                                     return;
                                   }

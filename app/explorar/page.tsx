@@ -27,7 +27,11 @@ function ExploreCardSkeleton() {
 }
 
 export default function ExplorarPage() {
-  const { data: items = [], isLoading: loading } = useGetExploreFeedQuery();
+  const {
+    data: items = [],
+    isLoading: loading,
+    error,
+  } = useGetExploreFeedQuery();
   const { userId: currentUserId } = useViewerSession();
   const [followState, setFollowState] = useState<Record<string, boolean>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -110,6 +114,17 @@ export default function ExplorarPage() {
               {Array.from({ length: 12 }).map((_, index) => (
                 <ExploreCardSkeleton key={`explore-skeleton-${index}`} />
               ))}
+            </div>
+          ) : error ? (
+            <div className="rounded-[5px] border border-red-200 bg-red-50 px-6 py-10 text-center">
+              <div className="text-[24px] font-semibold text-zinc-900">
+                No se pudo cargar explorar
+              </div>
+              <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-7 text-[#464646]">
+                {typeof error === "object" && error && "error" in error
+                  ? String(error.error)
+                  : "Hubo un problema cargando perfiles para explorar."}
+              </p>
             </div>
           ) : items.length > 0 ? (
             <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:grid-cols-6">

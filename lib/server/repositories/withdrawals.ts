@@ -131,7 +131,7 @@ export const createWithdrawalRequest = async ({
 }) => {
   const withdrawalId = crypto.randomUUID();
 
-  await reserveWithdrawalLedgerBalance({
+  const reservation = await reserveWithdrawalLedgerBalance({
     admin,
     withdrawalId,
     userId,
@@ -153,20 +153,20 @@ export const createWithdrawalRequest = async ({
     throw new Error(`No se pudo guardar la solicitud de retiro: ${error.message}`);
   }
 
-  const { error: tableError } = await admin.from("withdrawal_requests").insert({
-    id: withdrawalId,
-    user_id: userId,
-    amount: record.amount,
-    status: "requested",
-    notes: JSON.stringify({
-      payoutAlias: record.payoutAlias ?? "",
-      payoutHolderName: record.payoutHolderName ?? "",
-      payoutHolderDocument: record.payoutHolderDocument ?? "",
-      payoutBank: record.payoutBank ?? "",
-    }),
-    requested_at: record.requestedAt,
-    month_key: record.monthKey,
-  });
+  const { error: tableError } = await admin
+    .from("withdrawal_requests")
+    .update({
+      notes: JSON.stringify({
+        payoutAlias: record.payoutAlias ?? "",
+        payoutHolderName: record.payoutHolderName ?? "",
+        payoutHolderDocument: record.payoutHolderDocument ?? "",
+        payoutBank: record.payoutBank ?? "",
+      }),
+      requested_at: record.requestedAt,
+      month_key: record.monthKey,
+      status: "requested",
+    })
+    .eq("id", reservation.withdrawalId);
 
   if (tableError) {
     throw new Error(`No se pudo guardar la solicitud de retiro en tabla: ${tableError.message}`);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { coercePayoutProfile } from "@/lib/payouts";
 import { getPayoutMetaEntries, PAYOUT_META_KEYS } from "@/lib/payoutMeta";
+import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 import { resolveTipAmountMap } from "@/lib/earnings";
 import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
@@ -414,8 +415,9 @@ export async function GET(request: Request) {
       },
     );
 
-    const payoutMetaResult = await getPayoutMetaEntries(admin, userId, [
-      PAYOUT_META_KEYS.defaultAccount,
+    const [payoutMetaResult, userMetaResult] = await Promise.all([
+      getPayoutMetaEntries(admin, userId, [PAYOUT_META_KEYS.defaultAccount]),
+      getUserMetaEntries(admin, userId, [USER_META_KEYS.payoutProfile]),
     ]);
 
     return NextResponse.json({
@@ -426,7 +428,11 @@ export async function GET(request: Request) {
       payoutProfile:
         coercePayoutProfile(
           payoutMetaResult.entries.get(PAYOUT_META_KEYS.defaultAccount),
-        ) ?? null,
+        ) ??
+        coercePayoutProfile(
+          userMetaResult.entries.get(USER_META_KEYS.payoutProfile),
+        ) ??
+        null,
       availableToWithdraw: Number(balanceResult.data?.cash_available ?? 0),
       reservedToWithdraw: Number(balanceResult.data?.cash_reserved ?? 0),
     });

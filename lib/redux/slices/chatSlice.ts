@@ -327,6 +327,16 @@ const chatSlice = createSlice({
         message.syncError = action.payload.error;
       }
     },
+    removeLocalMessage(
+      state,
+      action: PayloadAction<{ threadId: string; messageId: string }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      entry.messages = entry.messages.filter(
+        (message) => message.id !== action.payload.messageId,
+      );
+    },
     removeThread(state, action: PayloadAction<{ threadId: string }>) {
       delete state.threadsById[action.payload.threadId];
       state.threadOrder = state.threadOrder.filter((id) => id !== action.payload.threadId);
@@ -362,6 +372,7 @@ export const {
   failOutgoingText,
   failOutgoingPremium,
   failOutgoingAttachment,
+  removeLocalMessage,
   removeThread,
   markThreadReadLocal,
 } = chatSlice.actions;

@@ -23,7 +23,9 @@ export default function FloatingMessagesButton() {
 
   const hidden =
     pathname === "/mensajes" ||
+    pathname === "/referidos" ||
     pathname === "/ventas" ||
+    pathname?.startsWith("/settings") ||
     pathname?.startsWith("/admin") ||
     pathname?.startsWith("/auth") ||
     pathname?.startsWith("/terminos") ||
@@ -97,7 +99,7 @@ export default function FloatingMessagesButton() {
           aria-hidden="true"
         />
         {hasUnread ? (
-          <span className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-white bg-[#5A3EE7]" />
+          <span className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-white bg-[#ff334b]" />
         ) : null}
       </span>
 

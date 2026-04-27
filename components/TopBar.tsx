@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 import { buildUserProfileHref } from "@/lib/profileRoute";
+import { FANPUSH_WHATSAPP_SUPPORT_URL } from "@/lib/support";
 import { useGetNotificationCenterQuery } from "@/lib/redux/api/notificationsApi";
 import { useSearchUsersQuery } from "@/lib/redux/api/searchApi";
 import {
@@ -150,6 +151,7 @@ export default function TopBar() {
     { skip: debouncedQuery.trim().length < 2 },
   );
   const profile = viewer?.profile;
+  const isAuthor = viewer?.access.isAuthor ?? false;
   const balance = viewer?.commerce.balance ?? 0;
   const previewNotifications = (notificationsData?.activity ?? []).slice(0, 6);
   const followActorIdsKey = useMemo(
@@ -550,6 +552,15 @@ export default function TopBar() {
                 >
                   Configuración
                 </Link>
+                <a
+                  href={FANPUSH_WHATSAPP_SUPPORT_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-[8px] px-3 py-2 text-[13px] font-semibold text-zinc-700 hover:bg-zinc-100"
+                  onClick={() => setProfileOpen(false)}
+                >
+                  Ayuda en línea
+                </a>
                 {!isAuthor ? (
                   <Link
                     href="/autor/solicitud"

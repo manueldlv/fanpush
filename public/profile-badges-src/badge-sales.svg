@@ -1,0 +1,18 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="salesFrame" x1="22" y1="14" x2="108" y2="110" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF0B3"/>
+      <stop offset="0.48" stop-color="#FF9D2D"/>
+      <stop offset="1" stop-color="#D9381E"/>
+    </linearGradient>
+    <linearGradient id="salesStar" x1="50" y1="34" x2="82" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8E1"/>
+      <stop offset="1" stop-color="#FFD24A"/>
+    </linearGradient>
+  </defs>
+  <path d="M64 10L104 28V76L64 118L24 76V28L64 10Z" fill="url(#salesFrame)"/>
+  <path d="M64 18L97 33V72L64 108L31 72V33L64 18Z" fill="#3F1D0F" fill-opacity="0.8"/>
+  <path d="M64 32L70 48L88 48L73 59L79 76L64 66L49 76L55 59L40 48L58 48L64 32Z" fill="url(#salesStar)"/>
+  <path d="M28 82L48 68L54 78L38 98L28 82Z" fill="#FFBE55"/>
+  <path d="M100 82L80 68L74 78L90 98L100 82Z" fill="#FFBE55"/>
+</svg>

@@ -13,6 +13,7 @@ import {
   coerceProfileDetails,
   parseProfileDetails,
 } from "@/lib/profileDetails";
+import { getReferralLevel } from "@/lib/referrals";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import {
   applyResolvedMediaAccess,
@@ -69,6 +70,8 @@ export type ProfileViewData = {
   stats: ProfileViewStats;
   isFollowing: boolean;
   earnings: number;
+  referralCount: number;
+  referralLevel: number;
 };
 
 const PROFILE_ALBUM_LIMIT = 60;
@@ -120,7 +123,8 @@ const buildProfileCaption = (
     .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
     .join(" ");
 
-  return [meta.displayCaption.trim(), tagSuffix]
+  const baseDescription = (description ?? "").trim() || meta.displayCaption.trim();
+  return [baseDescription, tagSuffix]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -223,6 +227,8 @@ const buildEmptyProfileView = (
   stats: emptyStats(),
   isFollowing: false,
   earnings: 0,
+  referralCount: 0,
+  referralLevel: 1,
 });
 
 const buildUnavailableProfileView = ({
@@ -257,6 +263,8 @@ const buildUnavailableProfileView = ({
   stats: emptyStats(),
   isFollowing: false,
   earnings: 0,
+  referralCount: 0,
+  referralLevel: 1,
 });
 
 export const getProfileViewCacheKey = (arg: ProfileViewArg) => {
@@ -363,6 +371,7 @@ const loadProfileView = async (
     postsCountResult,
     followersRowsResult,
     followingRowsResult,
+    referralCountResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -395,6 +404,10 @@ const loadProfileView = async (
       .from("follows")
       .select("following_id", { count: "exact", head: true })
       .eq("follower_id", viewedUserId),
+    supabase
+      .from("user_referrals")
+      .select("referred_user_id", { count: "exact", head: true })
+      .eq("referrer_user_id", viewedUserId),
   ]);
 
   const profileDetails = coerceProfileDetails(
@@ -418,6 +431,8 @@ const loadProfileView = async (
   }
 
   const resolvedAvatar = await resolvePublicUrl(userRow?.avatar_url ?? "");
+  const referralCount = referralCountResult.count ?? 0;
+  const referralLevel = getReferralLevel(referralCount);
   const profile: ProfileSummary = {
     username: userRow?.username ?? arg.username?.trim() ?? fallbackUsername,
     fullName: profileRowResult.data?.full_name ?? "Sin nombre",
@@ -606,6 +621,8 @@ const loadProfileView = async (
     },
     isFollowing,
     earnings,
+    referralCount,
+    referralLevel,
   };
 };
 

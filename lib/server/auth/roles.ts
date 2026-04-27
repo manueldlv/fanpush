@@ -170,6 +170,12 @@ export type UserAccessSnapshot = {
   isAdmin: boolean;
 };
 
+const accessSnapshotCache = new Map<
+  string,
+  { snapshot: UserAccessSnapshot; cachedAt: number }
+>();
+const ACCESS_SNAPSHOT_TTL_MS = 60 * 1000;
+
 const getPermissionCodesForRoleIds = async (
   admin: SupabaseClient,
   roleIds: string[],
@@ -204,6 +210,11 @@ export const getUserAccessSnapshot = async (
   admin: SupabaseClient,
   user: User,
 ): Promise<UserAccessSnapshot> => {
+  const cached = accessSnapshotCache.get(user.id);
+  if (cached && Date.now() - cached.cachedAt < ACCESS_SNAPSHOT_TTL_MS) {
+    return cached.snapshot;
+  }
+
   const { data, error } = await admin
     .from("user_roles")
     .select(
@@ -218,7 +229,7 @@ export const getUserAccessSnapshot = async (
       const permissionCodes = roles.available
         ? await getPermissionCodesForRoleIds(admin, roles.roleIds)
         : [];
-      return {
+      const snapshot = {
         roles: roles.available ? roles.roleCodes : [],
         permissions: Array.from(new Set(permissionCodes)),
         isAdmin:
@@ -227,6 +238,11 @@ export const getUserAccessSnapshot = async (
             roles.roleCodes.includes("super_admin") ||
             permissionCodes.includes("admin.access")),
       };
+      accessSnapshotCache.set(user.id, {
+        snapshot,
+        cachedAt: Date.now(),
+      });
+      return snapshot;
     }
     throw new Error(
       `No se pudieron leer los permisos del usuario: ${error.message}`,
@@ -252,7 +268,7 @@ export const getUserAccessSnapshot = async (
   });
 
   if (roleCodes.length > 0 || permissionCodes.length > 0) {
-    return {
+    const snapshot = {
       roles: Array.from(new Set(roleCodes)),
       permissions: Array.from(new Set(permissionCodes)),
       isAdmin:
@@ -260,13 +276,23 @@ export const getUserAccessSnapshot = async (
         roleCodes.includes("super_admin") ||
         permissionCodes.includes("admin.access"),
     };
+    accessSnapshotCache.set(user.id, {
+      snapshot,
+      cachedAt: Date.now(),
+    });
+    return snapshot;
   }
 
-  return {
+  const snapshot = {
     roles: [],
     permissions: [],
     isAdmin: false,
   };
+  accessSnapshotCache.set(user.id, {
+    snapshot,
+    cachedAt: Date.now(),
+  });
+  return snapshot;
 };
 
 export const hasPermission = async (

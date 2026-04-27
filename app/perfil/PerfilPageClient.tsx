@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, Pencil, Send } from "lucide-react";
+import { Lock, MoreHorizontal, Pencil, Send, Trash2, X } from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
@@ -25,6 +25,7 @@ import {
   inferDisplayKind,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import {
   applyResolvedMediaAccess,
   buildInitialPostMediaState,
@@ -106,7 +107,8 @@ const buildProfileCaption = (
     .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
     .join(" ");
 
-  return [meta.displayCaption.trim(), tagSuffix].filter(Boolean).join(" ").trim();
+  const baseDescription = (description ?? "").trim() || meta.displayCaption.trim();
+  return [baseDescription, tagSuffix].filter(Boolean).join(" ").trim();
 };
 
 function ProfileHeaderSkeleton() {
@@ -154,12 +156,30 @@ function ProfilePostsSkeleton() {
 }
 
 const profileGamificationBadges = [
-  { icon: "🌈", title: "Perfil destacado", detail: "Completó su perfil y mantuvo actividad constante." },
-  { icon: "🪩", title: "Creador activo", detail: "Publicó contenido premium de forma consistente." },
-  { icon: "💐", title: "Favorito del mes", detail: "Recibió muchas interacciones positivas este mes." },
-  { icon: "🛡️", title: "Autor verificado", detail: "Completó la validación de autor con DNI." },
-  { icon: "🏅", title: "Top ventas", detail: "Superó una marca destacada de ventas en la plataforma." },
-  { icon: "🪄", title: "Gran comunidad", detail: "Refirió a +500 usuarios y expandió su comunidad." },
+  {
+    icon: "/profile-badges/badge-core.png",
+    title: "Autor verificado",
+    detail: "Completó la validación de autor con DNI.",
+    unlockLevel: 1,
+  },
+  {
+    icon: "/profile-badges/badge-creator.png",
+    title: "Creador activo",
+    detail: "Publicó contenido premium de forma consistente.",
+    unlockLevel: 15,
+  },
+  {
+    icon: "/profile-badges/badge-sales.png",
+    title: "Top ventas",
+    detail: "Superó una marca destacada de ventas en la plataforma.",
+    unlockLevel: 40,
+  },
+  {
+    icon: "/profile-badges/badge-referrals.png",
+    title: "Nivel de referidos",
+    detail: "Badge reservado para mostrar el rango real de referidos del perfil.",
+    unlockLevel: 70,
+  },
 ];
 
 export default function PerfilPage({
@@ -193,6 +213,11 @@ export default function PerfilPage({
     tone: "success" | "error";
     text: string;
   } | null>(null);
+  const [profilePostMenuId, setProfilePostMenuId] = useState<string | null>(null);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [editDescription, setEditDescription] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const { data: viewer } = useGetViewerQuery();
   const { data: session } = useGetSessionQuery();
@@ -250,6 +275,7 @@ export default function PerfilPage({
   const isFollowing =
     followStateOverride ?? profileData?.isFollowing ?? false;
   const earnings = profileData?.earnings ?? 0;
+  const profileReferralLevel = profileData?.referralLevel ?? 1;
   const profileLoading = !profileData && profileQueryLoading;
   const postsLoading = !profileData && profileQueryLoading;
   const statsLoading = !profileData && profileQueryLoading;
@@ -356,6 +382,13 @@ export default function PerfilPage({
     }, uiMessage.text.includes("Compra realizada") ? 6500 : 3600);
     return () => window.clearTimeout(timeout);
   }, [uiMessage]);
+
+  useEffect(() => {
+    if (!profilePostMenuId) return;
+    const closeMenu = () => setProfilePostMenuId(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, [profilePostMenuId]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -748,6 +781,121 @@ export default function PerfilPage({
     }
   };
 
+  const openEditPost = (post: Post) => {
+    setProfilePostMenuId(null);
+    setEditingPost(post);
+    setEditDescription(post.caption ?? "");
+    setEditPrice(String(Math.max(Number(post.price ?? 0), 0)));
+  };
+
+  const applyPostEditsLocally = ({
+    postId,
+    description,
+    price,
+  }: {
+    postId: string;
+    description: string;
+    price: number;
+  }) => {
+    const apply = (draft: { posts: Post[] }) => {
+      const target = draft.posts.find((post) => post.id === postId);
+      if (!target) return;
+      target.caption = description;
+      target.price = price;
+    };
+
+    dispatch(
+      profileApi.util.updateQueryData("getProfileView", profileQueryArg, apply),
+    );
+
+    if (viewer?.profile.username) {
+      dispatch(
+        profileApi.util.updateQueryData("getProfileView", selfProfileQueryArg, apply),
+      );
+    }
+
+    setOpenPost((prev) =>
+      prev && prev.id === postId
+        ? { ...prev, caption: description, price }
+        : prev,
+    );
+  };
+
+  const handleEditPostSubmit = async () => {
+    if (!editingPost) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const description = editDescription.trim();
+    const numericPrice = Math.round(Number(editPrice || 0));
+
+    if (!description) {
+      setUiMessage({
+        tone: "error",
+        text: "La descripción no puede quedar vacía.",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      setUiMessage({
+        tone: "error",
+        text: "El precio no puede ser negativo.",
+      });
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const accessToken = await getSessionAccessTokenWithRetry(supabase);
+      if (!accessToken) {
+        throw new Error("Necesitas iniciar sesión para editar la publicación.");
+      }
+
+      const response = await fetch(`/api/posts/${editingPost.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          description,
+          price: Math.min(numericPrice, MAX_CONTENT_PRICE_ARS),
+        }),
+      });
+
+      const result = (await response.json()) as {
+        error?: string;
+        post?: { description: string; price: number };
+      };
+
+      if (!response.ok || !result.post) {
+        throw new Error(result.error ?? "No se pudo guardar la publicación.");
+      }
+
+      applyPostEditsLocally({
+        postId: editingPost.id,
+        description: result.post.description,
+        price: result.post.price,
+      });
+      setEditingPost(null);
+      setUiMessage({
+        tone: "success",
+        text: "La publicación se actualizó correctamente.",
+      });
+    } catch (error) {
+      setUiMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "No se pudo editar la publicación.",
+      });
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
   const handlePurchase = async (albumId: string) => {
     if (!currentUserId) return;
     const targetPost = profilePosts.find((post) => post.id === albumId);
@@ -1043,6 +1191,7 @@ export default function PerfilPage({
           onClose={() => setOpenPost(null)}
           currentUserId={currentUserId}
           onDelete={handleDelete}
+          onEdit={openEditPost}
           onPurchase={handlePurchase}
           onTip={() => {
             if (!isOwnProfile) handleOpenTip();
@@ -1094,6 +1243,91 @@ export default function PerfilPage({
           window.dispatchEvent(new Event("earnings-updated"));
         }}
       />
+      {editingPost ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 px-4 py-6">
+          <button
+            type="button"
+            onClick={() => !editSubmitting && setEditingPost(null)}
+            className="absolute inset-0 h-full w-full"
+            aria-label="Cerrar edición"
+          />
+          <div className="relative z-10 w-full max-w-[560px] rounded-[18px] bg-white p-5 shadow-2xl md:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-zinc-950">
+                  Editar publicación
+                </h2>
+                <p className="mt-2 text-[14px] leading-6 text-zinc-500">
+                  Puedes cambiar la descripción y el precio de este post.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !editSubmitting && setEditingPost(null)}
+                className="rounded-[10px] p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                aria-label="Cerrar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-5">
+              <label className="block">
+                <div className="text-[14px] font-semibold text-zinc-900">
+                  Descripción
+                </div>
+                <textarea
+                  value={editDescription}
+                  onChange={(event) => setEditDescription(event.target.value)}
+                  rows={5}
+                  className="mt-2 w-full resize-none rounded-[14px] border border-zinc-200 px-4 py-3 text-[14px] leading-6 text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
+                  placeholder="Describe tu publicación"
+                />
+              </label>
+
+              <label className="block">
+                <div className="text-[14px] font-semibold text-zinc-900">
+                  Precio
+                </div>
+                <div className="mt-2 flex items-center rounded-[14px] border border-zinc-200 px-4">
+                  <span className="text-[14px] font-semibold text-zinc-500">ARS</span>
+                  <input
+                    value={editPrice}
+                    onChange={(event) =>
+                      setEditPrice(event.target.value.replace(/[^\d]/g, ""))
+                    }
+                    inputMode="numeric"
+                    className="h-[52px] w-full bg-transparent px-3 text-[15px] font-semibold text-zinc-900 outline-none"
+                    placeholder="0"
+                  />
+                </div>
+                <div className="mt-2 text-[12px] text-zinc-500">
+                  Gratis con ARS 0 · Si es pago, mínimo ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")} · Máximo ARS {MAX_CONTENT_PRICE_ARS.toLocaleString("es-AR")}
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setEditingPost(null)}
+                disabled={editSubmitting}
+                className="rounded-[14px] border border-zinc-200 bg-white px-5 py-3 text-[14px] font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleEditPostSubmit()}
+                disabled={editSubmitting}
+                className="rounded-[14px] bg-[#5A3EE7] px-5 py-3 text-[14px] font-semibold text-white transition hover:bg-[#4b31c4] disabled:opacity-60"
+              >
+                {editSubmitting ? "Guardando..." : "Guardar cambios"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <AvatarCropModal
         open={Boolean(avatarCropSource)}
         imageSrc={avatarCropSource ?? ""}
@@ -1327,21 +1561,39 @@ export default function PerfilPage({
                       </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap items-center gap-2 text-[30px] leading-none">
+                    <div className="mt-5 flex flex-wrap items-center gap-3">
                       {profileGamificationBadges.map((badge, index) => (
                         <div
                           key={`profile-badge-${index}`}
                           className="group relative z-[80]"
                         >
-                          <span className="inline-flex h-[30px] w-[30px] items-center justify-center">
-                            {badge.icon}
+                          <span className="inline-flex h-[54px] w-[54px] items-center justify-center">
+                            <Image
+                              src={badge.icon}
+                              alt=""
+                              width={54}
+                              height={54}
+                              className={`h-[54px] w-[54px] object-contain transition duration-200 ${
+                                profileReferralLevel >= badge.unlockLevel
+                                  ? "opacity-100 saturate-100"
+                                  : "grayscale opacity-35"
+                              }`}
+                              unoptimized
+                              aria-hidden="true"
+                            />
                           </span>
+
                           <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[120] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
                             <div className="text-[14px] font-semibold leading-tight text-white">
                               {badge.title}
                             </div>
                             <div className="mt-1 text-[12px] leading-snug text-white/85">
                               {badge.detail}
+                            </div>
+                            <div className="mt-2 text-[11px] uppercase tracking-[0.12em] text-white/55">
+                              {profileReferralLevel >= badge.unlockLevel
+                                ? `Desbloqueado en Nivel ${badge.unlockLevel}`
+                                : `Se desbloquea en Nivel ${badge.unlockLevel}`}
                             </div>
                             <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-[9px] border-r-[9px] border-t-[11px] border-l-transparent border-r-transparent border-t-black" />
                           </div>
@@ -1451,6 +1703,49 @@ export default function PerfilPage({
                         className="relative aspect-[280/370] min-w-0 w-full cursor-pointer overflow-hidden rounded-[5px] border border-zinc-200"
                         onClick={() => openPostFromProfile(post)}
                       >
+                        {isOwnProfile ? (
+                          <div className="absolute right-2 top-2 z-20">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePostMenuId((current) =>
+                                  current === post.id ? null : post.id,
+                                );
+                              }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/96 text-zinc-700 shadow-sm ring-1 ring-black/5 backdrop-blur-sm"
+                              aria-label="Opciones de publicación"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                            {profilePostMenuId === post.id ? (
+                              <div
+                                className="absolute right-0 top-10 min-w-[170px] overflow-hidden rounded-[12px] border border-zinc-200 bg-white shadow-xl"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => openEditPost(post)}
+                                  className="flex w-full items-center gap-2 border-b border-zinc-200 px-4 py-3 text-left text-[13px] font-medium text-zinc-900 transition hover:bg-zinc-50"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  Editar publicación
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setProfilePostMenuId(null);
+                                    await handleDelete(post.id);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] font-semibold text-red-600 transition hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Eliminar publicación
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {firstMedia.kind === "video" ? (
                           <video
                             src={firstMedia.url}
@@ -1472,7 +1767,7 @@ export default function PerfilPage({
                         )}
                         {isPaidPost ? (
                           isOwnProfile ? (
-                            <div className="absolute right-2 top-2 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
+                            <div className="absolute right-12 top-2 z-10 rounded-[5px] bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-900 shadow-sm">
                               <span className="inline-flex items-center gap-1.5">
                                 <Lock className="h-3 w-3" />
                                 {Math.round(Number(post.price ?? 0)).toLocaleString("es-AR")}

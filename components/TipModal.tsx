@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronDown, X } from "lucide-react";
+import { CheckCircle2, X } from "lucide-react";
 import {
   runBalanceCheckout,
   type BalanceCheckoutResult,
@@ -56,8 +56,6 @@ export default function TipModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BalanceCheckoutResult | null>(null);
-  const [breakdownOpen, setBreakdownOpen] = useState(false);
-
   const amountValue = useMemo(() => Number(amount), [amount]);
   const hasInvalidAmount =
     amount.trim().length > 0 && amountValue < MIN_CONTENT_PRICE_ARS;
@@ -76,7 +74,6 @@ export default function TipModal({
     setSubmitting(false);
     setError(null);
     setResult(null);
-    setBreakdownOpen(false);
   }, [open, recipientUserId]);
 
   useEffect(() => {
@@ -285,36 +282,20 @@ export default function TipModal({
                   {formatUnits(amountValue || 0)}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setBreakdownOpen((current) => !current)}
-                className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-400 transition hover:text-zinc-600"
-              >
-                <ChevronDown
-                  className={`h-3.5 w-3.5 transition ${
-                    breakdownOpen ? "rotate-180" : ""
-                  }`}
-                />
-                {breakdownOpen ? "Ocultar desglose" : "Ver desglose"}
-              </button>
-              {breakdownOpen ? (
-                <>
-                  <div className="mt-3 flex items-center justify-between gap-4 text-[12px] text-zinc-500 md:text-[13px]">
-                    <span>Recibe el creador (70%)</span>
-                    <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700">
-                      <TipLightningIcon className="h-3 w-3 object-contain" />
-                      {formatUnits(creatorReceives)}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-4 text-[12px] text-zinc-500 md:text-[13px]">
-                    <span>Comisión plataforma (30%)</span>
-                    <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700">
-                      <TipLightningIcon className="h-3 w-3 object-contain" />
-                      {formatUnits(platformFee)}
-                    </span>
-                  </div>
-                </>
-              ) : null}
+              <div className="mt-3 flex items-center justify-between gap-4 text-[12px] text-zinc-500 md:text-[13px]">
+                <span>Recibe el creador (70%)</span>
+                <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700">
+                  <TipLightningIcon className="h-3 w-3 object-contain" />
+                  {formatUnits(creatorReceives)}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4 text-[12px] text-zinc-500 md:text-[13px]">
+                <span>Comisión plataforma (30%)</span>
+                <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700">
+                  <TipLightningIcon className="h-3 w-3 object-contain" />
+                  {formatUnits(platformFee)}
+                </span>
+              </div>
             </div>
 
             <div className="mt-7">

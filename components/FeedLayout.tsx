@@ -62,6 +62,56 @@ type AlbumUser = {
 
 const MEDIA_ACCESS_BATCH_SIZE = 50;
 
+type ReportOption = {
+  id: string;
+  label: string;
+  description?: string;
+  children?: ReportOption[];
+};
+
+const REPORT_OPTIONS: ReportOption[] = [
+  {
+    id: "nudity",
+    label: "Desnudos o actividad sexual",
+    description: "Contenido sexual explícito o desnudos no permitidos.",
+  },
+  {
+    id: "hate",
+    label: "Discurso o símbolos de odio",
+    description: "Ataques a personas o grupos por identidad, origen o religión.",
+  },
+  {
+    id: "violence",
+    label: "Violencia o contenido peligroso",
+    description: "Amenazas, violencia gráfica o promoción de daño.",
+  },
+  {
+    id: "sale",
+    label: "Venta o promoción restringida",
+    description: "Drogas, armas, estafas o servicios prohibidos.",
+  },
+  {
+    id: "bullying",
+    label: "Bullying o acoso",
+    description: "Hostigamiento, humillación o ataques personales.",
+  },
+  {
+    id: "false",
+    label: "Información falsa",
+    description: "Contenido engañoso o manipulado para desinformar.",
+  },
+  {
+    id: "spam",
+    label: "Spam",
+    description: "Promoción repetitiva, comportamiento artificial o engañoso.",
+  },
+  {
+    id: "other",
+    label: "Otro motivo",
+    description: "Algo más que infringe las normas y quieres explicar.",
+  },
+];
+
 const normalizeAlbumMedia = (
   albumPosts: AlbumPostRow[] | null | undefined,
 ): AlbumMediaPost[] =>
@@ -150,9 +200,9 @@ export default function FeedLayout() {
     ownerId: string;
     author: string;
   } | null>(null);
-  const [reportReason, setReportReason] = useState(
-    "Contenido fuera de contexto",
-  );
+  const [reportReason, setReportReason] = useState("");
+  const [reportStep, setReportStep] = useState<"category" | "details">("category");
+  const [selectedReportOption, setSelectedReportOption] = useState<ReportOption | null>(null);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSent, setReportSent] = useState(false);
@@ -651,6 +701,26 @@ export default function FeedLayout() {
     setReportSubmitting(false);
   };
 
+  const handleOpenReportModal = (post: { id: string; userId: string; author: string }) => {
+    setReportModal({
+      albumId: post.id,
+      ownerId: post.userId,
+      author: post.author,
+    });
+    setReportReason("");
+    setSelectedReportOption(null);
+    setReportStep("category");
+    setReportError(null);
+    setReportSent(false);
+  };
+
+  const handleSelectReportOption = (option: ReportOption) => {
+    setSelectedReportOption(option);
+    setReportReason(option.label);
+    setReportError(null);
+    setReportStep("details");
+  };
+
   return (
     <section className="flex w-full max-w-none flex-col gap-6 md:max-w-[630px] md:pr-2">
       {feedError ? (
@@ -742,14 +812,11 @@ export default function FeedLayout() {
           onLike={toggleLike}
           onReport={(post) => {
             if (!post.userId) return;
-            setReportModal({
-              albumId: post.id,
-              ownerId: post.userId,
+            handleOpenReportModal({
+              id: post.id,
+              userId: post.userId,
               author: post.author,
             });
-            setReportReason("");
-            setReportError(null);
-            setReportSent(false);
           }}
           onUnfollow={toggleFollow}
           isFollowing={Boolean(
@@ -785,40 +852,41 @@ export default function FeedLayout() {
             aria-label="Cerrar menu"
           />
           <div className="relative w-full max-w-[520px] overflow-hidden rounded-[18px] bg-white shadow-xl">
-            <button
-              type="button"
-              onClick={() => {
-                if (!menuPost?.userId) return;
-                setReportModal({
-                  albumId: menuPost.id,
-                  ownerId: menuPost.userId,
-                  author: menuPost.author,
-                });
-                setReportReason("Contenido fuera de contexto");
-                setReportError(null);
-                setReportSent(false);
-                setMenuPostId(null);
-              }}
-              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
-            >
-              Denunciar
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!menuPost?.userId) {
-                  setMenuPostId(null);
-                  return;
-                }
-                await toggleFollow(menuPost.userId);
-                setMenuPostId(null);
-              }}
-              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
-            >
-              {menuPost?.userId && followingIds.has(menuPost.userId)
-                ? "Dejar de seguir"
-                : "Seguir"}
-            </button>
+            {menuPost?.userId !== currentUserId ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!menuPost?.userId) return;
+                    handleOpenReportModal({
+                      id: menuPost.id,
+                      userId: menuPost.userId,
+                      author: menuPost.author,
+                    });
+                    setMenuPostId(null);
+                  }}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+                >
+                  Denunciar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!menuPost?.userId) {
+                      setMenuPostId(null);
+                      return;
+                    }
+                    await toggleFollow(menuPost.userId);
+                    setMenuPostId(null);
+                  }}
+                  className="w-full border-b border-zinc-200 py-4 text-center text-sm font-semibold text-red-600"
+                >
+                  {menuPost?.userId && followingIds.has(menuPost.userId)
+                    ? "Dejar de seguir"
+                    : "Seguir"}
+                </button>
+              </>
+            ) : null}
             {menuPost?.userId === currentUserId ? (
               <button
                 type="button"
@@ -828,19 +896,21 @@ export default function FeedLayout() {
                 Eliminar publicacion
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                if (!menuPost) return;
-                handleToggleFavorite(menuPost);
-                setMenuPostId(null);
-              }}
-              className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
-            >
-              {favoritePostIds.has(menuPost.id)
-                ? "Quitar de favoritos"
-                : "Añadir a favoritos"}
-            </button>
+            {menuPost?.userId !== currentUserId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!menuPost) return;
+                  handleToggleFavorite(menuPost);
+                  setMenuPostId(null);
+                }}
+                className="w-full border-b border-zinc-200 py-4 text-center text-sm font-medium text-zinc-900"
+              >
+                {favoritePostIds.has(menuPost.id)
+                  ? "Quitar de favoritos"
+                  : "Añadir a favoritos"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -864,7 +934,7 @@ export default function FeedLayout() {
       ) : null}
 
       {reportModal ? (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/50 px-6 py-10">
+        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/50 px-4 py-6">
           <button
             type="button"
             onClick={() => {
@@ -876,71 +946,115 @@ export default function FeedLayout() {
             className="absolute inset-0 h-full w-full cursor-default"
             aria-label="Cerrar denuncia"
           />
-          <div className="relative w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-2xl md:p-7">
+          <div className="relative w-full max-w-[520px] rounded-[24px] bg-white p-4 shadow-2xl md:p-5">
             {!reportSent ? (
               <>
-                <div className="text-xs font-medium text-zinc-500">
-                  Moderación
-                </div>
-                <h3 className="mt-3 text-2xl font-semibold text-zinc-950">
-                  Denunciar contenido
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-zinc-500">
-                  Contanos qué viste en la publicación de @{reportModal.author}.
-                  El equipo de FanPush va a revisarlo.
-                </p>
+                {reportStep === "category" ? (
+                  <>
+                    <div className="text-xs font-medium text-zinc-500">
+                      Reportar publicación
+                    </div>
+                    <h3 className="mt-2 text-[22px] font-semibold leading-tight text-zinc-950">
+                      ¿Por qué quieres denunciar esta publicación?
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Elige la opción que mejor describa lo que pasa en @{reportModal.author}.
+                    </p>
 
-                <div className="mt-4">
-                  <textarea
-                    value={reportReason}
-                    onChange={(event) => setReportReason(event.target.value)}
-                    rows={4}
-                    className="w-full rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 focus:bg-white"
-                    placeholder="Contenido fuera de contexto"
-                  />
-                </div>
+                    <div className="mt-4 overflow-hidden rounded-[18px] border border-zinc-200">
+                      {REPORT_OPTIONS.map((option, index) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => handleSelectReportOption(option)}
+                          className={`flex w-full items-center justify-between gap-4 bg-white px-4 py-3.5 text-left transition hover:bg-zinc-50 ${
+                            index !== REPORT_OPTIONS.length - 1 ? "border-b border-zinc-200" : ""
+                          }`}
+                        >
+                          <div className="text-[15px] font-medium text-zinc-950">
+                            {option.label}
+                          </div>
+                          <div className="text-[26px] leading-none text-zinc-300">›</div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs font-medium text-zinc-500">
+                      Reportar publicación
+                    </div>
+                    <h3 className="mt-2 text-[22px] font-semibold leading-tight text-zinc-950">
+                      {selectedReportOption?.label ?? "Denunciar contenido"}
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Añade un poco más de contexto si quieres. El equipo de FanPush va a revisarlo.
+                    </p>
+
+                    <div className="mt-3 rounded-[16px] border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-sm font-semibold text-zinc-800">
+                      Motivo seleccionado: {selectedReportOption?.label}
+                    </div>
+
+                    <div className="mt-3">
+                      <textarea
+                        value={reportReason}
+                        onChange={(event) => setReportReason(event.target.value)}
+                        rows={4}
+                        className="w-full rounded-[16px] border border-zinc-200 bg-zinc-50 px-3.5 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 focus:bg-white"
+                        placeholder={`Más detalles sobre: ${selectedReportOption?.label ?? "la denuncia"}`}
+                      />
+                    </div>
+                  </>
+                )}
 
                 {reportError ? (
-                  <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <div className="mt-3 rounded-[16px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
                     {reportError}
                   </div>
                 ) : null}
 
-                <div className="mt-6 flex gap-3">
+                <div className="mt-4 flex gap-3">
                   <button
                     type="button"
                     onClick={() => {
                       if (reportSubmitting) return;
+                      if (reportStep === "details") {
+                        setReportStep("category");
+                        setReportError(null);
+                        return;
+                      }
                       setReportModal(null);
                       setReportError(null);
                     }}
-                    className="flex-1 rounded-[18px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
+                    className="flex-1 rounded-[16px] border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700"
                   >
-                    Cancelar
+                    {reportStep === "details" ? "Atrás" : "Cancelar"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleReport}
-                    disabled={reportSubmitting}
-                    className="fanpush-button-primary flex-1 rounded-[18px] px-4 py-3 text-sm disabled:opacity-60"
-                  >
-                    {reportSubmitting ? "Enviando..." : "Enviar denuncia"}
-                  </button>
+                  {reportStep === "details" ? (
+                    <button
+                      type="button"
+                      onClick={handleReport}
+                      disabled={reportSubmitting}
+                      className="fanpush-button-primary flex-1 rounded-[16px] px-4 py-3 text-sm disabled:opacity-60"
+                    >
+                      {reportSubmitting ? "Enviando..." : "Enviar denuncia"}
+                    </button>
+                  ) : null}
                 </div>
               </>
             ) : (
               <>
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                   <Send className="h-6 w-6" />
                 </div>
-                <h3 className="mt-4 text-center text-2xl font-semibold text-zinc-950">
+                <h3 className="mt-3 text-center text-[22px] font-semibold text-zinc-950">
                   Denuncia enviada
                 </h3>
-                <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
+                <p className="mt-1 text-center text-sm text-zinc-500">
                   Recibimos tu reporte sobre la publicación de @
                   {reportModal.author}. El equipo de moderación lo va a revisar.
                 </p>
-                <div className="mt-6 rounded-[20px] border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-700">
+                <div className="mt-4 rounded-[16px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
                   Motivo enviado:{" "}
                   <span className="font-semibold">{reportReason}</span>
                 </div>
@@ -951,7 +1065,7 @@ export default function FeedLayout() {
                     setReportError(null);
                     setReportSent(false);
                   }}
-                  className="fanpush-button-primary mt-6 w-full rounded-[18px] px-4 py-3 text-sm"
+                  className="fanpush-button-primary mt-4 w-full rounded-[16px] px-4 py-3 text-sm"
                 >
                   Cerrar
                 </button>

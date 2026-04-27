@@ -50,6 +50,13 @@ type AuthorAlbumRow = {
   album_posts: AuthorAlbumPost[] | null;
 };
 
+type ExplorePromotionRow = {
+  user_id: string | null;
+  is_active: boolean | null;
+  promote_in_explore: boolean | null;
+  explore_rank: number | null;
+};
+
 const hasTag = (description: string, tag: string) => {
   const normalizedTag = `#${tag.replace(/^#/, "").toLowerCase()}`;
   const matches: string[] =
@@ -105,192 +112,28 @@ export const discoveryApi = createApi({
             throw new Error("Falta configurar Supabase.");
           }
 
-          const { data: authData } = await supabase.auth.getUser();
-          const currentUserId = authData?.user?.id ?? null;
-
-          const { data: authorRoles, error: authorRolesError } = await supabase
-            .from("user_roles")
-            .select("user_id, role:roles!inner(code)")
-            .eq("role.code", "author")
-            .is("revoked_at", null)
-            .limit(EXPLORE_AUTHOR_LIMIT);
-
-          if (authorRolesError) {
-            throw new Error(authorRolesError.message);
-          }
-
-          const authorIds = Array.from(
-            new Set(
-              ((authorRoles ?? []) as AuthorRoleRow[])
-                .map((row) => row.user_id)
-                .filter((value): value is string => Boolean(value)),
-            ),
-          );
-
-          if (authorIds.length === 0) {
-            return { data: [] };
-          }
-
-          const followedIds = new Set<string>();
-          if (currentUserId) {
-            const { data: followRows, error: followRowsError } = await supabase
-              .from("follows")
-              .select("following_id")
-              .eq("follower_id", currentUserId);
-
-            if (followRowsError) {
-              throw new Error(followRowsError.message);
-            }
-
-            (followRows ?? []).forEach((row) => {
-              if (row.following_id) followedIds.add(row.following_id);
-            });
-          }
-
-          const [
-            { data: users, error: usersError },
-            { data: albums, error: albumsError },
-          ] = await Promise.all([
-            supabase
-              .from("users")
-              .select("id,username,avatar_url")
-              .in("id", authorIds),
-            supabase
-              .from("albums")
-              .select(
-                "id,user_id,description,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
-              )
-              .eq("visibility", "published")
-              .in("user_id", authorIds)
-              .order("created_at", { ascending: false })
-              .limit(EXPLORE_ALBUM_LIMIT),
-          ]);
-
-          if (usersError) {
-            throw new Error(usersError.message);
-          }
-
-          if (albumsError) {
-            throw new Error(albumsError.message);
-          }
-
-          const albumsByUserId = new Map<string, AuthorAlbumRow[]>();
-          const candidatePostIds: string[] = [];
-
-          for (const album of (albums ?? []) as AuthorAlbumRow[]) {
-            const userId = album.user_id ?? "";
-            if (!userId) continue;
-
-            const current = albumsByUserId.get(userId) ?? [];
-            current.push(album);
-            albumsByUserId.set(userId, current);
-
-            for (const item of album.album_posts ?? []) {
-              const post = normalizeAlbumPost(item.post);
-              const postId = post?.id ?? item.post_id ?? null;
-              if (postId) candidatePostIds.push(postId);
-            }
-          }
-
-          const { data: purchases, error: purchasesError } =
-            candidatePostIds.length
-              ? await supabase
-                  .from("purchases")
-                  .select("post_id")
-                  .in("post_id", Array.from(new Set(candidatePostIds)))
-                  .limit(EXPLORE_PURCHASE_LOOKBACK_LIMIT)
-              : { data: [], error: null };
-
-          if (purchasesError) {
-            throw new Error(purchasesError.message);
-          }
-
-          const purchaseCountByPostId = new Map<string, number>();
-          for (const row of purchases ?? []) {
-            const postId = typeof row.post_id === "string" ? row.post_id : null;
-            if (!postId) continue;
-            purchaseCountByPostId.set(
-              postId,
-              (purchaseCountByPostId.get(postId) ?? 0) + 1,
-            );
-          }
-
-          const mapped: ExploreItem[] = ((users ?? []) as UserRow[])
-            .map((user) => {
-              const userId = user.id ?? "";
-              if (!userId || !user.username?.trim()) return null;
-              if (currentUserId && userId === currentUserId) return null;
-
-              const userAlbums = albumsByUserId.get(userId) ?? [];
-              const postCandidates = userAlbums.flatMap(
-                (album) =>
-                  (album.album_posts ?? [])
-                    .map((item) => {
-                      const post = normalizeAlbumPost(item.post);
-                      const postId = post?.id ?? item.post_id ?? null;
-                      if (!postId || !post?.media_url) return null;
-                      if (post.is_locked) return null;
-                      return {
-                        postId,
-                        mediaUrl: post.media_url,
-                        mediaType: post.media_type ?? "image",
-                        description: album.description ?? "",
-                        createdAt: post.created_at ?? album.created_at ?? "",
-                      };
-                    })
-                    .filter(Boolean) as Array<{
-                    postId: string;
-                    mediaUrl: string;
-                    mediaType: string;
-                    description: string;
-                    createdAt: string;
-                  }>,
-              );
-
-              if (postCandidates.length === 0) {
-                return null;
-              }
-
-              const topSellingPost = [...postCandidates].sort((a, b) => {
-                const purchaseDiff =
-                  (purchaseCountByPostId.get(b.postId) ?? 0) -
-                  (purchaseCountByPostId.get(a.postId) ?? 0);
-                if (purchaseDiff !== 0) return purchaseDiff;
-
-                const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-                const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-                return bTime - aTime;
-              })[0];
-
-              const fallbackPost = pickRandomItem(postCandidates);
-              const coverPost =
-                (topSellingPost &&
-                (purchaseCountByPostId.get(topSellingPost.postId) ?? 0) > 0
-                  ? topSellingPost
-                  : fallbackPost) ?? null;
-
-              if (!coverPost) {
-                return null;
-              }
-
-              return {
-                id: userId,
-                mediaUrl: resolvePublicUrl(supabase, coverPost.mediaUrl),
-                mediaType: coverPost.mediaType,
-                username: user.username.trim(),
-                avatar: resolvePublicUrl(supabase, user.avatar_url ?? null),
-                description: coverPost.description,
-                createdAt: coverPost.createdAt,
-                isFollowing: followedIds.has(userId),
-              };
-            })
-            .filter(Boolean) as ExploreItem[];
-
-          mapped.sort((a, b) => {
-            const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return bTime - aTime;
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          const response = await fetch("/api/explore", {
+            headers: session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : undefined,
           });
+          const result = (await response.json()) as {
+            items?: ExploreItem[];
+            error?: string;
+          };
+
+          if (!response.ok) {
+            throw new Error(result.error ?? "No se pudo cargar exploración.");
+          }
+
+          const mapped = (result.items ?? []).map((item) => ({
+            ...item,
+            mediaUrl: resolvePublicUrl(supabase, item.mediaUrl),
+            avatar: resolvePublicUrl(supabase, item.avatar),
+          }));
 
           return { data: mapped };
         } catch (error) {

@@ -15,7 +15,9 @@ const SEED_TAG = "fanpush-dummy-seed-v1";
 const SEED_PAYMENT_PREFIX = "seed-dummy-payment";
 const PUBLIC_BUCKET = "Imagenes";
 const PREMIUM_BUCKET = "premium";
-const SHARED_PASSWORD = "FanpushDemo123!";
+const SHARED_PASSWORD = process.env.DUMMY_SEED_PASSWORD ?? "FanpushDemo123!";
+const DUMMY_SEED_PRODUCTION_BYPASS =
+  process.env.DUMMY_SEED_PRODUCTION_BYPASS ?? process.env.SEED_PASSWORD ?? "";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const NOW = new Date();
@@ -152,11 +154,44 @@ const SUPABASE_URL =
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY ?? "";
 
+const APP_ENV = (
+  process.env.APP_ENV ??
+  process.env.FANPUSH_ENV ??
+  process.env.NEXT_PUBLIC_APP_ENV ??
+  process.env.VERCEL_ENV ??
+  process.env.NODE_ENV ??
+  "development"
+)
+  .trim()
+  .toLowerCase();
+
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   exitWithError(
     "Faltan SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SECRET_KEY.",
   );
 }
+
+const assertSeedAllowed = () => {
+  const isProduction = APP_ENV === "production";
+  if (!isProduction) return;
+
+  const providedPassword = process.env.DUMMY_SEED_PASSWORD_INPUT ?? "";
+  if (!DUMMY_SEED_PRODUCTION_BYPASS) {
+    exitWithError(
+      "El dummy seeder esta bloqueado en production. Defini DUMMY_SEED_PRODUCTION_BYPASS en el ENV para permitir una ejecucion autenticada.",
+    );
+  }
+
+  if (!providedPassword) {
+    exitWithError(
+      "El dummy seeder no puede correr en production sin DUMMY_SEED_PASSWORD_INPUT.",
+    );
+  }
+
+  if (providedPassword !== DUMMY_SEED_PRODUCTION_BYPASS) {
+    exitWithError("DUMMY_SEED_PASSWORD_INPUT no coincide con el password configurado.");
+  }
+};
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: {
@@ -340,6 +375,36 @@ const listSeedPublicUsers = async () => {
     .in("username", usernames);
   throwIfError(error, "No se pudieron leer los usuarios dummy");
   return data ?? [];
+};
+
+const listSeedAuthUsers = async () => {
+  const emails = new Set(Object.values(USERS).map((user) => user.email.toLowerCase()));
+  const foundUsers = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const { data, error } = await admin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+    throwIfError(error, "No se pudieron leer los usuarios auth dummy");
+
+    const users = data?.users ?? [];
+    for (const user of users) {
+      const email = String(user.email ?? "").toLowerCase();
+      if (emails.has(email)) {
+        foundUsers.push(user);
+      }
+    }
+
+    if (users.length < perPage) {
+      break;
+    }
+    page += 1;
+  }
+
+  return foundUsers;
 };
 
 const removeIfExists = async (bucket, storagePath) => {
@@ -1552,14 +1617,30 @@ const createSeedData = async ({ cleanFirst = true } = {}) => {
 }
 
 async function cleanSeedData() {
-  const seedUsers = await listSeedPublicUsers();
-  if (seedUsers.length === 0) {
-    log("No se encontraron usuarios dummy previos.");
+  const [seedUsers, seedAuthUsers] = await Promise.all([
+    listSeedPublicUsers(),
+    listSeedAuthUsers(),
+  ]);
+
+  if (seedUsers.length === 0 && seedAuthUsers.length === 0) {
+    log("No se encontraron usuarios dummy previos ni cuentas auth seed.");
     return;
   }
 
   const userIds = seedUsers.map((user) => user.id);
-  log(`Borrando seed previo para ${seedUsers.map((user) => user.username).join(", ")}...`);
+  const cleanupTargets =
+    seedUsers.length > 0
+      ? seedUsers.map((user) => user.username).join(", ")
+      : seedAuthUsers.map((user) => user.email ?? user.id).join(", ");
+  log(`Borrando seed previo para ${cleanupTargets}...`);
+
+  if (userIds.length === 0) {
+    for (const authUser of seedAuthUsers) {
+      await deleteAuthUser(authUser.id);
+    }
+    log("Seed dummy limpiado. Se borraron cuentas auth huerfanas.");
+    return;
+  }
 
   const { data: ownedPostsRows, error: ownedPostsError } = await admin
     .from("posts")
@@ -1923,7 +2004,19 @@ async function cleanSeedData() {
     ]);
   }
 
-  log("Seed dummy limpiado. Las cuentas auth se preservaron, pero ya no tienen datos visibles.");
+  const publicUserIdSet = new Set(userIds);
+  const authUsersToDelete = seedAuthUsers.filter((user) => publicUserIdSet.has(user.id));
+
+  for (const authUser of authUsersToDelete) {
+    await deleteAuthUser(authUser.id);
+  }
+
+  const orphanAuthUsers = seedAuthUsers.filter((user) => !publicUserIdSet.has(user.id));
+  for (const authUser of orphanAuthUsers) {
+    await deleteAuthUser(authUser.id);
+  }
+
+  log("Seed dummy limpiado. Tambien se borraron las cuentas auth dummy.");
 }
 
 const printHelp = () => {
@@ -1934,6 +2027,8 @@ const printHelp = () => {
 };
 
 const run = async () => {
+  assertSeedAllowed();
+
   switch (MODE) {
     case "reseed":
       await createSeedData({ cleanFirst: true });

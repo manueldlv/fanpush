@@ -170,10 +170,10 @@ export async function GET(request: Request) {
     );
 
     const { data: albumRows, error: albumsError } = albumIds.length
-      ? await admin
+        ? await admin
           .from("albums")
           .select(
-            "id,description,price,album_posts(post_id,post:posts(id,media_url,media_type,is_locked))",
+            "id,description,price,visibility,album_posts(position,post_id,post:posts(id,media_url,media_type,is_locked))",
           )
           .in("id", albumIds)
       : { data: [], error: null };
@@ -230,7 +230,13 @@ export async function GET(request: Request) {
       const albumId = row.album_id;
       const album = albumMap.get(albumId);
 
-      const albumMedia = (album?.album_posts ?? [])
+      const orderedAlbumPosts = Array.isArray(album?.album_posts)
+        ? [...album.album_posts].sort(
+            (left: any, right: any) =>
+              Number(left?.position ?? 0) - Number(right?.position ?? 0),
+          )
+        : [];
+      const albumMedia = orderedAlbumPosts
         .map((item: any) => {
           const rawUrl = item?.post?.media_url ?? item?.media_url ?? null;
           const url = resolvePublicUrl(admin, rawUrl) ?? "";
@@ -272,7 +278,7 @@ export async function GET(request: Request) {
               ? [{ url: fallbackCover, kind: "image" as const }]
               : [],
         status: row.status ?? "Desbloqueado",
-        source: "post",
+        source: album?.visibility === "private" ? "chat" : "post",
         createdAt: row.created_at,
       };
     });

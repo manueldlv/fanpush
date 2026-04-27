@@ -108,6 +108,10 @@ export async function POST(request: Request) {
       status: "requested" as const,
       requestedAt: new Date().toISOString(),
       monthKey,
+      payoutAlias: payoutProfile.alias,
+      payoutHolderName: payoutProfile.holderName,
+      payoutHolderDocument: payoutProfile.holderDocument,
+      payoutBank: payoutProfile.notes ?? "",
     };
 
     await createWithdrawalRequest({ admin, userId: user.id, record });

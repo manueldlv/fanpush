@@ -11,6 +11,29 @@ import {
   type WithdrawalStatus,
 } from "@/lib/withdrawals";
 
+const parseWithdrawalNotes = (value: string | null | undefined) => {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return {
+      payoutAlias:
+        typeof parsed.payoutAlias === "string" ? parsed.payoutAlias : undefined,
+      payoutHolderName:
+        typeof parsed.payoutHolderName === "string"
+          ? parsed.payoutHolderName
+          : undefined,
+      payoutHolderDocument:
+        typeof parsed.payoutHolderDocument === "string"
+          ? parsed.payoutHolderDocument
+          : undefined,
+      payoutBank:
+        typeof parsed.payoutBank === "string" ? parsed.payoutBank : undefined,
+    };
+  } catch {
+    return {};
+  }
+};
+
 const mapTableStatusToLegacy = (
   value: string,
 ): WithdrawalStatus => {
@@ -33,7 +56,7 @@ export const getWithdrawalRequestById = async (
 ) => {
   const { data: tableRow, error: tableError } = await admin
     .from("withdrawal_requests")
-    .select("id,user_id,amount,status,requested_at,month_key")
+    .select("id,user_id,amount,status,requested_at,month_key,notes")
     .eq("id", id)
     .maybeSingle();
 
@@ -42,6 +65,7 @@ export const getWithdrawalRequestById = async (
   }
 
   if (tableRow) {
+    const payoutSnapshot = parseWithdrawalNotes(tableRow.notes);
     return {
       id: tableRow.id,
       userId: tableRow.user_id,
@@ -51,6 +75,10 @@ export const getWithdrawalRequestById = async (
         status: mapTableStatusToLegacy(tableRow.status),
         requestedAt: tableRow.requested_at,
         monthKey: tableRow.month_key || "",
+        payoutAlias: payoutSnapshot.payoutAlias,
+        payoutHolderName: payoutSnapshot.payoutHolderName,
+        payoutHolderDocument: payoutSnapshot.payoutHolderDocument,
+        payoutBank: payoutSnapshot.payoutBank,
       } satisfies WithdrawalRecord,
     };
   }
@@ -63,7 +91,7 @@ export const listWithdrawalRequestsByUserId = async (
 ) => {
   const { data: tableRows, error: tableError } = await admin
     .from("withdrawal_requests")
-    .select("id,amount,status,requested_at,month_key")
+    .select("id,amount,status,requested_at,month_key,notes")
     .eq("user_id", userId)
     .order("requested_at", { ascending: false });
 
@@ -71,16 +99,25 @@ export const listWithdrawalRequestsByUserId = async (
     throw new Error(`No se pudieron leer los retiros: ${tableError.message}`);
   }
 
-  return (tableRows ?? []).map((row) => ({
-    id: row.id,
-    createdAt: row.requested_at,
-    record: {
-      amount: Number(row.amount || 0),
-      status: mapTableStatusToLegacy(row.status),
-      requestedAt: row.requested_at,
-      monthKey: row.month_key || "",
-    } satisfies WithdrawalRecord,
-  })).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  return (tableRows ?? [])
+    .map((row) => {
+      const payoutSnapshot = parseWithdrawalNotes(row.notes);
+      return {
+        id: row.id,
+        createdAt: row.requested_at,
+        record: {
+          amount: Number(row.amount || 0),
+          status: mapTableStatusToLegacy(row.status),
+          requestedAt: row.requested_at,
+          monthKey: row.month_key || "",
+          payoutAlias: payoutSnapshot.payoutAlias,
+          payoutHolderName: payoutSnapshot.payoutHolderName,
+          payoutHolderDocument: payoutSnapshot.payoutHolderDocument,
+          payoutBank: payoutSnapshot.payoutBank,
+        } satisfies WithdrawalRecord,
+      };
+    })
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 };
 
 export const createWithdrawalRequest = async ({
@@ -114,6 +151,25 @@ export const createWithdrawalRequest = async ({
 
   if (error) {
     throw new Error(`No se pudo guardar la solicitud de retiro: ${error.message}`);
+  }
+
+  const { error: tableError } = await admin.from("withdrawal_requests").insert({
+    id: withdrawalId,
+    user_id: userId,
+    amount: record.amount,
+    status: "requested",
+    notes: JSON.stringify({
+      payoutAlias: record.payoutAlias ?? "",
+      payoutHolderName: record.payoutHolderName ?? "",
+      payoutHolderDocument: record.payoutHolderDocument ?? "",
+      payoutBank: record.payoutBank ?? "",
+    }),
+    requested_at: record.requestedAt,
+    month_key: record.monthKey,
+  });
+
+  if (tableError) {
+    throw new Error(`No se pudo guardar la solicitud de retiro en tabla: ${tableError.message}`);
   }
 };
 

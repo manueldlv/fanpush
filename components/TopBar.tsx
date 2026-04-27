@@ -151,7 +151,6 @@ export default function TopBar() {
   );
   const profile = viewer?.profile;
   const balance = viewer?.commerce.balance ?? 0;
-  const isAuthor = viewer?.access.isAuthor ?? false;
   const previewNotifications = (notificationsData?.activity ?? []).slice(0, 6);
   const followActorIdsKey = useMemo(
     () =>
@@ -491,13 +490,9 @@ export default function TopBar() {
           ) : (
             <button
               type="button"
-              onClick={() => router.push(isAuthor && balance > 0 ? "/ventas" : "/saldo")}
+              onClick={() => router.push("/saldo")}
               className="inline-flex h-[42px] items-center gap-2 rounded-full border border-[#5A3EE7] bg-white px-4 text-[#5A3EE7] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#faf8ff]"
-              aria-label={
-                isAuthor && balance > 0
-                  ? "Ir a mis ventas"
-                  : "Ir a mi saldo para recargar"
-              }
+              aria-label="Ir a mi saldo"
             >
               <Image
                 src="/brand-lightning.png"

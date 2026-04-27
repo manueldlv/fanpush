@@ -5,6 +5,10 @@ export type WithdrawalRecord = {
   status: WithdrawalStatus;
   requestedAt: string;
   monthKey: string;
+  payoutAlias?: string;
+  payoutHolderName?: string;
+  payoutHolderDocument?: string;
+  payoutBank?: string;
 };
 
 const PREFIX = "withdrawal_request:";

@@ -52,6 +52,10 @@ type WithdrawalItem = {
   statusLabel: string;
   requestedAt: string;
   monthKey: string;
+  payoutAlias?: string;
+  payoutHolderName?: string;
+  payoutHolderDocument?: string;
+  payoutBank?: string;
 };
 
 type CheckoutPreferenceArg =

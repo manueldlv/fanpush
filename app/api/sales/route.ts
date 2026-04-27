@@ -33,6 +33,33 @@ type WithdrawalItem = {
   statusLabel: string;
   requestedAt: string;
   monthKey: string;
+  payoutAlias?: string;
+  payoutHolderName?: string;
+  payoutHolderDocument?: string;
+  payoutBank?: string;
+};
+
+const parseWithdrawalNotes = (value: string | null | undefined) => {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return {
+      payoutAlias:
+        typeof parsed.payoutAlias === "string" ? parsed.payoutAlias : undefined,
+      payoutHolderName:
+        typeof parsed.payoutHolderName === "string"
+          ? parsed.payoutHolderName
+          : undefined,
+      payoutHolderDocument:
+        typeof parsed.payoutHolderDocument === "string"
+          ? parsed.payoutHolderDocument
+          : undefined,
+      payoutBank:
+        typeof parsed.payoutBank === "string" ? parsed.payoutBank : undefined,
+    };
+  } catch {
+    return {};
+  }
 };
 
 const SALES_POST_LIMIT = 500;
@@ -109,7 +136,7 @@ export async function GET(request: Request) {
         .limit(SALES_EVENT_LIMIT),
       admin
         .from("withdrawal_requests")
-        .select("id,amount,status,requested_at,month_key")
+        .select("id,amount,status,requested_at,month_key,notes")
         .eq("user_id", userId)
         .order("requested_at", { ascending: false })
         .limit(WITHDRAWAL_HISTORY_LIMIT),
@@ -159,7 +186,7 @@ export async function GET(request: Request) {
       albumIds.length
         ? admin
             .from("albums")
-            .select("id,description,price,album_posts(post:posts(media_type))")
+            .select("id,description,price,visibility,album_posts(position,post:posts(media_type))")
             .in("id", albumIds)
         : Promise.resolve({ data: [], error: null }),
       albumIds.length
@@ -241,7 +268,10 @@ export async function GET(request: Request) {
             ? "Video"
             : "Foto";
       const albumMediaRows = Array.isArray(album?.album_posts)
-        ? album.album_posts
+        ? [...album.album_posts].sort(
+            (left: any, right: any) =>
+              Number(left?.position ?? 0) - Number(right?.position ?? 0),
+          )
         : [];
       const imageCount =
         albumMediaRows.length > 0
@@ -269,7 +299,10 @@ export async function GET(request: Request) {
         albumId,
         type,
         title: buildSaleContentSummary(imageCount, videoCount),
-        href: `/perfil?post=${encodeURIComponent(albumId)}`,
+        href:
+          album?.visibility === "private"
+            ? undefined
+            : `/perfil?post=${encodeURIComponent(albumId)}`,
         count: 1,
         total: 0,
         createdAt: row.created_at,
@@ -359,6 +392,7 @@ export async function GET(request: Request) {
 
     const withdrawals: WithdrawalItem[] = (withdrawalsResult.data ?? []).map(
       (row) => {
+        const payoutSnapshot = parseWithdrawalNotes(row.notes);
         const status =
           row.status === "paid"
             ? ("sent" as const)
@@ -372,6 +406,10 @@ export async function GET(request: Request) {
           statusLabel: getWithdrawalStatusLabel(status),
           requestedAt: row.requested_at,
           monthKey: row.month_key || "",
+          payoutAlias: payoutSnapshot.payoutAlias,
+          payoutHolderName: payoutSnapshot.payoutHolderName,
+          payoutHolderDocument: payoutSnapshot.payoutHolderDocument,
+          payoutBank: payoutSnapshot.payoutBank,
         };
       },
     );

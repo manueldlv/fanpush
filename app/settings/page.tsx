@@ -1,8 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Ban, Bell, Copy, Landmark, User, Users } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Ban,
+  Bell,
+  Copy,
+  Image as ImageIcon,
+  Landmark,
+  Star,
+  Trash2,
+  User,
+  Users,
+} from "lucide-react";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
@@ -29,6 +41,7 @@ import {
   type NotificationPreferenceCategory,
 } from "@/lib/notificationPreferences";
 import { normalizeWebsite } from "@/lib/profileDetails";
+import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import { MAX_AVATAR_IMAGE_BYTES, validateImageFile } from "@/lib/imageFiles";
 import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -62,12 +75,28 @@ function ToggleSwitch({
 }
 
 export default function SettingsPage() {
+  type ChatContentAlbum = {
+    id: string;
+    title: string;
+    price: number;
+    coverUrl: string;
+    itemCount: number;
+    visibility: string;
+    posts?: Array<{
+      postId: string;
+      previewUrl: string;
+      kind: "image" | "video";
+      position: number;
+    }>;
+  };
+  const router = useRouter();
   const searchParams = useSearchParams();
   const dispatch = useAppDispatch();
   const {
     userId: currentUserId,
     session,
     username: viewerUsername,
+    canCreate,
   } = useViewerSession();
   const { data: settingsData } = useGetSettingsQuery();
   const [updateProfile] = useUpdateProfileMutation();
@@ -82,7 +111,7 @@ export default function SettingsPage() {
     ]));
   };
   const [activeTab, setActiveTab] = useState<
-    "profile" | "notifications" | "payments" | "referrals" | "blocked"
+    "profile" | "notifications" | "payments" | "referrals" | "blocked" | "chat-content"
   >(
     "profile",
   );
@@ -115,6 +144,16 @@ export default function SettingsPage() {
   const [blockedUsers, setBlockedUsers] = useState<BlockedChatUser[]>([]);
   const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
   const [copiedReferralLink, setCopiedReferralLink] = useState(false);
+  const [chatAlbums, setChatAlbums] = useState<ChatContentAlbum[]>([]);
+  const [chatAlbumsLoading, setChatAlbumsLoading] = useState(false);
+  const [deletingChatAlbumId, setDeletingChatAlbumId] = useState<string | null>(null);
+  const [editingChatAlbumId, setEditingChatAlbumId] = useState<string | null>(null);
+  const [editingChatAlbumTitle, setEditingChatAlbumTitle] = useState("");
+  const [editingChatAlbumPrice, setEditingChatAlbumPrice] = useState("");
+  const [editingChatAlbumPosts, setEditingChatAlbumPosts] = useState<
+    NonNullable<ChatContentAlbum["posts"]>
+  >([]);
+  const [savingChatAlbumId, setSavingChatAlbumId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsData) return;
@@ -136,16 +175,21 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
+    if (requestedTab === "chat-content" && !canCreate) {
+      setActiveTab("profile");
+      return;
+    }
     if (
       requestedTab === "profile" ||
       requestedTab === "notifications" ||
       requestedTab === "payments" ||
       requestedTab === "referrals" ||
-      requestedTab === "blocked"
+      requestedTab === "blocked" ||
+      requestedTab === "chat-content"
     ) {
       setActiveTab(requestedTab);
     }
-  }, [searchParams]);
+  }, [canCreate, searchParams]);
 
   useEffect(() => {
     return () => {
@@ -195,6 +239,160 @@ export default function SettingsPage() {
       window.removeEventListener(CHAT_BLOCKED_USERS_UPDATED_EVENT, handleBlockedUpdate);
     };
   }, []);
+
+  useEffect(() => {
+    const loadChatAlbums = async () => {
+      setChatAlbumsLoading(true);
+      try {
+        const supabase = getSupabaseClient();
+        const accessToken = supabase
+          ? await getSessionAccessTokenWithRetry(supabase)
+          : null;
+        const response = await fetch("/api/direct-chats/content-picker", {
+          credentials: "include",
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        });
+        const result = (await response.json()) as {
+          error?: string;
+          chatAlbums?: ChatContentAlbum[];
+        };
+        if (!response.ok) {
+          throw new Error(result.error ?? "No se pudo cargar el contenido de chat.");
+        }
+        setChatAlbums(result.chatAlbums ?? []);
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo cargar el contenido de chat.",
+        );
+      } finally {
+        setChatAlbumsLoading(false);
+      }
+    };
+
+    void loadChatAlbums();
+  }, []);
+
+  const handleDeleteChatAlbum = async (albumId: string) => {
+    try {
+      setDeletingChatAlbumId(albumId);
+      const supabase = getSupabaseClient();
+      const accessToken = supabase
+        ? await getSessionAccessTokenWithRetry(supabase)
+        : null;
+      const response = await fetch(`/api/chat-content/albums/${albumId}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo borrar el álbum.");
+      }
+      setChatAlbums((current) => current.filter((album) => album.id !== albumId));
+      setMessage("Contenido de chat eliminado.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo borrar el álbum.",
+      );
+    } finally {
+      setDeletingChatAlbumId(null);
+    }
+  };
+
+  const startEditingChatAlbum = (album: ChatContentAlbum) => {
+    setEditingChatAlbumId(album.id);
+    setEditingChatAlbumTitle(album.title);
+    setEditingChatAlbumPrice(String(Math.round(album.price)));
+    setEditingChatAlbumPosts([...(album.posts ?? [])].sort((a, b) => a.position - b.position));
+  };
+
+  const cancelEditingChatAlbum = () => {
+    setEditingChatAlbumId(null);
+    setEditingChatAlbumTitle("");
+    setEditingChatAlbumPrice("");
+    setEditingChatAlbumPosts([]);
+  };
+
+  const moveEditingChatAlbumPost = (postId: string, direction: -1 | 1) => {
+    setEditingChatAlbumPosts((current) => {
+      const index = current.findIndex((item) => item.postId === postId);
+      if (index < 0) return current;
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(nextIndex, 0, moved);
+      return next.map((item, itemIndex) => ({ ...item, position: itemIndex }));
+    });
+  };
+
+  const setEditingChatAlbumCover = (postId: string) => {
+    setEditingChatAlbumPosts((current) => {
+      const selected = current.find((item) => item.postId === postId);
+      if (!selected) return current;
+      const next = [selected, ...current.filter((item) => item.postId !== postId)];
+      return next.map((item, index) => ({ ...item, position: index }));
+    });
+  };
+
+  const handleUpdateChatAlbum = async (albumId: string) => {
+    try {
+      setSavingChatAlbumId(albumId);
+      const supabase = getSupabaseClient();
+      const accessToken = supabase
+        ? await getSessionAccessTokenWithRetry(supabase)
+        : null;
+      const response = await fetch(`/api/chat-content/albums/${albumId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          title: editingChatAlbumTitle.trim(),
+          price: Math.min(
+            Math.max(Number(editingChatAlbumPrice || 0), MIN_CONTENT_PRICE_ARS),
+            MAX_CONTENT_PRICE_ARS,
+          ),
+          postIds: editingChatAlbumPosts.map((item) => item.postId),
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        album?: { id: string; title: string; price: number; postIds?: string[] | null };
+      };
+      if (!response.ok || !result.album) {
+        throw new Error(result.error ?? "No se pudo actualizar el álbum.");
+      }
+      setChatAlbums((current) =>
+        current.map((album) =>
+          album.id === albumId
+            ? {
+                ...album,
+                title: result.album!.title,
+                price: result.album!.price,
+                coverUrl: editingChatAlbumPosts[0]?.previewUrl ?? album.coverUrl,
+                posts: editingChatAlbumPosts.map((item, index) => ({
+                  ...item,
+                  position: index,
+                })),
+              }
+            : album,
+        ),
+      );
+      cancelEditingChatAlbum();
+      setMessage("Contenido de chat actualizado, incluyendo portada y orden.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo actualizar el álbum.",
+      );
+    } finally {
+      setSavingChatAlbumId(null);
+    }
+  };
 
   const handleUnblockUser = async (userId: string) => {
     try {
@@ -668,6 +866,20 @@ export default function SettingsPage() {
                   <Ban className="h-4 w-4" />
                   Personas bloqueadas
                 </button>
+                {canCreate ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("chat-content")}
+                    className={`flex w-full cursor-pointer items-center gap-3 rounded-[5px] px-3 py-2 text-left text-sm font-semibold transition ${
+                      activeTab === "chat-content"
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                    }`}
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                    Contenido de chat
+                  </button>
+                ) : null}
               </div>
             </div>
           </aside>
@@ -891,6 +1103,223 @@ export default function SettingsPage() {
                   </div>
                 ) : null}
               </div>
+            ) : activeTab === "chat-content" ? (
+              canCreate ? (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-semibold">Contenido de chat</h1>
+                  <p className="text-sm text-zinc-500">
+                    Biblioteca privada de álbumes creados desde el chat. Solo la ves tú.
+                  </p>
+                </div>
+
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6">
+                  {chatAlbumsLoading ? (
+                    <div className="text-sm text-zinc-500">Cargando contenido privado...</div>
+                  ) : chatAlbums.length === 0 ? (
+                    <div className="rounded-[5px] border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-500">
+                      Todavía no tienes álbumes privados creados desde chat.
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {chatAlbums.map((album) => (
+                        <div
+                          key={album.id}
+                          className="rounded-[18px] border border-zinc-200 bg-zinc-50 p-3"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-[14px] bg-zinc-100">
+                              {album.coverUrl ? (
+                                <img
+                                  src={album.coverUrl}
+                                  alt={album.title}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-zinc-400">
+                                  <ImageIcon className="h-6 w-6" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              {editingChatAlbumId === album.id ? (
+                                <>
+                                  <input
+                                    value={editingChatAlbumTitle}
+                                    onChange={(event) => setEditingChatAlbumTitle(event.target.value)}
+                                    className="w-full rounded-[10px] border border-zinc-200 bg-white px-3 py-2 text-[14px] font-semibold text-zinc-900 outline-none"
+                                  />
+                                  <div className="mt-2">
+                                    <input
+                                      value={editingChatAlbumPrice}
+                                      onChange={(event) =>
+                                        setEditingChatAlbumPrice(
+                                          event.target.value.replace(/[^\d]/g, ""),
+                                        )
+                                      }
+                                      className="w-full rounded-[10px] border border-zinc-200 bg-white px-3 py-2 text-[14px] text-zinc-900 outline-none"
+                                      placeholder={`Mínimo ${MIN_CONTENT_PRICE_ARS}`}
+                                      inputMode="numeric"
+                                    />
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="truncate text-[15px] font-semibold text-zinc-900">
+                                    {album.title}
+                                  </div>
+                                  <div className="mt-1 text-[13px] text-zinc-500">
+                                    {album.itemCount} archivo{album.itemCount === 1 ? "" : "s"}
+                                  </div>
+                                  <div className="mt-2 inline-flex rounded-full bg-[#ede7ff] px-2.5 py-1 text-[12px] font-semibold text-[#5A3EE7]">
+                                    ${album.price.toLocaleString("es-AR")}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {(editingChatAlbumId === album.id
+                            ? editingChatAlbumPosts
+                            : album.posts ?? []
+                          ).length > 0 ? (
+                            <div className="mt-4">
+                              <div className="mb-2 text-[12px] font-medium text-zinc-500">
+                                {editingChatAlbumId === album.id
+                                  ? "Portada y orden del álbum"
+                                  : "Vista previa del contenido"}
+                              </div>
+                              <div className="grid grid-cols-4 gap-2">
+                                {(editingChatAlbumId === album.id
+                                  ? editingChatAlbumPosts
+                                  : album.posts ?? []
+                                ).map((post, index, allPosts) => (
+                                  <div
+                                    key={post.postId}
+                                    className="rounded-[14px] border border-zinc-200 bg-white p-2"
+                                  >
+                                    <div className="relative overflow-hidden rounded-[10px] bg-zinc-100">
+                                      <img
+                                        src={post.previewUrl}
+                                        alt=""
+                                        className="aspect-square h-full w-full object-cover"
+                                      />
+                                      {post.kind === "video" ? (
+                                        <span className="absolute left-1.5 top-1.5 rounded-full bg-black/65 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                          Video
+                                        </span>
+                                      ) : null}
+                                      {index === 0 ? (
+                                        <span className="absolute bottom-1.5 left-1.5 rounded-full bg-[#5A3EE7] px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                          Portada
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {editingChatAlbumId === album.id ? (
+                                      <div className="mt-2 flex items-center justify-between gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => moveEditingChatAlbumPost(post.postId, -1)}
+                                          disabled={index === 0}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-zinc-200 bg-white text-zinc-600 disabled:opacity-40"
+                                          aria-label="Mover a la izquierda"
+                                        >
+                                          <ArrowLeft className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingChatAlbumCover(post.postId)}
+                                          disabled={index === 0}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-zinc-200 bg-white text-zinc-600 disabled:opacity-40"
+                                          aria-label="Usar como portada"
+                                        >
+                                          <Star className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => moveEditingChatAlbumPost(post.postId, 1)}
+                                          disabled={index === allPosts.length - 1}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-zinc-200 bg-white text-zinc-600 disabled:opacity-40"
+                                          aria-label="Mover a la derecha"
+                                        >
+                                          <ArrowRight className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {editingChatAlbumId === album.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateChatAlbum(album.id)}
+                                  disabled={savingChatAlbumId === album.id}
+                                  className="fanpush-button-primary rounded-[12px] px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+                                >
+                                  {savingChatAlbumId === album.id ? "Guardando..." : "Guardar"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEditingChatAlbum}
+                                  className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700"
+                                >
+                                  Cancelar
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditingChatAlbum(album)}
+                                  className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    router.push(
+                                      `/mensajes?composeAlbum=${encodeURIComponent(album.id)}&composeOrigin=chat-library`,
+                                    )
+                                  }
+                                  className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                                >
+                                  Reutilizar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteChatAlbum(album.id)}
+                                  disabled={deletingChatAlbumId === album.id}
+                                  className="inline-flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-zinc-200 bg-white text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-60"
+                                  aria-label="Eliminar álbum de chat"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {message ? (
+                  <div className="rounded-[5px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                    {message}
+                  </div>
+                ) : null}
+              </div>
+              ) : (
+                <div className="rounded-[5px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+                  Esta sección está disponible solo para autores aprobados.
+                </div>
+              )
             ) : activeTab === "payments" ? (
               <div id="cobros-retiros" className="space-y-6 scroll-mt-24">
                 <div>

@@ -7,6 +7,12 @@ import {
   useGetSessionQuery,
 } from "@/lib/redux/api/sessionApi";
 
+const extractQueryErrorMessage = (error: unknown) => {
+  if (!error || typeof error !== "object") return null;
+  const candidate = (error as { error?: unknown }).error;
+  return typeof candidate === "string" ? candidate : null;
+};
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,7 +61,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     hasPathname &&
     !allowWithoutSession &&
     (inAdmin ? adminAccessLoading : sessionLoading);
-  const configError = Boolean(inAdmin ? adminAccessError : sessionError);
+  const authError = inAdmin ? adminAccessError : sessionError;
+  const authErrorMessage = extractQueryErrorMessage(authError);
+  const missingSupabaseConfig = Boolean(
+    authErrorMessage &&
+      (authErrorMessage.includes("Falta configurar Supabase") ||
+        authErrorMessage.includes("NEXT_PUBLIC_SUPABASE_URL") ||
+        authErrorMessage.includes("NEXT_PUBLIC_SUPABASE_ANON_KEY")),
+  );
   const allowed = allowWithoutSession
     ? true
     : inAdmin
@@ -80,7 +93,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       !hasPathname ||
       allowWithoutSession ||
       loading ||
-      configError ||
+      missingSupabaseConfig ||
       allowed
     ) {
       return;
@@ -90,9 +103,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     hasPathname,
     allowWithoutSession,
     allowed,
-    configError,
     inAdmin,
     loading,
+    missingSupabaseConfig,
     pathname,
     router,
   ]);
@@ -107,7 +120,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (configError) {
+  if (missingSupabaseConfig) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
         <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-5 text-sm text-zinc-600 shadow-sm">
@@ -116,6 +129,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+  if (authErrorMessage && !allowed) return null;
   if (!allowed) return null;
 
   return <>{children}</>;

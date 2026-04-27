@@ -1327,13 +1327,13 @@ export default function PerfilPage({
                       </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap items-center gap-2 text-[22px]">
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-[30px] leading-none">
                       {profileGamificationBadges.map((badge, index) => (
                         <div
                           key={`profile-badge-${index}`}
                           className="group relative z-[80]"
                         >
-                          <span className="inline-flex h-8 w-8 items-center justify-center">
+                          <span className="inline-flex h-[30px] w-[30px] items-center justify-center">
                             {badge.icon}
                           </span>
                           <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[120] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
@@ -1361,13 +1361,24 @@ export default function PerfilPage({
 
                     <div className="mt-4 flex flex-wrap gap-3">
                       {isOwnProfile ? (
-                        <button
-                          type="button"
-                          onClick={() => router.push("/settings")}
-                          className="fanpush-button-secondary px-5 py-3"
-                        >
-                          Editar mi perfil
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => router.push("/settings")}
+                            className="fanpush-button-secondary px-5 py-3"
+                          >
+                            Editar mi perfil
+                          </button>
+                          {canCreateContent ? (
+                            <button
+                              type="button"
+                              onClick={() => router.push("/settings?tab=chat-content")}
+                              className="fanpush-button-secondary px-5 py-3"
+                            >
+                              Contenido de chat
+                            </button>
+                          ) : null}
+                        </>
                       ) : currentUserId && viewedUserId ? (
                         <>
                           <button

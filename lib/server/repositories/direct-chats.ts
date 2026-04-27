@@ -6,12 +6,20 @@ import {
 } from "@/lib/accountState";
 import {
   buildDirectPremiumMediaPath,
+  buildPremiumMediaPath,
   inferDisplayKind,
+  parseLockedPreviewPath,
   PREMIUM_MEDIA_BUCKET,
   PUBLIC_MEDIA_BUCKET,
 } from "@/lib/media";
+import {
+  getPurchaseAlbumTarget,
+  hasUserPurchasedAlbum,
+  recordInternalAlbumPurchase,
+} from "@/lib/server/repositories/payments";
 import { createSignedUrlMap } from "@/lib/server/storage";
 import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
+import { processInternalAlbumPurchase } from "@/lib/server/repositories/ledger";
 
 type ThreadRow = {
   id: string;
@@ -221,6 +229,10 @@ const parseAttachments = (
     return attachments;
   }, []);
 };
+
+const parseAlbumId = (
+  metadata: Record<string, unknown> | null | undefined,
+) => (typeof metadata?.albumId === "string" ? metadata.albumId : null);
 
 const buildPremiumCaption = (attachments: DirectChatAttachmentMeta[]) => {
   const photos = attachments.filter(
@@ -708,9 +720,16 @@ export const getDirectThread = async ({
   );
 
   const orderedMessageRows = [...(messageRows ?? [])].reverse();
+  const albumIds = Array.from(
+    new Set(
+      orderedMessageRows
+        .map((message) => parseAlbumId(message.metadata))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
 
   const premiumMessageIds = orderedMessageRows
-    .filter((message) => message.kind === "premium")
+    .filter((message) => message.kind === "premium" && !parseAlbumId(message.metadata))
     .map((message) => message.id);
   const { data: purchaseRows, error: purchasesError } = premiumMessageIds.length
     ? await admin
@@ -729,8 +748,69 @@ export const getDirectThread = async ({
   );
   const attachmentsByMessageId = new Map<string, DirectChatAttachmentMeta[]>();
   const premiumPathsToSign: string[] = [];
+  const { data: albumRows, error: albumError } = albumIds.length
+    ? await admin
+        .from("albums")
+        .select(
+          "id,user_id,description,price,visibility,album_posts(position,post_id,post:posts(id,media_url,media_type,is_locked))",
+        )
+        .in("id", albumIds)
+        .in("visibility", ["published", "private"])
+    : { data: [], error: null };
+
+  throwRepositoryError(albumError, "No se pudo leer el contenido del chat");
+  const albumMap = new Map((albumRows ?? []).map((row) => [row.id as string, row]));
+  const albumPostRows = (albumRows ?? []).flatMap((row) =>
+    Array.isArray(row.album_posts) ? row.album_posts : [],
+  ) as Array<{
+    post_id: string;
+    post: {
+      id: string;
+      media_url: string | null;
+      media_type: string | null;
+      is_locked: boolean | null;
+    } | null;
+  }>;
+  const albumPostIds = Array.from(new Set(albumPostRows.map((row) => row.post_id).filter(Boolean)));
+  const { data: albumPurchaseRows, error: albumPurchasesError } = albumPostIds.length
+    ? await admin
+        .from("purchases")
+        .select("post_id")
+        .eq("user_id", viewerUserId)
+        .in("post_id", albumPostIds)
+    : { data: [], error: null };
+
+  throwRepositoryError(albumPurchasesError, "No se pudieron leer las compras del contenido");
+  const purchasedAlbumPostIds = new Set((albumPurchaseRows ?? []).map((row) => row.post_id as string));
+  const signedAlbumPremiumPaths = new Set<string>();
 
   orderedMessageRows.forEach((message) => {
+    const albumId = parseAlbumId(message.metadata);
+    if (albumId) {
+      const album = albumMap.get(albumId);
+      const albumPosts = Array.isArray(album?.album_posts)
+        ? [...album.album_posts].sort(
+            (left: any, right: any) =>
+              Number(left?.position ?? 0) - Number(right?.position ?? 0),
+          )
+        : [];
+      const canSeeAlbum =
+        message.sender_id === viewerUserId ||
+        albumPosts.some((row) => row.post_id && purchasedAlbumPostIds.has(row.post_id));
+      if (canSeeAlbum) {
+        albumPosts.forEach((row) => {
+          const path = row.post?.media_url ?? null;
+          const parsed = parseLockedPreviewPath(path);
+          if (parsed && album?.user_id) {
+            signedAlbumPremiumPaths.add(
+              buildPremiumMediaPath(album.user_id as string, parsed.token, parsed.originalExt),
+            );
+          }
+        });
+      }
+      attachmentsByMessageId.set(message.id, []);
+      return;
+    }
     const attachments = parseAttachments(message.metadata);
     attachmentsByMessageId.set(message.id, attachments);
     const canSeePremium =
@@ -747,7 +827,7 @@ export const getDirectThread = async ({
   const signedPremiumUrls = await createSignedUrlMap({
     admin,
     bucket: PREMIUM_MEDIA_BUCKET,
-    paths: premiumPathsToSign,
+    paths: [...premiumPathsToSign, ...signedAlbumPremiumPaths],
     expiresIn: 60 * 5,
   });
 
@@ -778,17 +858,97 @@ export const getDirectThread = async ({
       } satisfies DirectMessageView;
     }
 
+    const albumId = parseAlbumId(message.metadata);
     const attachments = attachmentsByMessageId.get(message.id) ?? [];
     const canSeePremium =
       message.kind === "attachment" ||
       message.sender_id === viewerUserId ||
       purchasedIds.has(message.id);
 
+    if (message.kind === "premium" && albumId) {
+      const album = albumMap.get(albumId);
+      const albumPosts = Array.isArray(album?.album_posts)
+        ? [...album.album_posts].sort(
+            (left: any, right: any) =>
+              Number(left?.position ?? 0) - Number(right?.position ?? 0),
+          )
+        : [];
+      const canSeeAlbum =
+        message.sender_id === viewerUserId ||
+        albumPosts.some((row) => row.post_id && purchasedAlbumPostIds.has(row.post_id));
+      const resolvedAlbumPreviews = albumPosts
+        .map((row) => {
+          const post = row.post;
+          if (!post) return null;
+          const previewUrl = resolvePublicUrl(admin, post.media_url);
+          if (!previewUrl) return null;
+          let finalUrl = previewUrl;
+          if (canSeeAlbum && album?.user_id) {
+            const parsed = parseLockedPreviewPath(post.media_url);
+            if (parsed) {
+              const premiumPath = buildPremiumMediaPath(
+                album.user_id as string,
+                parsed.token,
+                parsed.originalExt,
+              );
+              finalUrl = signedPremiumUrls.get(premiumPath) || previewUrl;
+            }
+          }
+          return {
+            id: post.id,
+            name: "archivo",
+            kind: post.media_type === "video" ? ("video" as const) : ("foto" as const),
+            previewUrl: finalUrl,
+            previewMode: post.is_locked ? ("locked" as const) : ("preview" as const),
+          };
+        })
+        .filter(Boolean) as DirectMessageView extends infer _T ? Array<{
+          id: string;
+          name: string;
+          kind: "foto" | "video";
+          previewUrl: string;
+          previewMode: "preview" | "locked";
+        }> : never;
+
+      return {
+        id: message.id,
+        kind: "premium",
+        sender: message.sender_id === viewerUserId ? "me" : "them",
+        title:
+          typeof message.metadata?.title === "string"
+            ? message.metadata.title
+            : album?.description?.trim() || "Contenido privado",
+        caption:
+          typeof message.metadata?.caption === "string"
+            ? message.metadata.caption
+            : buildPremiumCaption(
+                resolvedAlbumPreviews.map((item) => ({
+                  id: item.id,
+                  name: item.name,
+                  kind: item.kind,
+                })),
+              ),
+        price:
+          typeof message.metadata?.price === "number"
+            ? message.metadata.price
+            : Number(album?.price || 0),
+        attachmentCount: resolvedAlbumPreviews.length,
+        attachmentPreviews: resolvedAlbumPreviews,
+        status: canSeeAlbum ? "purchased" : "locked",
+        createdAt: formatMessageTimestamp(message.created_at),
+      } satisfies DirectMessageView;
+    }
+
     const resolvedPreviews = attachments.map((attachment) => {
-      const resolvedPath =
-        canSeePremium && attachment.premiumPath
+      const resolvedPath = canSeePremium
+        ? attachment.premiumPath
           ? signedPremiumUrls.get(attachment.premiumPath) ||
             resolvePublicUrl(admin, attachment.previewPath)
+          : attachment.publicPath
+            ? resolvePublicUrl(admin, attachment.publicPath)
+            : resolvePublicUrl(admin, attachment.previewPath)
+        : attachment.previewMode === "locked"
+          ? resolvePublicUrl(admin, attachment.previewPath)
           : attachment.publicPath
             ? resolvePublicUrl(admin, attachment.publicPath)
             : resolvePublicUrl(admin, attachment.previewPath);
@@ -1003,6 +1163,61 @@ export const sendDirectMediaMessage = async ({
       attachments,
       price: Number(price ?? 0),
     }),
+  });
+};
+
+export const sendDirectAlbumReferenceMessage = async ({
+  admin,
+  viewerUserId,
+  threadId,
+  albumId,
+}: {
+  admin: SupabaseClient;
+  viewerUserId: string;
+  threadId: string;
+  albumId: string;
+}) => {
+  const album = await getPurchaseAlbumTarget(admin, albumId);
+  if (!album) throw new Error("No encontramos el contenido a enviar.");
+  if (album.userId !== viewerUserId) {
+    throw new Error("Solo puedes enviar álbumes propios en el chat.");
+  }
+
+  const { data: threadRow, error: threadError } = await admin
+    .from("direct_threads")
+    .select(
+      "id,participant_low,participant_high,last_message_preview,last_message_at,last_sender_id",
+    )
+    .eq("id", threadId)
+    .maybeSingle();
+
+  throwRepositoryError(threadError, "No se pudo validar el chat");
+  if (!threadRow) throw new Error("No encontramos el chat.");
+  if (
+    ![threadRow.participant_low, threadRow.participant_high].includes(viewerUserId)
+  ) {
+    throw new Error("No autorizado para enviar contenido en este chat.");
+  }
+
+  const metadata = {
+    albumId,
+    title: album.description?.trim() || "Contenido privado",
+    price: Math.max(Number(album.price ?? 0), 0),
+  };
+
+  const { error: messageError } = await admin.from("direct_messages").insert({
+    thread_id: threadId,
+    sender_id: viewerUserId,
+    kind: "premium",
+    metadata,
+  });
+
+  throwRepositoryError(messageError, "No se pudo enviar el contenido");
+  await touchThreadAfterMessage({
+    admin,
+    thread: threadRow as ThreadRow,
+    senderUserId: viewerUserId,
+    preview: `Contenido privado · $${Math.round(Number(album.price ?? 0))}`,
   });
 };
 
@@ -1308,6 +1523,48 @@ export const purchaseDirectPremiumMessage = async ({
   viewerUserId: string;
   messageId: string;
 }) => {
+  const { data: messageRow, error: messageError } = await admin
+    .from("direct_messages")
+    .select("id,thread_id,sender_id,metadata")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  throwRepositoryError(messageError, "No se pudo validar el contenido del chat");
+  const albumId = parseAlbumId((messageRow?.metadata as Record<string, unknown> | null) ?? null);
+  if (albumId) {
+    const album = await getPurchaseAlbumTarget(admin, albumId);
+    if (!album) throw new Error("No encontramos el contenido del chat.");
+    if (album.userId === viewerUserId) {
+      throw new Error("No puedes comprar tu propio contenido.");
+    }
+    if (await hasUserPurchasedAlbum(admin, viewerUserId, albumId)) {
+      throw new Error("Ya habías comprado este contenido.");
+    }
+    const result = await processInternalAlbumPurchase({
+      admin,
+      buyerUserId: viewerUserId,
+      albumId,
+    });
+    if (result.sellerUserId) {
+      await recordInternalAlbumPurchase({
+        admin,
+        buyerUserId: viewerUserId,
+        albumId,
+        transactionId: result.transactionId,
+        amount: result.transactionAmount,
+        sellerUserId: result.sellerUserId,
+      });
+    }
+    return {
+      transactionId: result.transactionId,
+      sellerUserId: result.sellerUserId ?? album.userId,
+      threadId: messageRow?.thread_id as string,
+      amount: result.transactionAmount,
+      creatorAmount: result.creatorAmount,
+      platformFeeAmount: result.platformFeeAmount,
+    };
+  }
+
   const { data, error } = await admin.rpc(
     "process_internal_direct_message_purchase",
     {

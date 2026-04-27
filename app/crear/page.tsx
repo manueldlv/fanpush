@@ -19,6 +19,10 @@ import {
   type ContentAudience,
   type ModerationCategory,
 } from "@/lib/contentClassification";
+import {
+  createLockedImagePreviewFile,
+  createLockedVideoPreviewFile,
+} from "@/lib/lockedPreview";
 import { getExtensionFromFile } from "@/lib/media";
 import { useAppDispatch } from "@/lib/redux/hooks";
 import { feedApi } from "@/lib/redux/api/feedApi";
@@ -272,79 +276,6 @@ export default function CrearPage() {
     };
   }, [enteredPrice]);
 
-  const createImagePreviewFile = async (item: UploadItem) => {
-    const bitmap = await createImageBitmap(item.file);
-    const canvas = document.createElement("canvas");
-    const ratio = bitmap.width / bitmap.height || 1;
-    const width = Math.min(900, bitmap.width);
-    const height = Math.round(width / ratio);
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("No se pudo preparar la vista previa.");
-    ctx.filter = "blur(10px)";
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.72),
-    );
-    if (!blob) {
-      throw new Error(`No se pudo generar la vista previa de ${item.file.name}.`);
-    }
-    return new File([blob], `${item.id}-preview.jpg`, { type: "image/jpeg" });
-  };
-
-  const createVideoPreviewFile = async (item: UploadItem) => {
-    const video = document.createElement("video");
-    video.src = item.url;
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "metadata";
-
-    await new Promise<void>((resolve, reject) => {
-      video.onloadeddata = () => resolve();
-      video.onerror = () => reject(new Error("No se pudo generar la miniatura del video."));
-    });
-
-    const captureTime =
-      Number.isFinite(video.duration) && video.duration > 0.5 ? 0.3 : 0;
-
-    await new Promise<void>((resolve, reject) => {
-      const done = () => {
-        video.removeEventListener("seeked", done);
-        resolve();
-      };
-      video.addEventListener("seeked", done, { once: true });
-      try {
-        video.currentTime = captureTime;
-      } catch {
-        resolve();
-      }
-      window.setTimeout(resolve, 250);
-      video.onerror = () =>
-        reject(new Error("No se pudo capturar la miniatura del video."));
-    });
-
-    const width = Math.min(video.videoWidth || 1280, 960);
-    const height =
-      Math.round(width / ((video.videoWidth || 1280) / (video.videoHeight || 720))) ||
-      720;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("No se pudo preparar la miniatura del video.");
-    ctx.filter = "blur(8px)";
-    ctx.drawImage(video, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.72),
-    );
-    if (!blob) {
-      throw new Error(`No se pudo generar la vista previa de ${item.file.name}.`);
-    }
-    return new File([blob], `${item.id}-preview.jpg`, { type: "image/jpeg" });
-  };
-
   const handlePublish = async () => {
     if (items.length === 0 || publishing) return;
     if (monetization === "paid" && enteredPrice < MIN_CONTENT_PRICE_ARS) {
@@ -391,8 +322,12 @@ export default function CrearPage() {
           if (monetization === "paid" && !isPreview) {
             const previewFile =
               item.kind === "video"
-                ? await createVideoPreviewFile(item)
-                : await createImagePreviewFile(item);
+                ? await createLockedVideoPreviewFile({
+                    file: item.file,
+                    sourceUrl: item.url,
+                    id: item.id,
+                  })
+                : await createLockedImagePreviewFile(item.file, item.id);
             formData.append(`preview_${index}`, previewFile);
           }
 

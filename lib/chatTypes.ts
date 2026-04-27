@@ -22,11 +22,14 @@ export type MessageItem =
     }
   | {
       id: string;
+      localId?: string;
       kind: "attachment";
       sender: "me" | "them";
       body?: string;
       attachments: AttachmentPreview[];
       createdAt: string;
+      deliveryStatus?: "local" | "sent" | "failed";
+      syncError?: string | null;
     }
   | {
       id: string;
@@ -37,6 +40,7 @@ export type MessageItem =
     }
   | {
       id: string;
+      localId?: string;
       kind: "premium";
       sender: "me" | "them";
       title: string;
@@ -46,6 +50,8 @@ export type MessageItem =
       attachmentPreviews: AttachmentPreview[];
       status: "locked" | "purchased";
       createdAt: string;
+      deliveryStatus?: "local" | "sent" | "failed";
+      syncError?: string | null;
     };
 
 export type PremiumMessageItem = Extract<MessageItem, { kind: "premium" }>;
@@ -78,4 +84,3 @@ export type ThreadPageInfo = {
   hasMoreOlder: boolean;
   oldestCursor: string | null;
 };
-

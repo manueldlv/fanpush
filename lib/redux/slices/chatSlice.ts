@@ -189,6 +189,41 @@ const chatSlice = createSlice({
       state.threadOrder = [action.payload.threadId, ...state.threadOrder.filter((id) => id !== action.payload.threadId)];
       sortThreads(state);
     },
+    enqueueOutgoingPremium(
+      state,
+      action: PayloadAction<{ threadId: string; message: MessageItem }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      entry.messages.push(action.payload.message);
+      entry.summary.preview = "Contenido privado";
+      entry.summary.lastMessageAt = new Date().toISOString();
+      entry.summary.lastSeen = "Ahora";
+      entry.lastFetchedAt = Date.now();
+      state.threadOrder = [action.payload.threadId, ...state.threadOrder.filter((id) => id !== action.payload.threadId)];
+      sortThreads(state);
+    },
+    enqueueOutgoingAttachment(
+      state,
+      action: PayloadAction<{ threadId: string; message: MessageItem }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      entry.messages.push(action.payload.message);
+      entry.summary.preview =
+        action.payload.message.kind === "attachment"
+          ? action.payload.message.attachments.length > 1
+            ? `${action.payload.message.attachments.length} archivos`
+            : action.payload.message.attachments[0]?.kind === "video"
+              ? "Video"
+              : "Foto"
+          : entry.summary.preview;
+      entry.summary.lastMessageAt = new Date().toISOString();
+      entry.summary.lastSeen = "Ahora";
+      entry.lastFetchedAt = Date.now();
+      state.threadOrder = [action.payload.threadId, ...state.threadOrder.filter((id) => id !== action.payload.threadId)];
+      sortThreads(state);
+    },
     confirmOutgoingText(
       state,
       action: PayloadAction<{ threadId: string; localId: string; serverMessage: MessageItem }>,
@@ -211,6 +246,51 @@ const chatSlice = createSlice({
       state.threadOrder = [action.payload.threadId, ...state.threadOrder.filter((id) => id !== action.payload.threadId)];
       sortThreads(state);
     },
+    confirmOutgoingPremium(
+      state,
+      action: PayloadAction<{ threadId: string; localId: string; serverMessage: MessageItem }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      const index = entry.messages.findIndex((message) => message.id === action.payload.localId);
+      if (index >= 0) {
+        entry.messages[index] = action.payload.serverMessage;
+      } else {
+        entry.messages.push(action.payload.serverMessage);
+      }
+      entry.summary.preview = "Contenido privado";
+      entry.summary.lastMessageAt = new Date().toISOString();
+      entry.summary.lastSeen = "Ahora";
+      entry.lastFetchedAt = Date.now();
+      state.threadOrder = [action.payload.threadId, ...state.threadOrder.filter((id) => id !== action.payload.threadId)];
+      sortThreads(state);
+    },
+    confirmOutgoingAttachment(
+      state,
+      action: PayloadAction<{ threadId: string; localId: string; serverMessage: MessageItem }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      const index = entry.messages.findIndex((message) => message.id === action.payload.localId);
+      if (index >= 0) {
+        entry.messages[index] = action.payload.serverMessage;
+      } else {
+        entry.messages.push(action.payload.serverMessage);
+      }
+      entry.summary.preview =
+        action.payload.serverMessage.kind === "attachment"
+          ? action.payload.serverMessage.attachments.length > 1
+            ? `${action.payload.serverMessage.attachments.length} archivos`
+            : action.payload.serverMessage.attachments[0]?.kind === "video"
+              ? "Video"
+              : "Foto"
+          : entry.summary.preview;
+      entry.summary.lastMessageAt = new Date().toISOString();
+      entry.summary.lastSeen = "Ahora";
+      entry.lastFetchedAt = Date.now();
+      state.threadOrder = [action.payload.threadId, ...state.threadOrder.filter((id) => id !== action.payload.threadId)];
+      sortThreads(state);
+    },
     failOutgoingText(
       state,
       action: PayloadAction<{ threadId: string; localId: string; error: string }>,
@@ -219,6 +299,30 @@ const chatSlice = createSlice({
       if (!entry) return;
       const message = entry.messages.find((item) => item.id === action.payload.localId);
       if (message && message.kind === "text") {
+        message.deliveryStatus = "failed";
+        message.syncError = action.payload.error;
+      }
+    },
+    failOutgoingPremium(
+      state,
+      action: PayloadAction<{ threadId: string; localId: string; error: string }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      const message = entry.messages.find((item) => item.id === action.payload.localId);
+      if (message && message.kind === "premium") {
+        message.deliveryStatus = "failed";
+        message.syncError = action.payload.error;
+      }
+    },
+    failOutgoingAttachment(
+      state,
+      action: PayloadAction<{ threadId: string; localId: string; error: string }>,
+    ) {
+      const entry = state.threadsById[action.payload.threadId];
+      if (!entry) return;
+      const message = entry.messages.find((item) => item.id === action.payload.localId);
+      if (message && message.kind === "attachment") {
         message.deliveryStatus = "failed";
         message.syncError = action.payload.error;
       }
@@ -250,8 +354,14 @@ export const {
   loadOlderError,
   upsertThreadFromDetail,
   enqueueOutgoingText,
+  enqueueOutgoingPremium,
+  enqueueOutgoingAttachment,
   confirmOutgoingText,
+  confirmOutgoingPremium,
+  confirmOutgoingAttachment,
   failOutgoingText,
+  failOutgoingPremium,
+  failOutgoingAttachment,
   removeThread,
   markThreadReadLocal,
 } = chatSlice.actions;

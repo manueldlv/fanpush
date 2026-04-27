@@ -35,13 +35,23 @@ import type {
 import {
   CHAT_BLOCKED_USERS_UPDATED_EVENT,
 } from "@/lib/chatPreferences";
+import {
+  createLockedImagePreviewFile,
+  createLockedVideoPreviewFile,
+} from "@/lib/lockedPreview";
 import { getSessionAccessTokenWithRetry } from "@/lib/auth";
 import { MAX_CONTENT_PRICE_ARS, MIN_CONTENT_PRICE_ARS } from "@/lib/pricing";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch, useAppSelector } from "@/lib/redux/hooks";
 import {
+  confirmOutgoingAttachment,
+  confirmOutgoingPremium,
   confirmOutgoingText,
+  enqueueOutgoingAttachment,
+  enqueueOutgoingPremium,
   enqueueOutgoingText,
+  failOutgoingAttachment,
+  failOutgoingPremium,
   failOutgoingText,
   hydrateThreadDetailError,
   hydrateThreadDetailStart,
@@ -86,6 +96,7 @@ const buildPlaceholderPreview = (label: string, tone: string) =>
       <text x="58" y="640" fill="white" font-family="Arial, sans-serif" font-size="56" font-weight="700">${label}</text>
     </svg>`,
   )}`;
+
 
 const EMOJI_OPTIONS = [
   "😀",
@@ -208,6 +219,36 @@ type ThreadResponse = {
       oldestCursor?: string | null;
     };
   };
+};
+
+type ChatPickerAlbum = {
+  id: string;
+  title: string;
+  price: number;
+  coverUrl: string;
+  itemCount: number;
+  visibility: string;
+  posts?: Array<{
+    postId: string;
+    previewUrl: string;
+    kind: "image" | "video";
+    position: number;
+  }>;
+};
+
+type ChatPickerAsset = {
+  postId: string;
+  albumId: string;
+  previewUrl: string;
+  kind: "image" | "video";
+  price: number;
+};
+
+type ChatPickerResponse = {
+  ok: true;
+  albums: ChatPickerAlbum[];
+  chatAlbums: ChatPickerAlbum[];
+  chatAssets: ChatPickerAsset[];
 };
 
 function PremiumComposer({
@@ -525,6 +566,8 @@ function PremiumMessageCard({
 }) {
   const visibleItems = message.attachmentPreviews.slice(0, 6);
   const canSeeContent = message.status === "purchased";
+  const isUploading = own && message.deliveryStatus === "local";
+  const uploadFailed = own && message.deliveryStatus === "failed";
 
   return (
     <div className="relative w-full max-w-[345px] rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
@@ -611,7 +654,16 @@ function PremiumMessageCard({
         ))}
       </div>
 
-      {own ? (
+      {isUploading ? (
+        <div className="mt-3 inline-flex items-center gap-2 rounded-[5px] bg-[#e9e9e9] px-3 py-2 text-[13px] font-semibold text-[#464646]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Cargando contenido...
+        </div>
+      ) : uploadFailed ? (
+        <div className="mt-3 inline-flex rounded-[5px] bg-[#fff1f1] px-3 py-2 text-[13px] font-semibold text-[#b42318]">
+          No se pudo enviar
+        </div>
+      ) : own ? (
         <div className="mt-3 inline-flex rounded-[5px] bg-[#e9e9e9] px-3 py-2 text-[13px] font-semibold text-[#464646]">
           Oferta enviada
         </div>
@@ -674,6 +726,7 @@ function AttachmentMessageCard({
   onToggleMenu,
   onDelete,
   onOpenPreview,
+  deliveryStatus,
 }: {
   attachments: AttachmentPreview[];
   canDelete: boolean;
@@ -681,13 +734,13 @@ function AttachmentMessageCard({
   onToggleMenu: () => void;
   onDelete: () => void;
   onOpenPreview: (index: number) => void;
+  deliveryStatus?: "local" | "sent" | "failed";
 }) {
-  const visibleItems = attachments.slice(0, 4);
-  const extraCount = Math.max(attachments.length - 4, 0);
-  const isSingleAttachment = attachments.length === 1;
+  const isUploading = canDelete && deliveryStatus === "local";
+  const uploadFailed = canDelete && deliveryStatus === "failed";
 
   return (
-    <div className="relative w-full max-w-[345px] rounded-[12px] bg-[#f3f3f3] p-3">
+    <div className="relative w-full max-w-[345px] rounded-[5px] bg-[#f3f3f3] p-4 text-left text-[#161823]">
       {canDelete ? (
         <div
           className="absolute right-3 top-3"
@@ -696,7 +749,7 @@ function AttachmentMessageCard({
           <button
             type="button"
             onClick={onToggleMenu}
-            className="rounded-full p-1.5 text-[#6b7280] transition hover:bg-black/5 hover:text-[#161823]"
+            className="rounded-full bg-white/95 p-1.5 text-[#6b7280] shadow-sm transition hover:bg-white hover:text-[#161823]"
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
@@ -714,42 +767,287 @@ function AttachmentMessageCard({
           ) : null}
         </div>
       ) : null}
-      <div className={`grid gap-2 ${isSingleAttachment ? "grid-cols-1" : "grid-cols-2"}`}>
-        {visibleItems.map((attachment, index) => (
-          <div
+
+      <div className={`grid gap-2 ${attachments.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+        {attachments.slice(0, 4).map((attachment, index) => (
+          <button
             key={attachment.id}
-            className="relative overflow-hidden rounded-[10px] bg-white"
+            type="button"
+            onClick={() => onOpenPreview(index)}
+            className="relative overflow-hidden rounded-[5px] bg-white"
           >
+            {attachment.kind === "video" ? (
+              <video
+                src={attachment.previewUrl}
+                className="aspect-square h-full w-full object-cover"
+                muted
+              />
+            ) : (
+              <img
+                src={attachment.previewUrl}
+                alt={attachment.name}
+                className="aspect-square h-full w-full object-cover"
+              />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {isUploading ? (
+        <div className="mt-3 inline-flex items-center gap-2 rounded-[5px] bg-[#e9e9e9] px-3 py-2 text-[13px] font-semibold text-[#464646]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Cargando archivo...
+        </div>
+      ) : uploadFailed ? (
+        <div className="mt-3 inline-flex rounded-[5px] bg-[#fff1f1] px-3 py-2 text-[13px] font-semibold text-[#b42318]">
+          No se pudo enviar
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ChatContentPicker({
+  open,
+  loading,
+  albums,
+  chatAlbums,
+  chatAssets,
+  sending,
+  notice,
+  selectedAlbumId,
+  selectedAssetIds,
+  virtualAlbumPrice,
+  onClose,
+  onSelectAlbum,
+  onToggleAsset,
+  onVirtualAlbumPriceChange,
+  onSendAlbum,
+  onCreateVirtualAlbum,
+}: {
+  open: boolean;
+  loading: boolean;
+  albums: ChatPickerAlbum[];
+  chatAlbums: ChatPickerAlbum[];
+  chatAssets: ChatPickerAsset[];
+  sending: boolean;
+  notice: string | null;
+  selectedAlbumId: string | null;
+  selectedAssetIds: string[];
+  virtualAlbumPrice: string;
+  onClose: () => void;
+  onSelectAlbum: (albumId: string) => void;
+  onToggleAsset: (postId: string) => void;
+  onVirtualAlbumPriceChange: (value: string) => void;
+  onSendAlbum: () => void;
+  onCreateVirtualAlbum: () => void;
+}) {
+  const [tab, setTab] = useState<"albums" | "chat">("albums");
+
+  useEffect(() => {
+    if (!open) {
+      setTab("albums");
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-end bg-black/45 md:items-center md:justify-center md:p-6">
+      <button type="button" className="absolute inset-0" onClick={onClose} aria-label="Cerrar selector" />
+      <div className="relative z-10 flex h-[88dvh] w-full flex-col rounded-t-[28px] bg-white shadow-2xl md:h-auto md:max-h-[82vh] md:max-w-[760px] md:rounded-[28px]">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 md:px-6">
+          <div>
+            <div className="text-[22px] font-semibold tracking-[-0.03em] text-[#161823]">
+              Elegir contenido
+            </div>
+            <div className="mt-1 text-[13px] text-zinc-500">
+              Envía un álbum existente o arma uno desde tu contenido de chats.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-zinc-500 transition hover:bg-zinc-100"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex gap-2 px-5 pt-4 md:px-6">
+          {[
+            { key: "albums" as const, label: "Álbumes" },
+            { key: "chat" as const, label: "Chats contenido" },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setTab(item.key)}
+              className={`rounded-full px-4 py-2 text-[14px] font-semibold transition ${
+                tab === item.key
+                  ? "bg-[#5A3EE7] text-white"
+                  : "bg-[#f5f5f5] text-zinc-600"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {notice ? (
+          <div className="px-5 pt-4 md:px-6">
+            <div className="rounded-[16px] border border-[#d9cdfc] bg-[#f6f1ff] px-4 py-3 text-[13px] font-medium text-[#4c34b0]">
+              {notice}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4 md:px-6">
+          {loading ? (
+            <div className="py-16 text-center text-[14px] text-zinc-500">
+              Cargando contenido...
+            </div>
+          ) : tab === "albums" ? (
+            albums.length === 0 && chatAlbums.length === 0 ? (
+              <div className="py-16 text-center text-[14px] text-zinc-500">
+                No tienes álbumes para enviar.
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {[...albums, ...chatAlbums].map((album) => (
+                  <button
+                    key={album.id}
+                    type="button"
+                    onClick={() => onSelectAlbum(album.id)}
+                    className={`flex items-center gap-4 rounded-[20px] border p-3 text-left transition ${
+                      selectedAlbumId === album.id
+                        ? "border-[#5A3EE7] bg-[#f7f3ff]"
+                        : "border-zinc-200 bg-white hover:border-zinc-300"
+                    }`}
+                  >
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[14px] bg-zinc-100">
+                      {album.coverUrl ? (
+                        <img src={album.coverUrl} alt={album.title} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-zinc-400">
+                          <Package2 className="h-6 w-6" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[16px] font-semibold text-[#161823]">
+                        {album.title}
+                      </div>
+                      <div className="mt-1 text-[13px] text-zinc-500">
+                        {album.itemCount} archivo{album.itemCount === 1 ? "" : "s"}
+                      </div>
+                      <div className="mt-2">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                            album.visibility === "private"
+                              ? "bg-zinc-200 text-zinc-700"
+                              : "bg-[#eef4ff] text-[#2563eb]"
+                          }`}
+                        >
+                          {album.visibility === "private" ? "Creado en chat" : "Álbum"}
+                        </span>
+                      </div>
+                      <div className="mt-2 inline-flex rounded-full bg-[#ede7ff] px-2.5 py-1 text-[12px] font-semibold text-[#5A3EE7]">
+                        ${formatUnits(album.price)}
+                      </div>
+                    </div>
+                    {selectedAlbumId === album.id ? (
+                      <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#5A3EE7] text-white">
+                        <Check className="h-4 w-4" />
+                      </div>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            )
+          ) : chatAssets.length === 0 ? (
+            <div className="py-16 text-center text-[14px] text-zinc-500">
+              Todavía no tienes contenido privado enviado por chat.
+            </div>
+          ) : (
+            <>
+              <div className="mb-4 text-[13px] text-zinc-500">
+                Selecciona fotos o videos ya enviados. Vamos a crear un álbum virtual privado y enviarlo al chat.
+              </div>
+              <div className="mb-4 rounded-[18px] border border-zinc-200 bg-zinc-50 p-4">
+                <label className="block text-[13px] font-semibold text-zinc-700">
+                  Precio del álbum virtual
+                </label>
+                <input
+                  value={virtualAlbumPrice}
+                  onChange={(event) =>
+                    onVirtualAlbumPriceChange(event.target.value.replace(/[^\d]/g, ""))
+                  }
+                  inputMode="numeric"
+                  placeholder={`${MIN_CONTENT_PRICE_ARS}`}
+                  className="mt-2 w-full rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-[14px] text-zinc-900 outline-none"
+                />
+                <div className="mt-2 text-[12px] text-zinc-500">
+                  Mínimo ARS {MIN_CONTENT_PRICE_ARS.toLocaleString("es-AR")} · Máximo ARS {MAX_CONTENT_PRICE_ARS.toLocaleString("es-AR")}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 md:grid-cols-4">
+                {chatAssets.map((asset) => {
+                  const active = selectedAssetIds.includes(asset.postId);
+                  return (
+                    <button
+                      key={asset.postId}
+                      type="button"
+                      onClick={() => onToggleAsset(asset.postId)}
+                      className={`relative overflow-hidden rounded-[18px] border transition ${
+                        active ? "border-[#5A3EE7]" : "border-zinc-200"
+                      }`}
+                    >
+                      <img src={asset.previewUrl} alt="" className="aspect-square h-full w-full object-cover" />
+                      {asset.kind === "video" ? (
+                        <span className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-semibold text-white">
+                          Video
+                        </span>
+                      ) : null}
+                      {active ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-[#5A3EE7]/28">
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-[#5A3EE7]">
+                            <Check className="h-4 w-4" />
+                          </span>
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="border-t border-zinc-200 px-5 py-4 md:px-6">
+          {tab === "albums" ? (
             <button
               type="button"
-              onClick={() => onOpenPreview(index)}
-              className="block w-full"
+              disabled={!selectedAlbumId || sending}
+              onClick={onSendAlbum}
+              className="fanpush-button-primary w-full rounded-[16px] px-5 py-3 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {attachment.kind === "video" ? (
-                <video
-                  src={attachment.previewUrl}
-                  className={`h-full w-full object-cover ${
-                    isSingleAttachment ? "aspect-[4/5]" : "aspect-square"
-                  }`}
-                  muted
-                />
-              ) : (
-                <img
-                  src={attachment.previewUrl}
-                  alt={attachment.name}
-                  className={`h-full w-full object-cover ${
-                    isSingleAttachment ? "aspect-[4/5]" : "aspect-square"
-                  }`}
-                />
-              )}
+              {sending ? "Enviando..." : "Enviar al chat"}
             </button>
-            {extraCount > 0 && index === visibleItems.length - 1 ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-[15px] font-semibold text-white">
-                +{extraCount}
-              </div>
-            ) : null}
-          </div>
-        ))}
+          ) : (
+            <button
+              type="button"
+              disabled={selectedAssetIds.length === 0 || sending}
+              onClick={onCreateVirtualAlbum}
+              className="fanpush-button-primary w-full rounded-[16px] px-5 py-3 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {sending
+                ? "Creando..."
+                : `Crear álbum virtual y enviar${selectedAssetIds.length ? ` (${selectedAssetIds.length})` : ""}`}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -763,9 +1061,12 @@ export default function MensajesPage() {
   const emojiRef = useRef<HTMLDivElement | null>(null);
   const composeMenuRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollStateRef = useRef<{ threadId: string | null; messageCount: number }>({
+    threadId: null,
+    messageCount: 0,
+  });
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const paidPhotoInputRef = useRef<HTMLInputElement | null>(null);
-  const paidVideoInputRef = useRef<HTMLInputElement | null>(null);
   const paidPackInputRef = useRef<HTMLInputElement | null>(null);
   const prefillHandledRef = useRef(false);
   const { data: viewer, refetch: refetchViewer } = useGetViewerQuery();
@@ -775,6 +1076,8 @@ export default function MensajesPage() {
   const threadsById = useAppSelector((state) => state.chat.threadsById);
   const selectedThreadId = useAppSelector((state) => state.chat.activeThreadId) ?? "";
   const prefillUsername = searchParams.get("user");
+  const composeAlbumId = searchParams.get("composeAlbum");
+  const composeOrigin = searchParams.get("composeOrigin");
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [emojiQuery, setEmojiQuery] = useState("");
@@ -793,13 +1096,55 @@ export default function MensajesPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [composeMenuOpen, setComposeMenuOpen] = useState(false);
+  const [contentPickerOpen, setContentPickerOpen] = useState(false);
+  const [contentPickerLoading, setContentPickerLoading] = useState(false);
+  const [contentPickerSending, setContentPickerSending] = useState(false);
+  const [pickerAlbums, setPickerAlbums] = useState<ChatPickerAlbum[]>([]);
+  const [pickerChatAlbums, setPickerChatAlbums] = useState<ChatPickerAlbum[]>([]);
+  const [pickerChatAssets, setPickerChatAssets] = useState<ChatPickerAsset[]>([]);
+  const [pickerSelectedAlbumId, setPickerSelectedAlbumId] = useState<string | null>(null);
+  const [pickerSelectedAssetIds, setPickerSelectedAssetIds] = useState<string[]>([]);
+  const [pickerVirtualAlbumPrice, setPickerVirtualAlbumPrice] = useState(
+    String(Math.max(MIN_CONTENT_PRICE_ARS, 5500)),
+  );
+  const [pickerNotice, setPickerNotice] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<{
     type: "delete" | "block";
     thread: ThreadSummaryItem;
   } | null>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [chatNotice, setChatNotice] = useState<string | null>(null);
+  const composeAlbumHandledRef = useRef<string | null>(null);
   const canSendPremium = Boolean(viewer?.access.canCreate);
+  const composeMenuOptions = [
+    {
+      key: "tip" as const,
+      label: "Propina",
+      icon: (
+        <img
+          src="/tip-lightning.png"
+          alt=""
+          aria-hidden="true"
+          className="h-4 w-4 object-contain"
+        />
+      ),
+    },
+    ...(canSendPremium
+      ? [
+          {
+            key: "choose-album" as const,
+            label: "Elegir álbum",
+            icon: <Package2 className="h-4 w-4 text-[#2563eb]" />,
+          },
+          {
+            key: "upload-media" as const,
+            label: "Subir foto/video",
+            icon: <Package2 className="h-4 w-4 text-[#16a34a]" />,
+          },
+        ]
+      : []),
+  ];
   const threads = threadOrder
     .map((threadId) => threadsById[threadId]?.summary)
     .filter(Boolean) as ThreadSummaryItem[];
@@ -811,6 +1156,13 @@ export default function MensajesPage() {
       } as ThreadItem)
     : null;
   const loadingThread = selectedThreadCache?.initialLoading ?? false;
+
+  const focusComposerInput = () => {
+    window.requestAnimationFrame(() => {
+      if (!selectedThreadId) return;
+      composerInputRef.current?.focus();
+    });
+  };
 
   const filteredThreads = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -898,6 +1250,56 @@ export default function MensajesPage() {
   }, [prefillUsername]);
 
   useEffect(() => {
+    if (!composeAlbumId || !canSendPremium) return;
+    if (composeAlbumHandledRef.current === composeAlbumId) return;
+    let cancelled = false;
+    composeAlbumHandledRef.current = composeAlbumId;
+
+    const openPickerForAlbum = async () => {
+      setContentPickerLoading(true);
+      try {
+        const result = await chatRequest<ChatPickerResponse>("/api/direct-chats/content-picker");
+        if (cancelled) return;
+        setPickerAlbums(result.albums);
+        setPickerChatAlbums(result.chatAlbums);
+        setPickerChatAssets(result.chatAssets);
+        setPickerSelectedAlbumId(composeAlbumId);
+        setPickerSelectedAssetIds([]);
+        setPickerVirtualAlbumPrice(String(Math.max(MIN_CONTENT_PRICE_ARS, 5500)));
+        setPickerNotice(
+          composeOrigin === "chat-library"
+            ? "Álbum listo para reenviar. Elige el chat y confirma el envío."
+            : "Álbum preseleccionado. Confirma el envío cuando quieras.",
+        );
+        setContentPickerOpen(true);
+        const nextParams = new URLSearchParams(searchParams.toString());
+        nextParams.delete("composeAlbum");
+        nextParams.delete("composeOrigin");
+        const nextQuery = nextParams.toString();
+        router.replace(nextQuery ? `/mensajes?${nextQuery}` : "/mensajes", {
+          scroll: false,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setChatError(
+          error instanceof Error
+            ? error.message
+            : "No se pudo abrir el selector de contenido.",
+        );
+      } finally {
+        if (!cancelled) {
+          setContentPickerLoading(false);
+        }
+      }
+    };
+
+    void openPickerForAlbum();
+    return () => {
+      cancelled = true;
+    };
+  }, [canSendPremium, composeAlbumId, composeOrigin, router, searchParams]);
+
+  useEffect(() => {
     if (!selectedThreadId) return;
     if (selectedThreadCache?.hydrated) {
       dispatch(markThreadReadLocal({ threadId: selectedThreadId }));
@@ -939,6 +1341,122 @@ export default function MensajesPage() {
     };
   }, [dispatch, selectedThreadCache?.hydrated, selectedThreadId]);
 
+  useEffect(() => {
+    if (!selectedThreadId || loadingThread) return;
+    focusComposerInput();
+  }, [loadingThread, selectedThreadId]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    const messageCount = selectedThread?.messages.length ?? 0;
+    const previousState = autoScrollStateRef.current;
+    const threadChanged = previousState.threadId !== selectedThreadId;
+    const messageCountChanged = previousState.messageCount !== messageCount;
+
+    autoScrollStateRef.current = {
+      threadId: selectedThreadId || null,
+      messageCount,
+    };
+
+    if (!container || !selectedThreadId || loadingThread) return;
+
+    if (threadChanged) {
+      window.requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
+      return;
+    }
+
+    if (!messageCountChanged) return;
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+
+    if (distanceFromBottom > 160) return;
+
+    window.requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+  }, [loadingThread, selectedThread?.messages.length, selectedThreadId]);
+
+  const openTipComposer = () => {
+    const availableBalance = viewer?.commerce.balance ?? 0;
+    if (
+      shouldRedirectToSaldo({
+        availableBalance,
+        requiredAmount: MIN_CONTENT_PRICE_ARS,
+      })
+    ) {
+      redirectToSaldo({
+        reason: "insufficient-balance",
+        requiredAmount: MIN_CONTENT_PRICE_ARS,
+        currentBalance: availableBalance,
+        kind: "tip",
+        targetId: selectedThread?.participantUserId ?? null,
+        targetLabel: selectedThread?.username ?? "usuario",
+        targetAvatar: selectedThread?.avatarUrl ?? null,
+      });
+      return;
+    }
+    setTipOpen(true);
+  };
+
+  const loadContentPicker = async () => {
+    setContentPickerLoading(true);
+    try {
+      const result = await chatRequest<ChatPickerResponse>("/api/direct-chats/content-picker");
+      setPickerAlbums(result.albums);
+      setPickerChatAlbums(result.chatAlbums);
+      setPickerChatAssets(result.chatAssets);
+      setPickerSelectedAlbumId(null);
+      setPickerSelectedAssetIds([]);
+      setPickerVirtualAlbumPrice(String(Math.max(MIN_CONTENT_PRICE_ARS, 5500)));
+      setPickerNotice(null);
+      setContentPickerOpen(true);
+      setChatError(null);
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : "No se pudo cargar el contenido del chat.",
+      );
+    } finally {
+      setContentPickerLoading(false);
+    }
+  };
+
+  const sendAlbumReference = async (albumId: string) => {
+    if (!selectedThread) return;
+    setContentPickerSending(true);
+    try {
+      const result = await chatRequest<ThreadResponse>(
+        `/api/direct-chats/threads/${selectedThread.id}/content-reference`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ albumId }),
+        },
+      );
+      const detail = toThreadDetail(result.thread);
+      dispatch(
+        upsertThreadFromDetail({
+          thread: detail,
+          pageInfo: normalizePageInfo(result.thread.pageInfo),
+        }),
+      );
+      setContentPickerOpen(false);
+      setPickerSelectedAlbumId(null);
+      setPickerSelectedAssetIds([]);
+      setPickerNotice("Álbum enviado al chat.");
+      setChatError(null);
+      setChatNotice("Álbum reenviado al chat.");
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : "No se pudo enviar el contenido al chat.",
+      );
+    } finally {
+      setContentPickerSending(false);
+    }
+  };
+
   const appendTextMessage = async () => {
     const body = draft.trim();
     if (!body || !selectedThread) return;
@@ -960,6 +1478,7 @@ export default function MensajesPage() {
       }),
     );
     setDraft("");
+    focusComposerInput();
     setSendingMessage(true);
     try {
       const formData = new FormData();
@@ -1005,6 +1524,7 @@ export default function MensajesPage() {
       );
     } finally {
       setSendingMessage(false);
+      focusComposerInput();
     }
   };
 
@@ -1022,7 +1542,24 @@ export default function MensajesPage() {
 
   const sendDirectAttachments = async (attachments: AttachmentPreview[]) => {
     if (!selectedThread || attachments.length === 0) return;
+    const localId = `local-attachment-${Date.now()}-${crypto.randomUUID()}`;
+    dispatch(
+      enqueueOutgoingAttachment({
+        threadId: selectedThread.id,
+        message: {
+          id: localId,
+          localId,
+          kind: "attachment",
+          sender: "me",
+          attachments: attachments.map((attachment) => ({ ...attachment })),
+          createdAt: "Ahora",
+          deliveryStatus: "local",
+          syncError: null,
+        },
+      }),
+    );
     setSendingMessage(true);
+    focusComposerInput();
     try {
       const formData = new FormData();
       formData.append("kind", "attachment");
@@ -1037,6 +1574,20 @@ export default function MensajesPage() {
       });
       attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
       const detail = toThreadDetail(result.thread);
+      const confirmedMessage = detail.messages[detail.messages.length - 1];
+      if (confirmedMessage?.kind === "attachment" && confirmedMessage.sender === "me") {
+        dispatch(
+          confirmOutgoingAttachment({
+            threadId: selectedThread.id,
+            localId,
+            serverMessage: {
+              ...confirmedMessage,
+              deliveryStatus: "sent",
+              syncError: null,
+            },
+          }),
+        );
+      }
       dispatch(
         upsertThreadFromDetail({
           thread: detail,
@@ -1045,6 +1596,14 @@ export default function MensajesPage() {
       );
       setChatError(null);
     } catch (error) {
+      dispatch(
+        failOutgoingAttachment({
+          threadId: selectedThread.id,
+          localId,
+          error:
+            error instanceof Error ? error.message : "No se pudo enviar el adjunto.",
+        }),
+      );
       setChatError(
         error instanceof Error ? error.message : "No se pudo enviar el adjunto.",
       );
@@ -1073,30 +1632,6 @@ export default function MensajesPage() {
     event.target.value = "";
   };
 
-  const handlePaidPhotoSelected = (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const files = Array.from(event.target.files ?? []).filter((file) =>
-      file.type.startsWith("image/"),
-    );
-    if (files[0]) {
-      openPremiumComposerWithFiles("photo-paid", [files[0]]);
-    }
-    event.target.value = "";
-  };
-
-  const handlePaidVideoSelected = (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const files = Array.from(event.target.files ?? []).filter((file) =>
-      file.type.startsWith("video/"),
-    );
-    if (files[0]) {
-      openPremiumComposerWithFiles("video-paid", [files[0]]);
-    }
-    event.target.value = "";
-  };
-
   const handlePaidPackSelected = (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -1107,9 +1642,48 @@ export default function MensajesPage() {
       )
       .slice(0, 10);
     if (files.length > 0) {
-      openPremiumComposerWithFiles("pack-paid", files);
+      const mode =
+        files.length === 1
+          ? files[0].type.startsWith("video/")
+            ? "video-paid"
+            : "photo-paid"
+          : "pack-paid";
+      openPremiumComposerWithFiles(mode, files);
     }
     event.target.value = "";
+  };
+
+  const createVirtualAlbumAndSend = async () => {
+    if (pickerSelectedAssetIds.length === 0) return;
+    setContentPickerSending(true);
+    try {
+      const selectedAssets = pickerChatAssets.filter((asset) =>
+        pickerSelectedAssetIds.includes(asset.postId),
+      );
+      const inferredPrice = Math.min(
+        Math.max(
+          Number(pickerVirtualAlbumPrice || 0),
+          MIN_CONTENT_PRICE_ARS,
+          ...selectedAssets.map((asset) => Number(asset.price || 0)),
+        ),
+        MAX_CONTENT_PRICE_ARS,
+      );
+      const createResult = await chatRequest<{ ok: true; albumId: string }>(
+        "/api/direct-chats/virtual-albums",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            postIds: pickerSelectedAssetIds,
+            price: inferredPrice,
+            description: "Contenido privado",
+          }),
+        },
+      );
+      await sendAlbumReference(createResult.albumId);
+    } finally {
+      setContentPickerSending(false);
+    }
   };
 
   const threadMenuActions = {
@@ -1410,6 +1984,36 @@ export default function MensajesPage() {
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#161823] md:h-screen md:overflow-hidden">
       <SidebarLeft />
+      <ChatContentPicker
+        open={contentPickerOpen}
+        loading={contentPickerLoading}
+        albums={pickerAlbums}
+        chatAlbums={pickerChatAlbums}
+        chatAssets={pickerChatAssets}
+        sending={contentPickerSending}
+        notice={pickerNotice}
+        selectedAlbumId={pickerSelectedAlbumId}
+        selectedAssetIds={pickerSelectedAssetIds}
+        virtualAlbumPrice={pickerVirtualAlbumPrice}
+        onClose={() => setContentPickerOpen(false)}
+        onSelectAlbum={setPickerSelectedAlbumId}
+        onToggleAsset={(postId) =>
+          setPickerSelectedAssetIds((current) =>
+            current.includes(postId)
+              ? current.filter((item) => item !== postId)
+              : [...current, postId],
+          )
+        }
+        onVirtualAlbumPriceChange={setPickerVirtualAlbumPrice}
+        onSendAlbum={() => {
+          if (pickerSelectedAlbumId) {
+            void sendAlbumReference(pickerSelectedAlbumId);
+          }
+        }}
+        onCreateVirtualAlbum={() => {
+          void createVirtualAlbumAndSend();
+        }}
+      />
       <PremiumComposer
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
@@ -1417,7 +2021,37 @@ export default function MensajesPage() {
         initialAttachments={premiumDraftAttachments}
         onSend={async (payload) => {
           if (!selectedThread) return;
+          const localId = `local-premium-${Date.now()}-${crypto.randomUUID()}`;
+          const optimisticMessage: PremiumMessageItem = {
+            id: localId,
+            localId,
+            kind: "premium",
+            sender: "me",
+            title: "Contenido privado",
+            caption:
+              payload.attachmentCount === 1
+                ? payload.attachmentPreviews[0]?.kind === "video"
+                  ? "1 video"
+                  : "1 foto"
+                : `${payload.attachmentCount} archivos`,
+            price: payload.price,
+            attachmentCount: payload.attachmentCount,
+            attachmentPreviews: payload.attachmentPreviews.map((attachment) => ({
+              ...attachment,
+            })),
+            status: "locked",
+            createdAt: "Ahora",
+            deliveryStatus: "local",
+            syncError: null,
+          };
+          dispatch(
+            enqueueOutgoingPremium({
+              threadId: selectedThread.id,
+              message: optimisticMessage,
+            }),
+          );
           setSendingMessage(true);
+          focusComposerInput();
           try {
             const formData = new FormData();
             formData.append("kind", "premium");
@@ -1425,6 +2059,29 @@ export default function MensajesPage() {
             formData.append("price", String(payload.price));
             payload.originalFiles.forEach((file, index) => {
               formData.append(`original_${index}`, file);
+            });
+            const lockedPreviewFiles = await Promise.all(
+              payload.attachmentPreviews.map(async (attachment, index) => {
+                if (attachment.previewMode !== "locked" || !attachment.file) {
+                  return null;
+                }
+                if (attachment.kind === "video") {
+                  return createLockedVideoPreviewFile({
+                    file: attachment.file,
+                    sourceUrl: attachment.previewUrl,
+                    id: attachment.id || String(index),
+                  });
+                }
+                return createLockedImagePreviewFile(
+                  attachment.file,
+                  attachment.id || String(index),
+                );
+              }),
+            );
+            lockedPreviewFiles.forEach((previewFile, index) => {
+              if (previewFile) {
+                formData.append(`preview_${index}`, previewFile);
+              }
             });
             payload.attachmentPreviews.forEach((attachment, index) => {
               formData.append(
@@ -1440,6 +2097,20 @@ export default function MensajesPage() {
               URL.revokeObjectURL(attachment.previewUrl),
             );
             const detail = toThreadDetail(result.thread);
+            const confirmedMessage = detail.messages[detail.messages.length - 1];
+            if (confirmedMessage?.kind === "premium" && confirmedMessage.sender === "me") {
+              dispatch(
+                confirmOutgoingPremium({
+                  threadId: selectedThread.id,
+                  localId,
+                  serverMessage: {
+                    ...confirmedMessage,
+                    deliveryStatus: "sent",
+                    syncError: null,
+                  },
+                }),
+              );
+            }
             dispatch(
               upsertThreadFromDetail({
                 thread: detail,
@@ -1449,6 +2120,16 @@ export default function MensajesPage() {
             setPremiumOpen(false);
             setChatError(null);
           } catch (error) {
+            dispatch(
+              failOutgoingPremium({
+                threadId: selectedThread.id,
+                localId,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "No se pudo enviar el contenido pago.",
+              }),
+            );
             setChatError(
               error instanceof Error
                 ? error.message
@@ -1614,8 +2295,8 @@ export default function MensajesPage() {
       ) : null}
 
       <main className="min-h-[calc(100dvh-64px)] w-full md:h-[calc(100dvh-64px)] md:overflow-hidden md:pl-[240px]">
-        <div className="grid min-h-[calc(100dvh-64px)] grid-cols-1 border-r border-[#E0E0E0] bg-white md:h-full md:grid-cols-[420px_minmax(0,1fr)]">
-          <aside className="overflow-y-auto border-b border-[#E0E0E0] md:border-b-0 md:border-r">
+        <div className="grid min-h-[calc(100dvh-64px)] grid-cols-1 border-r border-[#E0E0E0] bg-white md:h-full md:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] xl:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+          <aside className="min-w-0 overflow-y-auto border-b border-[#E0E0E0] md:border-b-0 md:border-r">
             <div className="px-5 pb-5 pt-4">
               <div className="text-[28px] font-semibold tracking-[-0.03em] text-[#161823]">
                 {viewer?.profile.username ?? "seed_author"}
@@ -1771,9 +2452,14 @@ export default function MensajesPage() {
             </div>
           </aside>
 
-          <section className="flex h-full min-h-0 flex-col">
+          <section className="min-w-0 flex h-full min-h-0 flex-col">
             {selectedThread ? (
               <>
+                {chatNotice ? (
+                  <div className="border-b border-[#ebe4ff] bg-[#f6f1ff] px-6 py-3 text-[13px] font-medium text-[#4c34b0]">
+                    {chatNotice}
+                  </div>
+                ) : null}
                 <div className="flex items-center justify-between border-b border-[#E0E0E0] px-6 py-3">
                   <div className="flex items-center gap-3">
                     <UserAvatar
@@ -1879,6 +2565,7 @@ export default function MensajesPage() {
                                   attachments={message.attachments}
                                   canDelete={own}
                                   menuOpen={messageMenuId === message.id}
+                                  deliveryStatus={message.deliveryStatus}
                                   onToggleMenu={() =>
                                     setMessageMenuId((current) =>
                                       current === message.id ? null : message.id,
@@ -1929,7 +2616,7 @@ export default function MensajesPage() {
                                   <div
                                     className={`inline-flex max-w-[430px] rounded-full px-4 py-2.5 font-semibold ${
                                       isEmojiOnlyMessage(message.body)
-                                        ? "text-[56px] leading-none"
+                                        ? "text-[35px] leading-none"
                                         : "text-[14px]"
                                     } ${
                                       own
@@ -1968,20 +2655,6 @@ export default function MensajesPage() {
                       onChange={handlePhotoSelected}
                     />
                     <input
-                      ref={paidPhotoInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handlePaidPhotoSelected}
-                    />
-                    <input
-                      ref={paidVideoInputRef}
-                      type="file"
-                      accept="video/*"
-                      className="hidden"
-                      onChange={handlePaidVideoSelected}
-                    />
-                    <input
                       ref={paidPackInputRef}
                       type="file"
                       accept="image/*,video/*"
@@ -1994,53 +2667,36 @@ export default function MensajesPage() {
                         <button
                           type="button"
                           onClick={() => setComposeMenuOpen((current) => !current)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#161823] transition hover:bg-white"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F3EEFF] text-[#5A3EE7] shadow-[0_4px_12px_rgba(90,62,231,0.16)] transition hover:bg-[#E9DEFF] hover:shadow-[0_6px_16px_rgba(90,62,231,0.22)]"
                           aria-label="Abrir menú de contenido"
                         >
-                          <Plus className="h-5 w-5" />
+                          <img
+                            src="/tip-lightning.png"
+                            alt=""
+                            aria-hidden="true"
+                            className="h-5 w-5 object-contain"
+                          />
                         </button>
                         {composeMenuOpen ? (
                           <div className="absolute bottom-[calc(100%+14px)] left-0 z-20 w-[240px] rounded-[24px] border border-[#E0E0E0] bg-white p-2 shadow-[0_18px_35px_rgba(0,0,0,0.08)]">
-                            {[
-                              {
-                                key: "photo" as const,
-                                label: "Foto",
-                                icon: <ImagePlus className="h-4 w-4 text-[#2563eb]" />,
-                              },
-                              {
-                                key: "photo-paid" as const,
-                                label: "Foto paga",
-                                icon: <ImagePlus className="h-4 w-4 text-[#5A3EE7]" />,
-                              },
-                              {
-                                key: "video-paid" as const,
-                                label: "Video pago",
-                                icon: <Video className="h-4 w-4 text-[#ef4444]" />,
-                              },
-                              {
-                                key: "pack-paid" as const,
-                                label: "Pack pago",
-                                icon: <Package2 className="h-4 w-4 text-[#16a34a]" />,
-                              },
-                            ].map((option) => (
+                            {composeMenuOptions.map((option) => (
                               <button
                                 key={option.key}
                                 type="button"
                                 onClick={() => {
                                   setComposeMenuOpen(false);
-                                  if (option.key === "photo") {
-                                    photoInputRef.current?.click();
+                                  if (option.key === "tip") {
+                                    openTipComposer();
                                     return;
                                   }
-                                  if (option.key === "photo-paid") {
-                                    paidPhotoInputRef.current?.click();
+                                  if (option.key === "choose-album") {
+                                    void loadContentPicker();
                                     return;
                                   }
-                                  if (option.key === "video-paid") {
-                                    paidVideoInputRef.current?.click();
+                                  if (option.key === "upload-media") {
+                                    paidPackInputRef.current?.click();
                                     return;
                                   }
-                                  paidPackInputRef.current?.click();
                                 }}
                                 className="flex w-full items-center gap-3 rounded-[18px] px-4 py-3 text-left text-[15px] font-medium text-[#161823] hover:bg-[#fafafa]"
                               >
@@ -2053,41 +2709,44 @@ export default function MensajesPage() {
                           </div>
                         ) : null}
                       </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const availableBalance = viewer?.commerce.balance ?? 0;
-                        if (
-                          shouldRedirectToSaldo({
-                            availableBalance,
-                            requiredAmount: MIN_CONTENT_PRICE_ARS,
-                          })
-                        ) {
-                          redirectToSaldo({
-                            reason: "insufficient-balance",
-                            requiredAmount: MIN_CONTENT_PRICE_ARS,
-                            currentBalance: availableBalance,
-                            kind: "tip",
-                            targetId: selectedThread?.participantUserId ?? null,
-                            targetLabel: selectedThread?.username ?? "usuario",
-                            targetAvatar: selectedThread?.avatarUrl ?? null,
-                          });
-                          return;
-                        }
-                        setTipOpen(true);
-                      }}
-                      disabled={!selectedThread || sendingMessage}
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#8b8b8b] transition hover:bg-white hover:text-[#161823] disabled:opacity-50"
-                      aria-label="Enviar propina"
-                    >
-                      <img
-                        src="/tip-lightning.png"
-                        alt=""
-                        aria-hidden="true"
-                        className="h-4 w-4 object-contain"
-                      />
-                    </button>
+                    ) : (
+                      <div className="relative shrink-0" ref={composeMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => setComposeMenuOpen((current) => !current)}
+                          disabled={!selectedThread || sendingMessage}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F3EEFF] text-[#5A3EE7] shadow-[0_4px_12px_rgba(90,62,231,0.16)] transition hover:bg-[#E9DEFF] hover:shadow-[0_6px_16px_rgba(90,62,231,0.22)] disabled:opacity-50"
+                          aria-label="Abrir menú de acciones"
+                        >
+                          <img
+                            src="/tip-lightning.png"
+                            alt=""
+                            aria-hidden="true"
+                            className="h-5 w-5 object-contain"
+                          />
+                        </button>
+                        {composeMenuOpen ? (
+                          <div className="absolute bottom-[calc(100%+14px)] left-0 z-20 w-[240px] rounded-[24px] border border-[#E0E0E0] bg-white p-2 shadow-[0_18px_35px_rgba(0,0,0,0.08)]">
+                            {composeMenuOptions.map((option) => (
+                              <button
+                                key={option.key}
+                                type="button"
+                                onClick={() => {
+                                  setComposeMenuOpen(false);
+                                  openTipComposer();
+                                }}
+                                className="flex w-full items-center gap-3 rounded-[18px] px-4 py-3 text-left text-[15px] font-medium text-[#161823] hover:bg-[#fafafa]"
+                              >
+                                <span className="inline-flex h-6 w-6 items-center justify-center">
+                                  {option.icon}
+                                </span>
+                                <span>{option.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => setEmojiOpen((current) => !current)}
@@ -2097,6 +2756,7 @@ export default function MensajesPage() {
                       <Smile className="h-5 w-5" />
                     </button>
                     <input
+                      ref={composerInputRef}
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       onKeyDown={(event) => {
@@ -2106,17 +2766,17 @@ export default function MensajesPage() {
                         }
                       }}
                       placeholder="Envía un mensaje ..."
-                      disabled={!selectedThread || sendingMessage}
+                      disabled={!selectedThread}
                       className={`w-full bg-transparent text-[#161823] outline-none placeholder:text-[#8b8b8b] ${
                         isEmojiOnlyMessage(draft)
-                          ? "text-[34px] leading-none"
+                          ? "text-[35px] leading-none"
                           : "text-[16px]"
                       }`}
                     />
                     <button
                       type="button"
                       onClick={() => void appendTextMessage()}
-                      disabled={!selectedThread || sendingMessage}
+                      disabled={!selectedThread || !draft.trim()}
                       className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#5A3EE7] text-white disabled:opacity-50"
                       aria-label="Enviar"
                     >
@@ -2146,9 +2806,12 @@ export default function MensajesPage() {
                               key={emoji}
                               type="button"
                               onClick={() => {
-                                setDraft((current) => `${current}${emoji}`);
+                                setDraft((current) =>
+                                  current ? `${current}${emoji} ` : `${emoji} `,
+                                );
                                 setEmojiOpen(false);
                                 setEmojiQuery("");
+                                focusComposerInput();
                               }}
                               className="flex h-11 w-11 items-center justify-center rounded-full text-[28px] transition hover:bg-[#f5f5f5]"
                             >

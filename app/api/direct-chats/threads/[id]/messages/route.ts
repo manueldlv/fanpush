@@ -4,9 +4,11 @@ import { getAuthenticatedUser } from "@/lib/server/auth/session";
 import { normalizeDirectChatRouteError } from "@/lib/server/direct-chat-schema";
 import {
   getDirectThread,
+  sendDirectAlbumReferenceMessage,
   sendDirectMediaMessage,
   sendDirectTextMessage,
 } from "@/lib/server/repositories/direct-chats";
+import { createSellableAlbumFromUploads } from "@/lib/server/repositories/chatContent";
 import {
   buildDirectLockedPreviewPath,
   buildDirectPremiumMediaPath,
@@ -106,54 +108,16 @@ export async function POST(
             const ext = getExtensionFromFile(originalFile);
 
             if (kind === "premium") {
-              const previewPath = buildDirectLockedPreviewPath(
-                user.id,
-                token,
-                originalKind,
-                ext,
-              );
-              const premiumPath = buildDirectPremiumMediaPath(user.id, token, ext);
-              const [{ error: previewError }, { error: premiumError }] = await Promise.all([
-                uploadWithBucketRetry({
-                  admin,
-                  bucket: PUBLIC_MEDIA_BUCKET,
-                  path: previewPath,
-                  file: previewFile,
-                  contentType: previewFile.type || "image/jpeg",
-                }),
-                uploadWithBucketRetry({
-                  admin,
-                  bucket: PREMIUM_MEDIA_BUCKET,
-                  path: premiumPath,
-                  file: originalFile,
-                  contentType:
-                    originalFile.type ||
-                    (originalKind === "video" ? "video/mp4" : "image/jpeg"),
-                }),
-              ]);
-
-              if (previewError) {
-                throw new Error(`No se pudo subir la vista previa: ${previewError.message}`);
-              }
-              if (premiumError) {
-                throw new Error(`No se pudo subir el contenido pago: ${premiumError.message}`);
-              }
-
-              uploadedObjects.push(
-                { bucket: PUBLIC_MEDIA_BUCKET, path: previewPath },
-                { bucket: PREMIUM_MEDIA_BUCKET, path: premiumPath },
-              );
-
               return {
                 id: `${token}-${index}`,
                 name: originalFile.name || `archivo-${index + 1}`,
+                file: originalFile,
+                previewFile,
                 kind: originalKind === "video" ? "video" : "foto",
                 previewMode:
                   String(formData.get(`preview_mode_${index}`) ?? "preview") === "locked"
                     ? "locked"
                     : "preview",
-                previewPath,
-                premiumPath,
               };
             }
 
@@ -183,28 +147,51 @@ export async function POST(
           }),
       );
 
-      const normalizedAttachments = attachmentsMeta.filter(Boolean) as Array<{
-        id: string;
-        name: string;
-        kind: "foto" | "video";
-        previewPath?: string;
-        premiumPath?: string;
-        publicPath?: string;
-      }>;
+      const normalizedAttachments = attachmentsMeta.filter(Boolean) as Array<Record<string, unknown>>;
 
       try {
-        await sendDirectMediaMessage({
-          admin,
-          viewerUserId: user.id,
-          threadId: params.id,
-          kind,
-          title: String(formData.get("title") ?? "Contenido privado"),
-          price: Math.min(
+        if (kind === "premium") {
+          const price = Math.min(
             Math.max(Number(formData.get("price") ?? 0), MIN_CONTENT_PRICE_ARS),
             MAX_CONTENT_PRICE_ARS,
-          ),
-          attachments: normalizedAttachments,
-        });
+          );
+          const title = String(formData.get("title") ?? "Contenido privado");
+          const created = await createSellableAlbumFromUploads({
+            admin,
+            ownerUserId: user.id,
+            description: title,
+            price,
+            visibility: "private",
+            items: normalizedAttachments.map((attachment) => ({
+              file: attachment.file as File,
+              previewFile: (attachment.previewFile as File | undefined) ?? null,
+              fileName: String(attachment.name ?? "archivo"),
+              kind: attachment.kind === "video" ? "video" : "image",
+              isPreview: attachment.previewMode !== "locked",
+            })),
+          });
+          await sendDirectAlbumReferenceMessage({
+            admin,
+            viewerUserId: user.id,
+            threadId: params.id,
+            albumId: created.albumId,
+          });
+        } else {
+          await sendDirectMediaMessage({
+            admin,
+            viewerUserId: user.id,
+            threadId: params.id,
+            kind,
+            title: String(formData.get("title") ?? "Contenido privado"),
+            price: 0,
+            attachments: normalizedAttachments as Array<{
+              id: string;
+              name: string;
+              kind: "foto" | "video";
+              publicPath?: string;
+            }>,
+          });
+        }
       } catch (sendError) {
         if (uploadedObjects.length > 0) {
           await cleanupUploadedStorageObjects(admin, uploadedObjects);

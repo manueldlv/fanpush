@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
   createModerationAction,
@@ -52,6 +53,19 @@ export async function POST(
       reportId: `restore-${archive.record.album.id}`,
       action: "reviewed",
       reason: "Contenido restablecido desde historial de moderación",
+    });
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "content.restored",
+      targetType: "album",
+      targetId: archive.record.album.id,
+      summary: `Restauro contenido ${archive.record.album.id} desde archivo de moderacion.`,
+      metadata: {
+        archiveId: params.archiveId,
+        ownerUserId: archive.record.album.user_id,
+      },
     });
 
     return NextResponse.json({ ok: true });

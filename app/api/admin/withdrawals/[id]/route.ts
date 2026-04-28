@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
   createWithdrawalHistory,
@@ -67,33 +68,69 @@ export async function PATCH(
       reason: body.reason,
     });
 
-    await createWithdrawalHistory({
-      admin,
-      actorId: user.id,
-      withdrawalId: params.id,
-      amount: row.record.amount,
-      status: body.status,
-      reason: body.reason,
-    });
+    try {
+      await createWithdrawalHistory({
+        admin,
+        actorId: user.id,
+        withdrawalId: params.id,
+        amount: row.record.amount,
+        status: body.status,
+        reason: body.reason,
+      });
+    } catch (historyError) {
+      console.error(
+        "No se pudo guardar el historial legacy del retiro:",
+        historyError instanceof Error ? historyError.message : historyError,
+      );
+    }
 
-    await createOrAppendAdminNotificationThread({
-      admin,
-      userId: row.userId,
-      actorId: user.id,
-      topic: "withdrawal",
-      subject: "Retiro de saldo",
-      body: buildWithdrawalUpdateMessage(body.status, body.reason),
-      sourceType: "withdrawal",
-      sourceId: params.id,
-      allowUserReply: body.status !== "sent",
-    });
+    try {
+      await createOrAppendAdminNotificationThread({
+        admin,
+        userId: row.userId,
+        actorId: user.id,
+        topic: "withdrawal",
+        subject: "Retiro de saldo",
+        body: buildWithdrawalUpdateMessage(body.status, body.reason),
+        sourceType: "withdrawal",
+        sourceId: params.id,
+        allowUserReply: body.status !== "sent",
+      });
+    } catch (threadError) {
+      console.error(
+        "No se pudo actualizar el thread admin del retiro:",
+        threadError instanceof Error ? threadError.message : threadError,
+      );
+    }
 
-    await notifyWithdrawalUpdate({
+    try {
+      await notifyWithdrawalUpdate({
+        admin,
+        userId: row.userId,
+        actorId: user.id,
+        withdrawalId: params.id,
+        message: buildWithdrawalUpdateMessage(body.status, body.reason),
+      });
+    } catch (notifyError) {
+      console.error(
+        "No se pudo notificar el retiro al usuario:",
+        notifyError instanceof Error ? notifyError.message : notifyError,
+      );
+    }
+
+    await recordAdminAction({
       admin,
-      userId: row.userId,
-      actorId: user.id,
-      withdrawalId: params.id,
-      message: buildWithdrawalUpdateMessage(body.status, body.reason),
+      actorUserId: user.id,
+      actionType: "withdrawal.reviewed",
+      targetType: "withdrawal_request",
+      targetId: params.id,
+      summary: `Actualizo retiro de @${row.record.payoutAlias || row.userId} a estado ${body.status}.`,
+      metadata: {
+        status: body.status,
+        reason: body.reason?.trim() || null,
+        amount: row.record.amount,
+        userId: row.userId,
+      },
     });
 
     return NextResponse.json({ ok: true, record: nextRecord });

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
   type ContentReport,
@@ -59,6 +60,20 @@ export async function PATCH(
       reason: current.record.reason,
     });
 
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "report.reviewed",
+      targetType: "content_report",
+      targetId: params.id,
+      summary: `Marco reporte ${params.id} como ${body.status}.`,
+      metadata: {
+        albumId: current.record.albumId,
+        status: body.status,
+        reason: current.record.reason,
+      },
+    });
+
     return NextResponse.json({ ok: true, report: nextRecord });
   } catch (error) {
     return NextResponse.json(
@@ -107,6 +122,18 @@ export async function DELETE(
       record: { ...current.record, archived: true },
     });
 
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "report.archived",
+      targetType: "content_report",
+      targetId: params.id,
+      summary: `Archivo reporte ${params.id}.`,
+      metadata: {
+        albumId: current.record.albumId,
+      },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
@@ -144,6 +171,18 @@ export async function POST(
       admin,
       id: params.id,
       record: { ...current.record, archived: false },
+    });
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "report.restored",
+      targetType: "content_report",
+      targetId: params.id,
+      summary: `Restauro reporte ${params.id}.`,
+      metadata: {
+        albumId: current.record.albumId,
+      },
     });
 
     return NextResponse.json({ ok: true });

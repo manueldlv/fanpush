@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
   getUserActiveRoles,
@@ -6,7 +7,12 @@ import {
   revokeRoleByCode,
 } from "@/lib/server/auth/roles";
 
-const MANAGED_ADMIN_ROLE_CODES = ["moderator", "admin", "super_admin"] as const;
+const MANAGED_ADMIN_ROLE_CODES = [
+  "moderator",
+  "content_admin",
+  "admin",
+  "super_admin",
+] as const;
 
 type ManagedAdminRoleCode = (typeof MANAGED_ADMIN_ROLE_CODES)[number];
 
@@ -121,6 +127,20 @@ export async function PATCH(
     ]);
 
     const updatedRoles = await getUserActiveRoles(admin, params.id);
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "admin.roles.updated",
+      targetType: "user",
+      targetId: params.id,
+      summary: `Actualizo roles admin de @${targetUser.username ?? "usuario"}.`,
+      metadata: {
+        grantedRoles: grant,
+        revokedRoles: revoke,
+        resultingRoles: updatedRoles.roleCodes,
+      },
+    });
 
     return NextResponse.json({
       ok: true,

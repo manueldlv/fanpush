@@ -28,6 +28,15 @@ type SentTipItem = {
   message: string;
 };
 
+type DepositHistoryItem = {
+  id: string;
+  date: string;
+  amount: number;
+  provider: "mercadopago";
+  paymentId: string | null;
+  status: string;
+};
+
 type SaleItem = {
   id: string;
   albumId: string;
@@ -97,6 +106,7 @@ type FinalizeMercadoPagoResult = {
 type PurchasesResult = {
   items: PurchaseItem[];
   sentTips: SentTipItem[];
+  depositHistory: DepositHistoryItem[];
 };
 
 type SalesResult = {
@@ -227,6 +237,7 @@ export const commerceApi = createApi({
             data: {
               items: result.items ?? [],
               sentTips: result.sentTips ?? [],
+              depositHistory: result.depositHistory ?? [],
             },
           };
         } catch (error) {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   BarChart3,
   ChevronLeft,
@@ -27,10 +28,18 @@ import {
   getReferralProgress,
   getReferralTierForLevel,
 } from "@/lib/referrals";
+import { useSignOutMutation } from "@/lib/redux/api/sessionApi";
 import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
 import { cn, formatARS } from "@/lib/utils";
 
 type AdminDashboardData = {
+  viewerAccess: {
+    canManageRoles: boolean;
+    canViewFinance: boolean;
+    canReviewAuthors: boolean;
+    canModerateContent: boolean;
+    canManageCommissions: boolean;
+  };
   metrics: {
     users: number;
     authors: number;
@@ -246,6 +255,27 @@ type AdminDashboardData = {
   }>;
 };
 
+type AccessManagementData = {
+  adminUsers: Array<{
+    id: string;
+    username: string;
+    email: string;
+    fullName: string;
+    roles: string[];
+    accessLevel: "super_admin" | "content_admin";
+  }>;
+  actionLogs: Array<{
+    id: string;
+    actionType: string;
+    targetType: string;
+    targetId: string | null;
+    summary: string;
+    actor: string;
+    createdAt: string;
+    metadata: Record<string, unknown>;
+  }>;
+};
+
 type ContentItem = AdminDashboardData["content"][number];
 
 function StatCard({
@@ -276,9 +306,30 @@ function StatCard({
   );
 }
 
+const formatCompactId = (value?: string | null) => {
+  if (!value) return "";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+};
+
+const getActionLogAlbumId = (
+  item: AccessManagementData["actionLogs"][number],
+) => {
+  if (item.targetType === "album" && item.targetId) {
+    return item.targetId;
+  }
+
+  const metadata = item.metadata as Record<string, unknown>;
+  const albumId =
+    typeof metadata.albumId === "string" ? metadata.albumId : null;
+  return albumId;
+};
+
 export default function AdminPage() {
+  const router = useRouter();
+  const [signOut, { isLoading: signingOut }] = useSignOutMutation();
   const [tab, setTab] = useState<
-    "metrics" | "commerce" | "users" | "authors" | "reports" | "content"
+    "metrics" | "commerce" | "users" | "authors" | "reports" | "content" | "admins"
   >("metrics");
   const [commerceView, setCommerceView] = useState<
     "purchases" | "tips" | "withdrawals" | "withdrawal-history"
@@ -326,6 +377,9 @@ export default function AdminPage() {
     null,
   );
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
+  const [selectedContentReturnTab, setSelectedContentReturnTab] = useState<
+    "admins" | null
+  >(null);
   const [updatingReportId, setUpdatingReportId] = useState<string | null>(null);
   const [restoringArchiveId, setRestoringArchiveId] = useState<string | null>(
     null,
@@ -387,6 +441,64 @@ export default function AdminPage() {
     string | null
   >(null);
   const [commissionDraft, setCommissionDraft] = useState(70);
+  const [accessData, setAccessData] = useState<AccessManagementData | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessMutationUserId, setAccessMutationUserId] = useState<string | null>(null);
+  const [adminCreateForm, setAdminCreateForm] = useState({
+    email: "",
+    password: "",
+    username: "",
+    fullName: "",
+    accessLevel: "content_admin" as "content_admin" | "super_admin",
+  });
+
+  const handleAdminSignOut = async () => {
+    setError(null);
+    try {
+      await signOut({ admin: true }).unwrap();
+      router.replace("/admin/login");
+      window.location.assign("/admin/login");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo cerrar la sesión.",
+      );
+    }
+  };
+
+  const handleOpenActionLogResource = (
+    item: AccessManagementData["actionLogs"][number],
+  ) => {
+    const albumId = getActionLogAlbumId(item);
+    if (!albumId || !data?.viewerAccess.canManageRoles) return;
+    setSelectedContentReturnTab("admins");
+
+    const contentItem = data.content.find((entry) => entry.id === albumId);
+    if (!contentItem) {
+      setTab("content");
+      setContentView("archived");
+      return;
+    }
+
+    setTab("content");
+    setContentView("reported");
+    setSelectedContent(contentItem);
+    setSelectedMediaIndex(0);
+  };
+
+  const closeSelectedContent = useCallback(() => {
+    setSelectedContent(null);
+    setSelectedMediaIndex(0);
+
+    if (selectedContentReturnTab === "admins") {
+      setTab("admins");
+      setSelectedContentReturnTab(null);
+      return;
+    }
+
+    setSelectedContentReturnTab(null);
+  }, [selectedContentReturnTab]);
 
   const load = async () => {
     setLoading(true);
@@ -426,6 +538,61 @@ export default function AdminPage() {
     load();
   }, []);
 
+  const loadAccessManagement = async () => {
+    setAccessLoading(true);
+    try {
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch("/api/admin/access-management", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const result = (await response.json()) as AccessManagementData & {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo cargar la gestion admin.");
+      }
+      setAccessData(result);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo cargar la gestion admin.",
+      );
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === "admins" && !accessData && !accessLoading) {
+      void loadAccessManagement();
+    }
+  }, [tab, accessData, accessLoading]);
+
+  useEffect(() => {
+    if (!data) return;
+
+    const allowedTabs = new Set<string>(["metrics"]);
+    if (data.viewerAccess.canViewFinance) allowedTabs.add("commerce");
+    if (data.viewerAccess.canManageCommissions) allowedTabs.add("users");
+    if (data.viewerAccess.canManageRoles) allowedTabs.add("admins");
+    if (data.viewerAccess.canReviewAuthors) allowedTabs.add("authors");
+    if (data.viewerAccess.canModerateContent) {
+      allowedTabs.add("reports");
+      allowedTabs.add("content");
+    }
+
+    if (!allowedTabs.has(tab)) {
+      setTab("metrics");
+    }
+  }, [data, tab]);
+
   useEffect(() => {
     if (!selectedContent) return;
     const maxIndex = Math.max((selectedContent.media?.length ?? 1) - 1, 0);
@@ -456,6 +623,18 @@ export default function AdminPage() {
     setSelectedUserPostMediaIndex((prev) => Math.min(prev, maxIndex));
   }, [selectedUserPost]);
 
+  useEffect(() => {
+    if (!selectedContent) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeSelectedContent();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeSelectedContent, selectedContent]);
+
   const overviewStats = useMemo(
     () => [
       { label: "Usuarios registrados", value: data?.metrics.users ?? 0 },
@@ -465,7 +644,9 @@ export default function AdminPage() {
   );
 
   const financeStats = useMemo(
-    () => [
+    () =>
+      data?.viewerAccess.canViewFinance
+        ? [
       {
         label: "Ventas totales",
         value: formatARS(data?.metrics.purchaseGross ?? 0),
@@ -491,7 +672,8 @@ export default function AdminPage() {
         value: formatARS(data?.metrics.platformFee ?? 0),
         tone: "blue" as const,
       },
-    ],
+    ]
+        : [],
     [data],
   );
 
@@ -925,6 +1107,90 @@ export default function AdminPage() {
       );
     } finally {
       setUpdatingReportId(null);
+    }
+  };
+
+  const handleCreateAdminUser = async () => {
+    try {
+      setAccessMutationUserId("create");
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch("/api/admin/access-management", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(adminCreateForm),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo crear el usuario admin.");
+      }
+
+      setAdminCreateForm({
+        email: "",
+        password: "",
+        username: "",
+        fullName: "",
+        accessLevel: "content_admin",
+      });
+      await loadAccessManagement();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo crear el usuario admin.",
+      );
+    } finally {
+      setAccessMutationUserId(null);
+    }
+  };
+
+  const handleUpdateAdminAccess = async (
+    userId: string,
+    accessLevel: "content_admin" | "super_admin",
+  ) => {
+    try {
+      setAccessMutationUserId(userId);
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch(`/api/admin/users/${userId}/roles`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          grant: [accessLevel],
+          revoke:
+            accessLevel === "super_admin"
+              ? ["content_admin", "admin", "moderator"]
+              : ["super_admin", "admin", "moderator"],
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo actualizar el acceso admin.");
+      }
+
+      await loadAccessManagement();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo actualizar el acceso admin.",
+      );
+    } finally {
+      setAccessMutationUserId(null);
     }
   };
 
@@ -1367,10 +1633,10 @@ export default function AdminPage() {
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
         <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-400">
-                FanPush Admin
+              <div className="text-sm font-medium text-zinc-500">
+                Administración
               </div>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-950 md:text-5xl">
                 Panel de control
@@ -1380,21 +1646,58 @@ export default function AdminPage() {
                 el contenido publicado desde un solo lugar.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => void handleAdminSignOut()}
+              disabled={signingOut}
+              className="rounded-[16px] border border-zinc-200 bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 disabled:opacity-60"
+            >
+              {signingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+            </button>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
             {[
-              { id: "metrics", label: "Métricas", icon: BarChart3 },
+              { id: "metrics", label: "Métricas", icon: BarChart3, visible: true },
               {
                 id: "commerce",
                 label: "Compras, ventas y retiros",
                 icon: CreditCard,
+                visible: Boolean(data?.viewerAccess.canViewFinance),
               },
-              { id: "users", label: "Usuarios", icon: Eye },
-              { id: "authors", label: "Autores y verificación", icon: Shield },
-              { id: "reports", label: "Reportes y denuncias", icon: Eye },
-              { id: "content", label: "Moderación de contenido", icon: Shield },
-            ].map((item) => {
+              {
+                id: "users",
+                label: "Usuarios",
+                icon: Eye,
+                visible: Boolean(data?.viewerAccess.canManageCommissions),
+              },
+              {
+                id: "admins",
+                label: "Admins y accesos",
+                icon: Shield,
+                visible: Boolean(data?.viewerAccess.canManageRoles),
+              },
+              {
+                id: "authors",
+                label: "Autores y verificación",
+                icon: Shield,
+                visible: Boolean(data?.viewerAccess.canReviewAuthors),
+              },
+              {
+                id: "reports",
+                label: "Reportes y denuncias",
+                icon: Eye,
+                visible: Boolean(data?.viewerAccess.canModerateContent),
+              },
+              {
+                id: "content",
+                label: "Moderación de contenido",
+                icon: Shield,
+                visible: Boolean(data?.viewerAccess.canModerateContent),
+              },
+            ]
+              .filter((item) => item.visible)
+              .map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
               return (
@@ -1405,7 +1708,7 @@ export default function AdminPage() {
                   className={cn(
                     "inline-flex items-center gap-2 rounded-[18px] px-4 py-3 text-sm font-semibold transition",
                     active
-                      ? "bg-zinc-950 text-white"
+                      ? "bg-[var(--brand-accent)] text-white"
                       : "border border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200",
                   )}
                 >
@@ -1420,6 +1723,269 @@ export default function AdminPage() {
         {error ? (
           <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
+          </div>
+        ) : null}
+
+        {tab === "admins" ? (
+          <div className="space-y-6">
+            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="text-lg font-semibold text-zinc-950">
+                Crear usuario admin
+              </div>
+              <div className="mt-1 text-sm text-zinc-500">
+                Puedes crear un `super admin` o un admin de moderación con acceso
+                solo a contenido y reportes, sin datos financieros.
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <input
+                  type="email"
+                  placeholder="Correo electrónico"
+                  value={adminCreateForm.email}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Nombre completo"
+                  value={adminCreateForm.fullName}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      fullName: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Username"
+                  value={adminCreateForm.username}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      username: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={adminCreateForm.password}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      accessLevel: "content_admin",
+                    }))
+                  }
+                  className={cn(
+                    "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                    adminCreateForm.accessLevel === "content_admin"
+                      ? "border border-zinc-200 bg-zinc-200 text-zinc-900"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
+                  )}
+                >
+                  Solo moderación
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      accessLevel: "super_admin",
+                    }))
+                  }
+                  className={cn(
+                    "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                    adminCreateForm.accessLevel === "super_admin"
+                      ? "border border-zinc-200 bg-zinc-200 text-zinc-900"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
+                  )}
+                >
+                  Super admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCreateAdminUser()}
+                  disabled={accessMutationUserId === "create"}
+                  className="fanpush-button-primary rounded-[14px] px-5 py-3 text-sm disabled:opacity-60"
+                >
+                  {accessMutationUserId === "create"
+                    ? "Creando..."
+                    : "Crear usuario"}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="text-lg font-semibold text-zinc-950">
+                Usuarios con acceso admin
+              </div>
+              <div className="mt-4 overflow-auto rounded-[20px] border border-zinc-200">
+                <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                  <thead className="bg-zinc-100 text-left text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Usuario</th>
+                      <th className="px-4 py-3 font-medium">Email</th>
+                      <th className="px-4 py-3 font-medium">Acceso</th>
+                      <th className="px-4 py-3 font-medium">Roles</th>
+                      <th className="px-4 py-3 font-medium">Cambiar acceso</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 bg-white">
+                    {accessLoading ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                          Cargando accesos...
+                        </td>
+                      </tr>
+                    ) : (accessData?.adminUsers.length ?? 0) === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                          No hay usuarios admin cargados.
+                        </td>
+                      </tr>
+                    ) : (
+                      accessData?.adminUsers.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-4 py-3 font-medium text-zinc-900">
+                            @{item.username}
+                            <div className="text-xs font-normal text-zinc-500">
+                              {item.fullName || "Sin nombre"}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-700">{item.email}</td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            {item.accessLevel === "super_admin"
+                              ? "Super admin"
+                              : "Solo moderación"}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {item.roles.join(", ")}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleUpdateAdminAccess(item.id, "content_admin")
+                                }
+                                disabled={accessMutationUserId === item.id}
+                                className={cn(
+                                  "rounded-[12px] border px-3 py-2 text-xs font-semibold disabled:opacity-60",
+                                  item.accessLevel === "content_admin"
+                                    ? "border-[var(--brand-accent)] bg-[var(--brand-accent)] text-white"
+                                    : "border-zinc-200 bg-zinc-100 text-zinc-700",
+                                )}
+                              >
+                                Solo moderación
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleUpdateAdminAccess(item.id, "super_admin")
+                                }
+                                disabled={accessMutationUserId === item.id}
+                                className={cn(
+                                  "rounded-[12px] border px-3 py-2 text-xs font-semibold disabled:opacity-60",
+                                  item.accessLevel === "super_admin"
+                                    ? "border-[var(--brand-accent)] bg-[var(--brand-accent)] text-white"
+                                    : "border-zinc-200 bg-zinc-100 text-zinc-700",
+                                )}
+                              >
+                                Super admin
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="text-lg font-semibold text-zinc-950">
+                Historial de acciones admin
+              </div>
+              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                  <thead className="bg-zinc-100 text-left text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Acción</th>
+                      <th className="px-4 py-3 font-medium">Admin</th>
+                      <th className="px-4 py-3 font-medium">Recurso</th>
+                      <th className="px-4 py-3 font-medium">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 bg-white">
+                    {accessLoading ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
+                          Cargando historial...
+                        </td>
+                      </tr>
+                    ) : (accessData?.actionLogs.length ?? 0) === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
+                          Todavía no hay acciones registradas.
+                        </td>
+                      </tr>
+                    ) : (
+                      accessData?.actionLogs.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-4 py-3 text-zinc-900">{item.summary}</td>
+                          <td className="px-4 py-3 text-zinc-700">@{item.actor}</td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {getActionLogAlbumId(item) &&
+                            data?.viewerAccess.canManageRoles ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenActionLogResource(item)}
+                                className="text-left font-medium text-[var(--brand-accent)] hover:underline"
+                              >
+                                {item.targetType}
+                                {item.targetId
+                                  ? ` · ${formatCompactId(item.targetId)}`
+                                  : ""}
+                              </button>
+                            ) : (
+                              <>
+                                {item.targetType}
+                                {item.targetId
+                                  ? ` · ${formatCompactId(item.targetId)}`
+                                  : ""}
+                              </>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {new Date(item.createdAt).toLocaleString("es-AR")}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -1560,95 +2126,97 @@ export default function AdminPage() {
               ))}
             </div>
 
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Ingresos del sitio
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Suma global sobre todos los autores y operaciones registradas en
-                el sitio.
-              </div>
+            {data.viewerAccess.canViewFinance ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Ingresos del sitio
+                </div>
+                <div className="mt-1 text-sm text-zinc-500">
+                  Suma global sobre todos los autores y operaciones registradas en
+                  el sitio.
+                </div>
 
-              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-                {financeStats.map((item) => (
-                  <StatCard
-                    key={item.label}
-                    label={item.label}
-                    value={item.value}
-                    tone={item.tone}
-                  />
-                ))}
-              </div>
+                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  {financeStats.map((item) => (
+                    <StatCard
+                      key={item.label}
+                      label={item.label}
+                      value={item.value}
+                      tone={item.tone}
+                    />
+                  ))}
+                </div>
 
-              <div className="mt-6 overflow-hidden rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Concepto</th>
-                      <th className="px-4 py-3 font-medium">Monto</th>
-                      <th className="px-4 py-3 font-medium">Detalle</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Ventas totales
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.purchaseGross)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Todo lo vendido por publicaciones y contenido pago.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Comisión sobre ventas
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.purchasePlatformFee)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Comisión FanPush retenida sobre ventas.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Propinas
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.tipGross)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Todo lo recibido en propinas.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Comisión sobre propinas
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.tipPlatformFee)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Comisión FanPush retenida sobre propinas.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Ganancia FanPush
-                      </td>
-                      <td className="px-4 py-3 text-blue-700">
-                        {formatARS(data.metrics.platformFee)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Suma de comisión sobre ventas y sobre propinas.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div className="mt-6 overflow-hidden rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Concepto</th>
+                        <th className="px-4 py-3 font-medium">Monto</th>
+                        <th className="px-4 py-3 font-medium">Detalle</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Ventas totales
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.purchaseGross)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Todo lo vendido por publicaciones y contenido pago.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Comisión sobre ventas
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.purchasePlatformFee)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Comisión FanPush retenida sobre ventas.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Propinas
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.tipGross)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Todo lo recibido en propinas.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Comisión sobre propinas
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.tipPlatformFee)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Comisión FanPush retenida sobre propinas.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Ganancia FanPush
+                        </td>
+                        <td className="px-4 py-3 text-blue-700">
+                          {formatARS(data.metrics.platformFee)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Suma de comisión sobre ventas y sobre propinas.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -3548,7 +4116,7 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
           <button
             type="button"
-            onClick={() => setSelectedContent(null)}
+            onClick={closeSelectedContent}
             className="absolute inset-0"
             aria-label="Cerrar visor"
           />
@@ -3626,7 +4194,7 @@ export default function AdminPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedContent(null)}
+                  onClick={closeSelectedContent}
                   className="rounded-[12px] border border-zinc-200 p-2 text-zinc-700"
                 >
                   <X className="h-4 w-4" />
@@ -3634,7 +4202,7 @@ export default function AdminPage() {
               </div>
 
               <div className="mt-4 rounded-[18px] bg-zinc-100 p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                <div className="text-sm font-medium text-zinc-500">
                   Descripción
                 </div>
                 <div className="mt-2 text-sm text-zinc-700">
@@ -3643,7 +4211,7 @@ export default function AdminPage() {
               </div>
 
               <div className="mt-4 rounded-[18px] border border-zinc-200 bg-white p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                <div className="text-sm font-medium text-zinc-500">
                   Clasificación
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -3697,7 +4265,7 @@ export default function AdminPage() {
 
               {selectedContentReports.length > 0 ? (
                 <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-red-500">
+                  <div className="text-sm font-medium text-red-500">
                     Reportes pendientes
                   </div>
                   <div className="mt-3 space-y-3">
@@ -3821,7 +4389,7 @@ export default function AdminPage() {
                   iconClassName="h-5 w-5"
                 />
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                  <div className="text-sm font-medium text-zinc-500">
                     Usuario
                   </div>
                   <div className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950">
@@ -4557,7 +5125,7 @@ export default function AdminPage() {
           <div className="relative z-10 flex max-h-[88vh] w-full max-w-[1080px] flex-col overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-6 py-5">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Post del usuario
                 </div>
                 <div className="mt-1 text-2xl font-semibold tracking-tight text-zinc-950">
@@ -4650,7 +5218,7 @@ export default function AdminPage() {
                   </div>
                   <div className="mt-4 space-y-4 text-sm text-zinc-700">
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                      <div className="text-sm font-medium text-zinc-500">
                         Descripción
                       </div>
                       <div className="mt-2 whitespace-pre-wrap leading-6 text-zinc-900">
@@ -4659,7 +5227,7 @@ export default function AdminPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Acceso
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -4669,7 +5237,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Precio
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -4677,7 +5245,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Archivos
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -4685,7 +5253,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Me gusta
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -4694,7 +5262,7 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="rounded-[18px] bg-zinc-50 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                      <div className="text-sm font-medium text-zinc-500">
                         Archivos del post
                       </div>
                       <div className="mt-3 space-y-2">
@@ -4898,7 +5466,7 @@ export default function AdminPage() {
           <div className="relative w-full max-w-[560px] rounded-[28px] border border-zinc-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Solicitud de autor
                 </div>
                 <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">
@@ -4987,7 +5555,7 @@ export default function AdminPage() {
           <div className="relative w-full max-w-[680px] rounded-[28px] border border-zinc-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Reporte
                 </div>
                 <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">

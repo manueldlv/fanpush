@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeAuthorPromotionsError } from "@/lib/authorPromotions";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 
 type PromotionBody = {
@@ -62,6 +63,25 @@ export async function PATCH(
     if (upsertError) {
       throw new Error(upsertError.message);
     }
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "promotion.updated",
+      targetType: "user",
+      targetId: userId,
+      summary: `Actualizo promocion del autor ${userId}.`,
+      metadata: {
+        isActive: payload.is_active,
+        promoteInFeed: payload.promote_in_feed,
+        feedRank: payload.feed_rank,
+        promoteInSuggestions: payload.promote_in_suggestions,
+        suggestionsRank: payload.suggestions_rank,
+        promoteInExplore: payload.promote_in_explore,
+        exploreRank: payload.explore_rank,
+        note: payload.note,
+      },
+    });
 
     return NextResponse.json({
       ok: true,

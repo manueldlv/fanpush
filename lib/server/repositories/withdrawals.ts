@@ -11,6 +11,11 @@ import {
   type WithdrawalStatus,
 } from "@/lib/withdrawals";
 
+const logNotificationWarning = (context: string, error: { message?: string } | null) => {
+  if (!error) return;
+  console.error(`${context}: ${error.message ?? "unknown error"}`);
+};
+
 const parseWithdrawalNotes = (value: string | null | undefined) => {
   if (!value) return {};
   try {
@@ -148,10 +153,7 @@ export const createWithdrawalRequest = async ({
     message: serializeWithdrawalRecord(record),
     is_read: true,
   });
-
-  if (error) {
-    throw new Error(`No se pudo guardar la solicitud de retiro: ${error.message}`);
-  }
+  logNotificationWarning("No se pudo guardar la notificacion del retiro", error);
 
   const { error: tableError } = await admin
     .from("withdrawal_requests")
@@ -229,10 +231,7 @@ export const updateWithdrawalRequest = async ({
     .from("notifications")
     .update({ message: serializeWithdrawalRecord(record) })
     .eq("id", id);
-
-  if (error) {
-    throw new Error(`No se pudo actualizar el retiro: ${error.message}`);
-  }
+  logNotificationWarning("No se pudo actualizar la notificacion del retiro", error);
 };
 
 export const createWithdrawalHistory = async ({
@@ -264,10 +263,7 @@ export const createWithdrawalHistory = async ({
     }),
     is_read: true,
   });
-
-  if (error) {
-    throw new Error(`No se pudo guardar el historial del retiro: ${error.message}`);
-  }
+  logNotificationWarning("No se pudo guardar el historial legacy del retiro", error);
 };
 
 export const notifyWithdrawalUpdate = async ({
@@ -291,8 +287,5 @@ export const notifyWithdrawalUpdate = async ({
     message,
     is_read: false,
   });
-
-  if (error) {
-    throw new Error(`No se pudo notificar el retiro: ${error.message}`);
-  }
+  logNotificationWarning("No se pudo notificar el retiro", error);
 };

@@ -122,18 +122,22 @@ export const loadCreatorEarnings = async (
     );
   }
 
-  const { data: tipRows } = await supabase
-    .from("notifications")
-    .select("id,entity_id,message")
-    .eq("user_id", userId)
-    .eq("type", "tip");
+  const { data: tipLedgerRows, error: tipLedgerError } = await supabase
+    .from("ledger_transactions")
+    .select("transaction_amount")
+    .eq("kind", "tip")
+    .eq("recipient_user_id", userId)
+    .in("status", ["approved", "settled"]);
 
-  const tipAmountMap = await resolveTipAmountMap(
-    supabase,
-    (tipRows ?? []) as TipReferenceRow[],
-  );
-  const tipGross = (tipRows ?? []).reduce(
-    (sum: number, row: { id: string }) => sum + Number(tipAmountMap.get(row.id) || 0),
+  if (tipLedgerError) {
+    throw new Error(
+      `No se pudieron leer las propinas desde ledger: ${tipLedgerError.message}`,
+    );
+  }
+
+  const tipGross = (tipLedgerRows ?? []).reduce(
+    (sum: number, row: { transaction_amount: number | string | null }) =>
+      sum + Number(row.transaction_amount || 0),
     0,
   );
 

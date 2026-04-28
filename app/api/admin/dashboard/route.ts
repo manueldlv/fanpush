@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { isAuthorPromotionsSchemaMissingError } from "@/lib/authorPromotions";
-import { resolveTipAmountMap } from "@/lib/earnings";
 import { PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
+import { hasPermission } from "@/lib/server/auth/roles";
 import {
   buildPremiumMediaPath,
   parseLockedPreviewPath,
@@ -23,8 +23,6 @@ import {
 } from "@/lib/authorApplications";
 import {
   getWithdrawalStatusLabel,
-  parseWithdrawalHistory,
-  parseWithdrawalRecord,
 } from "@/lib/withdrawals";
 import {
   coerceUserCommissionProfile,
@@ -55,6 +53,20 @@ export async function GET(request: Request) {
     }
 
     const [
+      canManageRoles,
+      canViewFinance,
+      canReviewAuthors,
+      canModerateContent,
+      canManageCommissions,
+    ] = await Promise.all([
+      hasPermission(admin, user, "roles.manage"),
+      hasPermission(admin, user, "withdrawals.review"),
+      hasPermission(admin, user, "authors.review"),
+      hasPermission(admin, user, "content.moderate"),
+      hasPermission(admin, user, "commissions.manage"),
+    ]);
+
+    const [
       usersCountResult,
       albumsCountResult,
       postsCountResult,
@@ -82,22 +94,29 @@ export async function GET(request: Request) {
       admin.from("users").select("id", { count: "exact", head: true }),
       admin.from("albums").select("id", { count: "exact", head: true }),
       admin.from("posts").select("id", { count: "exact", head: true }),
-      admin
+      canViewFinance
+        ? admin
         .from("purchases")
         .select("id, user_id, post_id, amount, created_at")
         .order("created_at", { ascending: false })
-        .limit(DASHBOARD_FINANCE_EVENT_LIMIT),
-      admin
-        .from("notifications")
-        .select("id, actor_id, user_id, entity_id, message, created_at")
-        .eq("type", "tip")
+        .limit(DASHBOARD_FINANCE_EVENT_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
+        .from("ledger_transactions")
+        .select("id,buyer_user_id,recipient_user_id,transaction_amount,created_at")
+        .eq("kind", "tip")
+        .in("status", ["approved", "settled"])
         .order("created_at", { ascending: false })
-        .limit(DASHBOARD_FINANCE_EVENT_LIMIT),
-      admin
+        .limit(DASHBOARD_FINANCE_EVENT_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
         .from("purchases")
         .select("id, user_id, post_id, amount, created_at")
         .order("created_at", { ascending: false })
-        .limit(20),
+        .limit(20)
+        : Promise.resolve({ data: [], error: null }),
       admin
         .from("albums")
         .select(
@@ -105,57 +124,75 @@ export async function GET(request: Request) {
         )
         .order("created_at", { ascending: false })
         .limit(30),
-      admin
+      canViewFinance
+        ? admin
         .from("withdrawal_requests")
         .select("id,user_id,amount,status,requested_at,month_key")
         .order("requested_at", { ascending: false })
-        .limit(30),
-      admin
+        .limit(30)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
         .from("payouts_meta")
         .select("user_id,meta_key,meta_value,updated_at")
-        .limit(DASHBOARD_USER_LIMIT),
-      admin
+        .limit(DASHBOARD_USER_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,user_id,actor_id,entity_id,message,created_at")
         .eq("type", "content_report")
         .order("created_at", { ascending: false })
-        .limit(50),
-      admin
+        .limit(50)
+        : Promise.resolve({ data: [], error: null }),
+      canReviewAuthors
+        ? admin
         .from("notifications")
         .select("id,user_id,actor_id,message,created_at")
         .eq("type", "author_application")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canReviewAuthors
+        ? admin
         .from("notifications")
         .select("id,user_id,actor_id,entity_id,message,created_at")
         .eq("type", "author_application_history")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,actor_id,entity_id,message,created_at")
         .eq("type", "moderation_action")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
-        .from("notifications")
-        .select("id,actor_id,entity_id,message,created_at")
-        .eq("type", "withdrawal_history")
-        .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
+        .from("withdrawal_requests")
+        .select("id,user_id,amount,status,reviewed_at,reviewed_by,notes")
+        .in("status", ["paid", "rejected", "cancelled"])
+        .order("reviewed_at", { ascending: false })
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,user_id,entity_id,message,created_at")
         .eq("type", "moderation_archive")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,user_id,entity_id,message,created_at")
         .eq("type", "moderation_content_state")
         .order("created_at", { ascending: false })
-        .limit(200),
+        .limit(200)
+        : Promise.resolve({ data: [], error: null }),
       admin
         .from("users")
         .select("id,username,avatar_url,created_at")
@@ -175,13 +212,15 @@ export async function GET(request: Request) {
         )
         .order("created_at", { ascending: false })
         .limit(DASHBOARD_CONTENT_LIMIT),
-      admin
+      canManageCommissions
+        ? admin
         .from("user_commission_profiles")
         .select(
           "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by",
         )
         .order("created_at", { ascending: false })
-        .limit(DASHBOARD_USER_LIMIT),
+        .limit(DASHBOARD_USER_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
       admin
         .from("user_referrals")
         .select("referrer_user_id,referred_user_id,created_at")
@@ -353,22 +392,13 @@ export async function GET(request: Request) {
       purchasePlatformFeeTotal += platformFee;
     });
 
-    const tipAmountMap = await resolveTipAmountMap(
-      admin,
-      allTips as Array<{
-        id: string;
-        entity_id?: string | null;
-        message?: string | null;
-      }>,
-    );
-
     allTips.forEach((row) => {
-      const amount = Number(tipAmountMap.get(row.id) || 0);
-      const commissionProfile = commissionMap.get(row.user_id) ?? null;
+      const amount = Number(row.transaction_amount || 0);
+      const commissionProfile = commissionMap.get(row.recipient_user_id) ?? null;
       const creatorShare = getCreatorShareFromProfile(commissionProfile);
       const platformFee = amount - amount * creatorShare;
-      addSales(row.user_id, 0, amount);
-      addSpending(row.actor_id, 0, amount, platformFee);
+      addSales(row.recipient_user_id, 0, amount);
+      addSpending(row.buyer_user_id, 0, amount, platformFee);
       tipGrossTotal += amount;
       tipPlatformFeeTotal += platformFee;
     });
@@ -689,6 +719,13 @@ export async function GET(request: Request) {
     );
 
     return NextResponse.json({
+      viewerAccess: {
+        canManageRoles,
+        canViewFinance,
+        canReviewAuthors,
+        canModerateContent,
+        canManageCommissions,
+      },
       metrics: {
         users: usersCountResult.count ?? 0,
         authors: authorsCount,
@@ -707,9 +744,9 @@ export async function GET(request: Request) {
         recentPurchases,
         recentTips: (tipRowsResult.data ?? []).slice(0, 20).map((row) => ({
           id: row.id,
-          amount: Number(tipAmountMap.get(row.id) || 0),
-          actor: userMap.get(row.actor_id)?.username ?? "usuario",
-          receiver: userMap.get(row.user_id)?.username ?? "usuario",
+          amount: Number(row.transaction_amount || 0),
+          actor: userMap.get(row.buyer_user_id)?.username ?? "usuario",
+          receiver: userMap.get(row.recipient_user_id)?.username ?? "usuario",
           createdAt: row.created_at,
         })),
         withdrawals: (withdrawalRowsResult.data ?? [])
@@ -821,20 +858,22 @@ export async function GET(request: Request) {
           .filter(Boolean),
         withdrawalHistory: (withdrawalHistoryRowsResult.data ?? [])
           .map((row) => {
-            const parsed = parseWithdrawalHistory(row.message);
-            if (!parsed) return null;
+            const status =
+              row.status === "paid"
+                ? ("sent" as const)
+                : ("rejected" as const);
             return {
               id: row.id,
-              withdrawalId: parsed.withdrawalId,
-              status: parsed.status,
-              statusLabel: getWithdrawalStatusLabel(parsed.status),
-              amount: parsed.amount,
-              actedAt: row.created_at,
-              actor: userMap.get(row.actor_id)?.username ?? "admin",
-              reason: parsed.reason ?? "",
+              withdrawalId: row.id,
+              status,
+              statusLabel: getWithdrawalStatusLabel(status),
+              amount: Number(row.amount || 0),
+              actedAt: row.reviewed_at ?? "",
+              actor: userMap.get(row.reviewed_by ?? "")?.username ?? "admin",
+              reason: row.status === "paid" ? "" : row.notes ?? "",
             };
           })
-          .filter(Boolean),
+          .filter((item) => Boolean(item.actedAt)),
         users: usersDetailed,
       },
       content,

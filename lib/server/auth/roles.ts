@@ -122,6 +122,7 @@ export const grantRoleByCode = async (
     );
   }
 
+  invalidateUserAccessSnapshot(userId);
   return true;
 };
 
@@ -148,6 +149,7 @@ export const revokeRoleByCode = async (
     throw new Error(`No se pudo revocar el rol ${roleCode}: ${error.message}`);
   }
 
+  invalidateUserAccessSnapshot(userId);
   return true;
 };
 
@@ -175,6 +177,10 @@ const accessSnapshotCache = new Map<
   { snapshot: UserAccessSnapshot; cachedAt: number }
 >();
 const ACCESS_SNAPSHOT_TTL_MS = 60 * 1000;
+
+export const invalidateUserAccessSnapshot = (userId: string) => {
+  accessSnapshotCache.delete(userId);
+};
 
 const getPermissionCodesForRoleIds = async (
   admin: SupabaseClient,

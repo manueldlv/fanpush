@@ -32,8 +32,19 @@ type SentTipResponseItem = {
   createdAt: string;
 };
 
+type DepositHistoryResponseItem = {
+  id: string;
+  date: string;
+  amount: number;
+  provider: "mercadopago";
+  paymentId: string | null;
+  status: string;
+  createdAt: string;
+};
+
 const PURCHASE_HISTORY_LIMIT = 100;
 const TIP_HISTORY_LIMIT = 100;
+const DEPOSIT_HISTORY_LIMIT = 100;
 
 const resolvePublicUrl = (
   admin: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>["admin"]>,
@@ -392,6 +403,84 @@ export async function GET(request: Request) {
       };
     });
 
+    const { data: depositRows, error: depositRowsError } = await admin
+      .from("ledger_transactions")
+      .select(
+        "id,transaction_amount,created_at,provider_payment_id,external_provider,status",
+      )
+      .eq("kind", "deposit")
+      .eq("buyer_user_id", user.id)
+      .eq("external_provider", "mercadopago")
+      .eq("status", "approved")
+      .order("created_at", { ascending: false })
+      .limit(DEPOSIT_HISTORY_LIMIT);
+
+    if (depositRowsError) throw new Error(depositRowsError.message);
+
+    const { data: providerDepositRows, error: providerDepositRowsError } =
+      await admin
+        .from("provider_movements")
+        .select(
+          "id,amount,created_at,occurred_at,external_reference,provider,status,movement_kind",
+        )
+        .eq("provider", "mercadopago")
+        .eq("movement_kind", "deposit_in")
+        .eq("user_id", user.id)
+        .in("status", ["recorded", "approved", "settled"])
+        .order("occurred_at", { ascending: false })
+        .limit(DEPOSIT_HISTORY_LIMIT);
+
+    if (providerDepositRowsError) {
+      throw new Error(providerDepositRowsError.message);
+    }
+
+    const depositHistoryMap = new Map<string, DepositHistoryResponseItem>();
+
+    (depositRows ?? []).forEach((row) => {
+      const createdAt = row.created_at;
+      const paymentId = row.provider_payment_id ?? null;
+      const dedupeKey = paymentId ?? `ledger:${row.id}`;
+      depositHistoryMap.set(dedupeKey, {
+        id: row.id,
+        date: new Date(createdAt).toLocaleDateString("es-AR", {
+          day: "2-digit",
+          month: "short",
+        }),
+        amount: Number(row.transaction_amount || 0),
+        provider: "mercadopago",
+        paymentId,
+        status: row.status ?? "approved",
+        createdAt,
+      });
+    });
+
+    (providerDepositRows ?? []).forEach((row) => {
+      const paymentId = row.external_reference ?? null;
+      const dedupeKey = paymentId ?? `provider:${row.id}`;
+      if (depositHistoryMap.has(dedupeKey)) {
+        return;
+      }
+
+      const createdAt = row.occurred_at ?? row.created_at;
+      depositHistoryMap.set(dedupeKey, {
+        id: row.id,
+        date: new Date(createdAt).toLocaleDateString("es-AR", {
+          day: "2-digit",
+          month: "short",
+        }),
+        amount: Number(row.amount || 0),
+        provider: "mercadopago",
+        paymentId,
+        status: row.status ?? "approved",
+        createdAt,
+      });
+    });
+
+    const depositHistory = Array.from(depositHistoryMap.values()).sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
     const normalizedChatItems = chatItems.filter(Boolean) as Array<
       NonNullable<(typeof chatItems)[number]>
     >;
@@ -403,7 +492,12 @@ export async function GET(request: Request) {
       )
       .map(({ createdAt: _createdAt, ...item }) => item);
 
-    return NextResponse.json({ ok: true, items, sentTips });
+    return NextResponse.json({
+      ok: true,
+      items,
+      sentTips,
+      depositHistory: depositHistory.map(({ createdAt: _createdAt, ...item }) => item),
+    });
   } catch (error) {
     return NextResponse.json(
       {

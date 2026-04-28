@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import { serializeUserCommissionProfile } from "@/lib/userCommission";
 
@@ -74,6 +75,19 @@ export async function PATCH(
     if (insertError) {
       throw new Error(`No se pudo guardar la comisión: ${insertError.message}`);
     }
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "commission.updated",
+      targetType: "user",
+      targetId: params.id,
+      summary: `Actualizo comision del usuario ${params.id}.`,
+      metadata: {
+        creatorShare,
+        platformShare: 1 - creatorShare,
+      },
+    });
 
     return NextResponse.json({ ok: true, profile });
   } catch (error) {

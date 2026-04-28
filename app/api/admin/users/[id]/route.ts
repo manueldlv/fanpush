@@ -5,6 +5,7 @@ import { serializeUserCommissionProfile } from "@/lib/userCommission";
 
 type UpdateBody = {
   creatorShare?: number;
+  durationDays?: number | null;
 };
 
 export async function PATCH(
@@ -25,9 +26,22 @@ export async function PATCH(
 
     const body = (await request.json()) as UpdateBody;
     const creatorShare = Number(body.creatorShare);
+    const durationDays =
+      body.durationDays == null || body.durationDays === ""
+        ? null
+        : Number(body.durationDays);
     if (Number.isNaN(creatorShare) || creatorShare < 0 || creatorShare > 1) {
       return NextResponse.json(
         { error: "El porcentaje del creador debe estar entre 0% y 100%." },
+        { status: 400 },
+      );
+    }
+    if (
+      durationDays != null &&
+      (!Number.isFinite(durationDays) || durationDays <= 0)
+    ) {
+      return NextResponse.json(
+        { error: "La duración debe ser un número mayor a 0 días." },
         { status: 400 },
       );
     }
@@ -46,6 +60,12 @@ export async function PATCH(
       creatorShare,
       platformShare: 1 - creatorShare,
       updatedAt: new Date().toISOString(),
+      expiresAt:
+        durationDays != null
+          ? new Date(
+              Date.now() + Math.round(durationDays) * 24 * 60 * 60 * 1000,
+            ).toISOString()
+          : null,
     };
 
     const { error: commissionInsertError } = await admin
@@ -55,6 +75,7 @@ export async function PATCH(
         creator_share_rate: profile.creatorShare,
         platform_share_rate: profile.platformShare,
         updated_by: user.id,
+        expires_at: profile.expiresAt,
       });
 
     if (commissionInsertError) {
@@ -86,6 +107,8 @@ export async function PATCH(
       metadata: {
         creatorShare,
         platformShare: 1 - creatorShare,
+        durationDays,
+        expiresAt: profile.expiresAt,
       },
     });
 

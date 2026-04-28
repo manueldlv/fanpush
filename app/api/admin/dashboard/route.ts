@@ -216,7 +216,7 @@ export async function GET(request: Request) {
         ? admin
         .from("user_commission_profiles")
         .select(
-          "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by",
+          "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by,expires_at",
         )
         .order("created_at", { ascending: false })
         .limit(DASHBOARD_USER_LIMIT)
@@ -229,7 +229,7 @@ export async function GET(request: Request) {
       admin
         .from("author_promotions")
         .select(
-          "user_id,is_active,promote_in_feed,feed_rank,promote_in_suggestions,suggestions_rank,promote_in_explore,explore_rank,note,updated_at",
+          "user_id,is_active,promote_in_feed,feed_rank,promote_in_suggestions,suggestions_rank,promote_in_explore,explore_rank,note,updated_at,expires_at",
         )
         .limit(DASHBOARD_USER_LIMIT),
     ]);
@@ -291,6 +291,7 @@ export async function GET(request: Request) {
         created_at: row.created_at,
         reason: row.reason,
         updated_by: row.updated_by,
+        expires_at: row.expires_at,
       });
       if (profile) {
         commissionMap.set(row.user_id, profile);
@@ -304,8 +305,14 @@ export async function GET(request: Request) {
     const authorPromotionMap = new Map(
       authorPromotionRows.map((row) => [
         row.user_id,
-        {
-          isActive: row.is_active ?? true,
+        (() => {
+          const expiresAt = row.expires_at ?? null;
+          const isExpired =
+            typeof expiresAt === "string" &&
+            Number.isFinite(new Date(expiresAt).getTime()) &&
+            new Date(expiresAt).getTime() <= Date.now();
+          return {
+          isActive: (row.is_active ?? true) && !isExpired,
           promoteInFeed: row.promote_in_feed ?? false,
           feedRank: Number(row.feed_rank ?? 9999),
           promoteInSuggestions: row.promote_in_suggestions ?? false,
@@ -314,7 +321,9 @@ export async function GET(request: Request) {
           exploreRank: Number(row.explore_rank ?? 9999),
           note: typeof row.note === "string" ? row.note : "",
           updatedAt: row.updated_at ?? null,
-        },
+          expiresAt,
+        };
+        })(),
       ]),
     );
 
@@ -568,6 +577,7 @@ export async function GET(request: Request) {
           referralCreatorSharePercent,
           referralPlatformSharePercent,
           commissionPercent: Math.round(creatorShare * 100),
+          commissionExpiresAt: commissionProfile?.expiresAt ?? null,
           salesGross: totalGross,
           creatorNet,
           platformFee,

@@ -197,10 +197,12 @@ type AdminDashboardData = {
         exploreRank: number;
         note: string;
         updatedAt: string | null;
+        expiresAt: string | null;
       };
       referralCreatorSharePercent: number;
       referralPlatformSharePercent: number;
       commissionPercent: number;
+      commissionExpiresAt?: string | null;
       salesGross: number;
       creatorNet: number;
       platformFee: number;
@@ -441,6 +443,11 @@ export default function AdminPage() {
     string | null
   >(null);
   const [commissionDraft, setCommissionDraft] = useState(70);
+  const [commissionDurationDaysDraft, setCommissionDurationDaysDraft] =
+    useState("");
+  const [promotionDurationDrafts, setPromotionDurationDrafts] = useState<
+    Record<string, string>
+  >({});
   const [accessData, setAccessData] = useState<AccessManagementData | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessMutationUserId, setAccessMutationUserId] = useState<string | null>(null);
@@ -961,6 +968,9 @@ export default function AdminPage() {
           promoteInExplore: nextPromotion.promoteInExplore,
           exploreRank: nextPromotion.exploreRank,
           note: nextPromotion.note,
+          durationDays: promotionDurationDrafts[userId]?.trim()
+            ? Number(promotionDurationDrafts[userId])
+            : null,
         }),
       });
       const result = (await response.json()) as {
@@ -1532,7 +1542,12 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ creatorShare: percent / 100 }),
+        body: JSON.stringify({
+          creatorShare: percent / 100,
+          durationDays: commissionDurationDaysDraft.trim()
+            ? Number(commissionDurationDaysDraft)
+            : null,
+        }),
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok) {
@@ -2092,6 +2107,7 @@ export default function AdminPage() {
                               onClick={() => {
                                 setSelectedUser(item);
                                 setCommissionDraft(item.commissionPercent);
+                                setCommissionDurationDaysDraft("");
                               }}
                               className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
                             >
@@ -3023,6 +3039,7 @@ export default function AdminPage() {
                         <th className="px-4 py-3 font-medium">Feed</th>
                         <th className="px-4 py-3 font-medium">Sugerencias</th>
                         <th className="px-4 py-3 font-medium">Explorar</th>
+                        <th className="px-4 py-3 font-medium">Duración</th>
                         <th className="px-4 py-3 font-medium">Nota interna</th>
                       </tr>
                     </thead>
@@ -3030,7 +3047,7 @@ export default function AdminPage() {
                       {curatedAuthors.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={7}
+                            colSpan={8}
                             className="px-4 py-6 text-center text-zinc-500"
                           >
                             No encontramos autores con ese filtro.
@@ -3127,6 +3144,27 @@ export default function AdminPage() {
                                 />
                               </td>
                             ))}
+                            <td className="px-4 py-3 align-top">
+                              <input
+                                type="number"
+                                min={1}
+                                placeholder="Días"
+                                value={promotionDurationDrafts[item.id] ?? ""}
+                                disabled={updatingPromotionUserId === item.id}
+                                onChange={(event) =>
+                                  setPromotionDurationDrafts((prev) => ({
+                                    ...prev,
+                                    [item.id]: event.target.value,
+                                  }))
+                                }
+                                className="h-10 w-[92px] rounded-[12px] border border-zinc-200 px-3 text-sm text-zinc-900 outline-none"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                {item.promotion.expiresAt
+                                  ? `Vence ${new Date(item.promotion.expiresAt).toLocaleDateString("es-AR")}`
+                                  : "Fijo hasta cambiarlo"}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 align-top">
                               <textarea
                                 value={item.promotion.note}
@@ -4557,6 +4595,21 @@ export default function AdminPage() {
                               </option>
                             ))}
                           </select>
+                          <input
+                            type="number"
+                            min={1}
+                            value={commissionDurationDaysDraft}
+                            onChange={(event) =>
+                              setCommissionDurationDaysDraft(event.target.value)
+                            }
+                            placeholder="Días opcionales"
+                            className="mt-3 w-full rounded-[14px] border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 outline-none"
+                          />
+                          <div className="mt-2 text-xs text-zinc-500">
+                            {selectedUser.commissionExpiresAt
+                              ? `Override actual vigente hasta ${new Date(selectedUser.commissionExpiresAt).toLocaleDateString("es-AR")}`
+                              : "Si no cargas días, la comisión queda fija hasta volver a cambiarla."}
+                          </div>
                           <button
                             type="button"
                             onClick={() =>

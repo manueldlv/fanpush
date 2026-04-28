@@ -13,6 +13,7 @@ import {
   coerceProfileDetails,
   parseProfileDetails,
 } from "@/lib/profileDetails";
+import { resolveBadgeSlugs } from "@/lib/badges";
 import { getReferralLevel } from "@/lib/referrals";
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import {
@@ -55,6 +56,7 @@ type ProfileSummary = {
   bio: string;
   website: string;
   instagram: string;
+  badges: string[];
 };
 
 export type ProfileViewArg = {
@@ -222,6 +224,7 @@ const buildEmptyProfileView = (
     bio: "",
     website: "",
     instagram: "",
+    badges: [],
   },
   posts: [],
   stats: emptyStats(),
@@ -258,6 +261,7 @@ const buildUnavailableProfileView = ({
     ),
     website: "",
     instagram: "",
+    badges: [],
   },
   posts: [],
   stats: emptyStats(),
@@ -372,6 +376,7 @@ const loadProfileView = async (
     followersRowsResult,
     followingRowsResult,
     referralCountResult,
+    authorPromotionResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -408,6 +413,13 @@ const loadProfileView = async (
       .from("user_referrals")
       .select("referred_user_id", { count: "exact", head: true })
       .eq("referrer_user_id", viewedUserId),
+    supabase
+      .from("author_promotions")
+      .select(
+        "user_id,is_active,promote_in_feed,promote_in_suggestions,promote_in_explore",
+      )
+      .eq("user_id", viewedUserId)
+      .maybeSingle(),
   ]);
 
   const profileDetails = coerceProfileDetails(
@@ -433,6 +445,14 @@ const loadProfileView = async (
   const resolvedAvatar = await resolvePublicUrl(userRow?.avatar_url ?? "");
   const referralCount = referralCountResult.count ?? 0;
   const referralLevel = getReferralLevel(referralCount);
+  const promotionRow = authorPromotionResult.data;
+  const hasActivePromotion = Boolean(
+    promotionRow &&
+      promotionRow.is_active !== false &&
+      (promotionRow.promote_in_feed ||
+        promotionRow.promote_in_suggestions ||
+        promotionRow.promote_in_explore),
+  );
   const profile: ProfileSummary = {
     username: userRow?.username ?? arg.username?.trim() ?? fallbackUsername,
     fullName: profileRowResult.data?.full_name ?? "Sin nombre",
@@ -440,6 +460,7 @@ const loadProfileView = async (
     bio: profileDetails?.bio ?? "",
     website: profileDetails?.website ?? "",
     instagram: profileDetails?.instagram ?? "",
+    badges: [],
   };
 
   let posts: Post[] = [];
@@ -599,7 +620,7 @@ const loadProfileView = async (
           commerce?: {
             lifetimeEarned?: number | null;
           };
-        };
+      };
       };
       if (viewerResponse.ok) {
         earnings = Number(viewerResult.viewer?.commerce?.lifetimeEarned ?? 0);
@@ -607,6 +628,33 @@ const loadProfileView = async (
     } catch {
       earnings = 0;
     }
+  }
+
+  try {
+    const badgeResponse = await fetch(
+      `/api/profile-badges?userId=${encodeURIComponent(viewedUserId)}`,
+      { cache: "no-store" },
+    );
+    const badgeResult = (await badgeResponse.json()) as { badges?: string[] };
+    if (badgeResponse.ok && Array.isArray(badgeResult.badges)) {
+      profile.badges = badgeResult.badges;
+    } else {
+      profile.badges = resolveBadgeSlugs({
+        persistedBadges: accountState.badges,
+        lifetimeEarnedArs: currentUserId === viewedUserId ? earnings : null,
+        referralCount,
+        hasActivePromotion,
+        isFeatured: accountState.isFeatured,
+      });
+    }
+  } catch {
+    profile.badges = resolveBadgeSlugs({
+      persistedBadges: accountState.badges,
+      lifetimeEarnedArs: currentUserId === viewedUserId ? earnings : null,
+      referralCount,
+      hasActivePromotion,
+      isFeatured: accountState.isFeatured,
+    });
   }
 
   return {

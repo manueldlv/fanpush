@@ -4,6 +4,7 @@ import {
   canAccessFinanceWhileBlocked,
   coerceAccountState,
 } from "@/lib/accountState";
+import { resolveBadgeSlugs } from "@/lib/badges";
 import { loadCreatorEarnings } from "@/lib/earnings";
 import { getPayoutMetaEntries, PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { coercePayoutProfile, parsePayoutProfile } from "@/lib/payouts";
@@ -44,6 +45,8 @@ export async function GET(request: Request) {
       earnings,
       balanceSnapshot,
       application,
+      referralCountResult,
+      authorPromotionResult,
     ] = await Promise.all([
       admin
         .from("users")
@@ -65,6 +68,17 @@ export async function GET(request: Request) {
       loadCreatorEarnings(admin, user.id),
       ensureLegacyCreatorBalanceBaseline(admin, user.id),
       getAuthorApplicationForUser(admin, user.id),
+      admin
+        .from("user_referrals")
+        .select("referred_user_id", { count: "exact", head: true })
+        .eq("referrer_user_id", user.id),
+      admin
+        .from("author_promotions")
+        .select(
+          "user_id,is_active,promote_in_feed,promote_in_suggestions,promote_in_explore",
+        )
+        .eq("user_id", user.id)
+        .maybeSingle(),
     ]);
 
     if (userRowError) {
@@ -104,6 +118,22 @@ export async function GET(request: Request) {
     const cashReserved = balanceSnapshot?.cashReserved ?? 0;
     const bonusAvailable = balanceSnapshot?.bonusAvailable ?? 0;
     const availableBalance = cashAvailable + bonusAvailable;
+    const referralCount = referralCountResult.count ?? 0;
+    const promotionRow = authorPromotionResult.data;
+    const hasActivePromotion = Boolean(
+      promotionRow &&
+        promotionRow.is_active !== false &&
+        (promotionRow.promote_in_feed ||
+          promotionRow.promote_in_suggestions ||
+          promotionRow.promote_in_explore),
+    );
+    const badges = resolveBadgeSlugs({
+      persistedBadges: accountState.badges,
+      lifetimeEarnedArs: balanceSnapshot?.lifetimeEarned ?? earnings.creatorNet,
+      referralCount,
+      hasActivePromotion,
+      isFeatured: accountState.isFeatured,
+    });
 
     return NextResponse.json({
       auth: {
@@ -119,7 +149,7 @@ export async function GET(request: Request) {
           bio: profileDetails?.bio ?? "",
           website: profileDetails?.website ?? "",
           instagram: profileDetails?.instagram ?? "",
-          badges: accountState.badges,
+          badges,
           isVerified: accountState.isVerified,
           isFeatured: accountState.isFeatured,
         },

@@ -31,6 +31,7 @@ import {
   buildInitialPostMediaState,
   type ResolvedAccessMedia,
 } from "@/lib/postMediaState";
+import { getPrimaryBadges } from "@/lib/badges";
 import {
   getProfileViewCacheKey,
   profileApi,
@@ -155,32 +156,20 @@ function ProfilePostsSkeleton() {
   );
 }
 
-const profileGamificationBadges = [
-  {
-    icon: "/profile-badges/badge-core.png",
-    title: "Autor verificado",
-    detail: "Completó la validación de autor con DNI.",
-    unlockLevel: 1,
-  },
-  {
-    icon: "/profile-badges/badge-creator.png",
-    title: "Creador activo",
-    detail: "Publicó contenido premium de forma consistente.",
-    unlockLevel: 15,
-  },
-  {
-    icon: "/profile-badges/badge-sales.png",
-    title: "Top ventas",
-    detail: "Superó una marca destacada de ventas en la plataforma.",
-    unlockLevel: 40,
-  },
-  {
-    icon: "/profile-badges/badge-referrals.png",
-    title: "Nivel de referidos",
-    detail: "Badge reservado para mostrar el rango real de referidos del perfil.",
-    unlockLevel: 70,
-  },
-];
+const getProfileBadgeIcon = (category: string) => {
+  switch (category) {
+    case "sales":
+      return "/profile-badges/badge-sales.png";
+    case "referrals":
+    case "promotion":
+      return "/profile-badges/badge-referrals.png";
+    case "prestige":
+      return "/profile-badges/badge-creator.png";
+    case "founders":
+    default:
+      return "/profile-badges/badge-core.png";
+  }
+};
 
 export default function PerfilPage({
   forcedUsername,
@@ -275,7 +264,9 @@ export default function PerfilPage({
   const isFollowing =
     followStateOverride ?? profileData?.isFollowing ?? false;
   const earnings = profileData?.earnings ?? 0;
-  const profileReferralLevel = profileData?.referralLevel ?? 1;
+  const primaryBadges = getPrimaryBadges({
+    persistedBadges: profileData?.profile.badges ?? [],
+  });
   const profileLoading = !profileData && profileQueryLoading;
   const postsLoading = !profileData && profileQueryLoading;
   const statsLoading = !profileData && profileQueryLoading;
@@ -1561,45 +1552,47 @@ export default function PerfilPage({
                       </div>
                     </div>
 
-                    <div className="mt-5 flex flex-wrap items-center gap-3">
-                      {profileGamificationBadges.map((badge, index) => (
-                        <div
-                          key={`profile-badge-${index}`}
-                          className="group relative z-[80]"
-                        >
-                          <span className="inline-flex h-[54px] w-[54px] items-center justify-center">
-                            <Image
-                              src={badge.icon}
-                              alt=""
-                              width={54}
-                              height={54}
-                              className={`h-[54px] w-[54px] object-contain transition duration-200 ${
-                                profileReferralLevel >= badge.unlockLevel
-                                  ? "opacity-100 saturate-100"
-                                  : "grayscale opacity-35"
-                              }`}
-                              unoptimized
-                              aria-hidden="true"
-                            />
-                          </span>
-
-                          <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[120] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
-                            <div className="text-[14px] font-semibold leading-tight text-white">
-                              {badge.title}
+                    {primaryBadges.length > 0 ? (
+                      <div className="mt-5 flex flex-wrap items-center gap-3">
+                        {primaryBadges.map((badge) => (
+                          <div
+                            key={badge.slug}
+                            className="group relative z-[80]"
+                          >
+                            <span className="inline-flex h-[54px] w-[54px] items-center justify-center">
+                              <Image
+                                src={getProfileBadgeIcon(badge.category)}
+                                alt=""
+                                width={54}
+                                height={54}
+                                className="h-[54px] w-[54px] object-contain"
+                                unoptimized
+                                aria-hidden="true"
+                              />
+                            </span>
+                            <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[120] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                              <div className="text-[14px] font-semibold leading-tight text-white">
+                                {badge.label}
+                              </div>
+                              <div className="mt-1 text-[12px] leading-snug text-white/85">
+                                {badge.description}
+                              </div>
+                              <div className="mt-2 text-[11px] uppercase tracking-[0.12em] text-white/55">
+                                {badge.category}
+                              </div>
+                              <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-[9px] border-r-[9px] border-t-[11px] border-l-transparent border-r-transparent border-t-black" />
                             </div>
-                            <div className="mt-1 text-[12px] leading-snug text-white/85">
-                              {badge.detail}
-                            </div>
-                            <div className="mt-2 text-[11px] uppercase tracking-[0.12em] text-white/55">
-                              {profileReferralLevel >= badge.unlockLevel
-                                ? `Desbloqueado en Nivel ${badge.unlockLevel}`
-                                : `Se desbloquea en Nivel ${badge.unlockLevel}`}
-                            </div>
-                            <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-[9px] border-r-[9px] border-t-[11px] border-l-transparent border-r-transparent border-t-black" />
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => router.push("/badges")}
+                          className="inline-flex items-center rounded-full border border-[#d8d1e8] bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:border-[#c4b6ff] hover:text-[#5A3EE7]"
+                        >
+                          Ver todas
+                        </button>
+                      </div>
+                    ) : null}
 
                     {profileBio ? (
                       <p className="mt-4 max-w-[820px] text-[15px] leading-[1.5] text-[#464646]">
@@ -1621,15 +1614,6 @@ export default function PerfilPage({
                           >
                             Editar mi perfil
                           </button>
-                          {canCreateContent ? (
-                            <button
-                              type="button"
-                              onClick={() => router.push("/settings?tab=chat-content")}
-                              className="fanpush-button-secondary px-5 py-3"
-                            >
-                              Contenido de chat
-                            </button>
-                          ) : null}
                         </>
                       ) : currentUserId && viewedUserId ? (
                         <>

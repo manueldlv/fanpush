@@ -12,6 +12,7 @@ type PromotionBody = {
   promoteInExplore?: boolean;
   exploreRank?: number;
   note?: string;
+  durationDays?: number | null;
 };
 
 const normalizeRank = (value: unknown) => {
@@ -42,6 +43,27 @@ export async function PATCH(
     }
 
     const body = (await request.json()) as PromotionBody;
+    const durationDays =
+      body.durationDays == null || body.durationDays === ""
+        ? null
+        : Number(body.durationDays);
+    if (
+      durationDays != null &&
+      (!Number.isFinite(durationDays) || durationDays <= 0)
+    ) {
+      return NextResponse.json(
+        { error: "La duración debe ser un número mayor a 0 días." },
+        { status: 400 },
+      );
+    }
+
+    const expiresAt =
+      durationDays != null
+        ? new Date(
+            Date.now() + Math.round(durationDays) * 24 * 60 * 60 * 1000,
+          ).toISOString()
+        : null;
+
     const payload = {
       user_id: userId,
       is_active: body.isActive !== false,
@@ -52,6 +74,7 @@ export async function PATCH(
       promote_in_explore: body.promoteInExplore === true,
       explore_rank: normalizeRank(body.exploreRank),
       note: typeof body.note === "string" ? body.note.trim() : "",
+      expires_at: expiresAt,
       updated_by: user.id,
       updated_at: new Date().toISOString(),
     };
@@ -80,6 +103,8 @@ export async function PATCH(
         promoteInExplore: payload.promote_in_explore,
         exploreRank: payload.explore_rank,
         note: payload.note,
+        durationDays,
+        expiresAt,
       },
     });
 
@@ -94,6 +119,7 @@ export async function PATCH(
         promoteInExplore: payload.promote_in_explore,
         exploreRank: payload.explore_rank,
         note: payload.note,
+        expiresAt,
       },
     });
   } catch (error) {

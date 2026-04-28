@@ -2,6 +2,18 @@
   "version": 1,
   "items": [
     {
+      "id": "2026-04-27-01-admin-finance-operating-framework",
+      "type": "execution",
+      "title": "Crear marco operativo para admin y finanzas sensibles",
+      "status": "completed",
+      "requested_by": "matias",
+      "approved_by": "not_required",
+      "scope": "safe",
+      "inbox": "vibe-coding/inbox/2026-04-27-01-admin-finance-operating-framework.md",
+      "execution": "vibe-coding/executions/2026-04-27-01-admin-finance-operating-framework.md",
+      "changelog": "vibe-coding/changelog/2026-04-27-01-admin-finance-operating-framework.md"
+    },
+    {
       "id": "2026-04-25-04-direct-chat-realtime-and-presence-plan",
       "type": "plan",
       "title": "Plan tecnico para llevar chat directo a realtime con Supabase y microinteracciones de presencia",

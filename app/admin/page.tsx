@@ -1,16 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  Check,
   ChevronLeft,
   ChevronRight,
+  CircleDollarSign,
   CreditCard,
+  Download,
   Eye,
   Filter,
+  Layers3,
+  LayoutList,
+  Landmark,
+  LineChart,
+  Package,
+  PieChart,
+  ReceiptText,
   Search,
   Shield,
+  Target,
   Trash2,
+  Wallet,
   X,
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
@@ -246,6 +259,59 @@ type AdminDashboardData = {
   }>;
 };
 
+type FinanceTableRow = {
+  id: string;
+  kind: "purchase" | "tip" | "withdrawal";
+  user: string;
+  counterparty: string;
+  amount: number;
+  status: string;
+  statusTone: "emerald" | "sky" | "amber";
+  createdAt: string;
+  description: string;
+  provider: string;
+  origin: string;
+  category: string;
+  project: string;
+  costCenter: string;
+  percentage: string;
+  period: string;
+  account: string;
+  detail: string;
+};
+
+const FINANCE_COLUMN_ORDER = [
+  "date",
+  "description",
+  "provider",
+  "amount",
+  "origin",
+  "category",
+  "project",
+  "costCenter",
+  "percentage",
+  "period",
+  "account",
+  "actions",
+] as const;
+
+type FinanceColumnKey = (typeof FINANCE_COLUMN_ORDER)[number];
+
+const FINANCE_COLUMN_LABELS: Record<FinanceColumnKey, string> = {
+  date: "Fecha",
+  description: "Descripción",
+  provider: "Proveedor",
+  amount: "Monto",
+  origin: "Origen",
+  category: "Categoría",
+  project: "Proyecto",
+  costCenter: "Centro de costo",
+  percentage: "%",
+  period: "Periodo",
+  account: "Cuenta",
+  actions: "",
+};
+
 type ContentItem = AdminDashboardData["content"][number];
 
 function StatCard({
@@ -276,10 +342,161 @@ function StatCard({
   );
 }
 
+function FinanceHeroCard({
+  eyebrow,
+  title,
+  subtitle,
+  stats,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  stats: Array<{
+    label: string;
+    value: string;
+    tone?: "default" | "emerald" | "blue";
+  }>;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-[24px] border border-cyan-950/70 bg-[#0d1220] px-5 py-5 text-white shadow-[0_24px_80px_rgba(0,0,0,0.28)] md:px-8 md:py-5">
+      <div className="absolute inset-0 bg-[linear-gradient(112deg,rgba(22,52,60,0.9)_0%,rgba(15,24,47,0.92)_43%,rgba(12,20,37,0.96)_43%,rgba(12,20,37,0.96)_68%,rgba(8,15,34,0.98)_68%,rgba(8,15,34,0.98)_100%)]" />
+      <div className="absolute inset-y-0 left-[44%] w-[180px] bg-white/5 [clip-path:polygon(30%_0,100%_0,70%_100%,0_100%)]" />
+      <div className="absolute inset-y-0 left-[69%] w-[160px] bg-cyan-300/5 [clip-path:polygon(24%_0,100%_0,76%_100%,0_100%)]" />
+      <div className="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+        <div className="max-w-[700px]">
+            <div className="flex items-center gap-3 text-emerald-200">
+              <Layers3 className="h-4 w-4" />
+            <div className="!text-zinc-300 text-[0.78rem] font-semibold uppercase tracking-[0.36em]">
+              {eyebrow}
+            </div>
+          </div>
+          <h2 className="mt-3 text-[1.9rem] font-semibold tracking-tight text-white md:text-[2.55rem]">
+            {title}
+          </h2>
+          <p className="mt-3 max-w-[660px] !text-zinc-300 text-sm leading-7 md:text-[0.95rem] md:leading-7">
+            {subtitle}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {stats.map((item) => (
+            <div
+              key={item.label}
+              className="min-w-[160px] rounded-[18px] border border-white/10 bg-white/6 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm"
+            >
+              <div className="text-[0.78rem] font-medium uppercase tracking-[0.3em] text-zinc-300">
+                {item.label}
+              </div>
+              <div
+                className={cn(
+                  "mt-2.5 text-[1.65rem] font-semibold tracking-tight text-white",
+                  item.tone === "emerald" && "text-emerald-300",
+                  item.tone === "blue" && "text-sky-300",
+                )}
+              >
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompactFinanceTable({
+  headers,
+  rows,
+  empty,
+}: {
+  headers: string[];
+  rows: ReactNode[][];
+  empty: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-[0.95rem] text-zinc-600">
+            <tr>
+              {headers.map((header) => (
+                <th key={header} className="px-4 py-3 font-semibold">
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 bg-white">
+            {rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={headers.length}
+                  className="px-4 py-8 text-center text-sm text-zinc-500"
+                >
+                  {empty}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="align-top">
+                  {row.map((cell, cellIndex) => (
+                    <td
+                      key={`${rowIndex}-${cellIndex}`}
+                      className="px-4 py-2.5 leading-[1.15rem] text-zinc-700"
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState<
-    "metrics" | "commerce" | "users" | "authors" | "reports" | "content"
+    | "metrics"
+    | "finance"
+    | "commerce"
+    | "users"
+    | "authors"
+    | "reports"
+    | "content"
   >("metrics");
+  const [financeView, setFinanceView] = useState<
+    | "overview"
+    | "sales"
+    | "tips"
+    | "withdrawals"
+    | "creators"
+    | "classification"
+    | "analysis"
+    | "pnl"
+  >("overview");
+  const [financeSelectedIds, setFinanceSelectedIds] = useState<string[]>([]);
+  const [financeColumnsOpen, setFinanceColumnsOpen] = useState(false);
+  const [financeFiltersOpen, setFinanceFiltersOpen] = useState(false);
+  const [visibleFinanceColumns, setVisibleFinanceColumns] = useState<
+    FinanceColumnKey[]
+  >([
+    "date",
+    "description",
+    "provider",
+    "amount",
+    "origin",
+    "category",
+    "project",
+    "costCenter",
+    "percentage",
+    "period",
+    "account",
+    "actions",
+  ]);
+  const [selectedFinanceRow, setSelectedFinanceRow] =
+    useState<FinanceTableRow | null>(null);
   const [commerceView, setCommerceView] = useState<
     "purchases" | "tips" | "withdrawals" | "withdrawal-history"
   >("purchases");
@@ -494,6 +711,179 @@ export default function AdminPage() {
     ],
     [data],
   );
+  const financeTotalVolume = useMemo(
+    () => (data?.metrics.purchaseGross ?? 0) + (data?.metrics.tipGross ?? 0),
+    [data],
+  );
+  const financeUsersSorted = useMemo(
+    () =>
+      [...(data?.commerce.users ?? [])]
+        .sort((a, b) => b.creatorNet - a.creatorNet)
+        .slice(0, 8),
+    [data],
+  );
+  const compactPurchases = useMemo(
+    () =>
+      [...(data?.commerce.recentPurchases ?? [])]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 10),
+    [data],
+  );
+  const compactTips = useMemo(
+    () =>
+      [...(data?.commerce.recentTips ?? [])]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 10),
+    [data],
+  );
+  const pendingWithdrawals = useMemo(
+    () =>
+      (data?.commerce.withdrawals ?? []).filter((item) => item.status === "requested"),
+    [data],
+  );
+  const withdrawalHistoryRows = useMemo(
+    () =>
+      [...(data?.commerce.withdrawalHistory ?? [])]
+        .sort(
+          (a, b) =>
+            new Date(b.actedAt).getTime() - new Date(a.actedAt).getTime(),
+        )
+        .slice(0, 12),
+    [data],
+  );
+  const financeMiniStats = useMemo(
+    () => [
+      {
+        label: "Ventas",
+        value: formatARS(data?.metrics.purchaseGross ?? 0),
+        helper: `${data?.metrics.purchases ?? 0} operaciones`,
+      },
+      {
+        label: "Propinas",
+        value: formatARS(data?.metrics.tipGross ?? 0),
+        helper: "Flujo bruto recibido",
+      },
+      {
+        label: "Comisión plataforma",
+        value: formatARS(data?.metrics.platformFee ?? 0),
+        helper: "Ventas + propinas",
+      },
+      {
+        label: "Neto creadores",
+        value: formatARS(data?.metrics.creatorsNet ?? 0),
+        helper: "Monto retenible por autores",
+      },
+    ],
+    [data],
+  );
+  const financeHeroStats = useMemo(
+    () => [
+      {
+        label: "Total filtrado",
+        value: formatARS(financeTotalVolume),
+      },
+      {
+        label: "Creadores",
+        value: formatARS(data?.metrics.creatorsNet ?? 0),
+        tone: "emerald" as const,
+      },
+      {
+        label: "Plataforma",
+        value: formatARS(data?.metrics.platformFee ?? 0),
+        tone: "blue" as const,
+      },
+    ],
+    [data, financeTotalVolume],
+  );
+  const financeTableRows = useMemo<FinanceTableRow[]>(
+    () => [
+      ...compactPurchases.map((item) => ({
+        id: `purchase-${item.id}`,
+        kind: "purchase" as const,
+        user: `@${item.buyer}`,
+        counterparty: `Vendedor @${item.seller}`,
+        amount: item.amount,
+        status: "Aprobado",
+        statusTone: "emerald" as const,
+        createdAt: item.createdAt,
+        description: `Compra a ${item.seller}`,
+        provider: "-",
+        origin: "Compra",
+        category: "Contenido premium",
+        project: "-",
+        costCenter: "-",
+        percentage: "-",
+        period: new Date(item.createdAt).toISOString().slice(0, 7),
+        account: "FanPush ARS",
+        detail: `Compra aprobada del usuario ${item.buyer} al creador ${item.seller}.`,
+      })),
+      ...compactTips.map((item) => ({
+        id: `tip-${item.id}`,
+        kind: "tip" as const,
+        user: `@${item.actor}`,
+        counterparty: `Receptor @${item.receiver}`,
+        amount: item.amount,
+        status: "Liquidada",
+        statusTone: "sky" as const,
+        createdAt: item.createdAt,
+        description: `Propina enviada a ${item.receiver}`,
+        provider: "-",
+        origin: "Propina",
+        category: "Apoyo directo",
+        project: "-",
+        costCenter: "-",
+        percentage: "-",
+        period: new Date(item.createdAt).toISOString().slice(0, 7),
+        account: "FanPush ARS",
+        detail: `Propina enviada por ${item.actor} al creador ${item.receiver}.`,
+      })),
+      ...pendingWithdrawals.map((item) => ({
+        id: `withdrawal-${item.id}`,
+        kind: "withdrawal" as const,
+        user: `@${item.username}`,
+        counterparty: item.payoutAlias ?? "Sin payout",
+        amount: item.amount,
+        status: item.statusLabel,
+        statusTone: "amber" as const,
+        createdAt: item.createdAt,
+        description: `Retiro solicitado por ${item.username}`,
+        provider: item.payoutHolder ?? "-",
+        origin: "Retiro",
+        category: "Payout",
+        project: "-",
+        costCenter: "-",
+        percentage: "-",
+        period: new Date(item.createdAt).toISOString().slice(0, 7),
+        account: item.payoutAlias ?? "Sin cuenta",
+        detail: `Solicitud de retiro para ${item.username}. Titular: ${item.payoutHolder ?? "Sin titular"}. Documento: ${item.payoutDocument ?? "Sin documento"}.`,
+      })),
+    ].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+    [compactPurchases, compactTips, pendingWithdrawals],
+  );
+  const selectedFinanceRows = useMemo(
+    () => financeTableRows.filter((row) => financeSelectedIds.includes(row.id)),
+    [financeSelectedIds, financeTableRows],
+  );
+  const financeSelectionAmount = useMemo(
+    () =>
+      selectedFinanceRows.reduce((total, row) => total + Math.abs(row.amount), 0),
+    [selectedFinanceRows],
+  );
+  const financeSelectionCount = selectedFinanceRows.length;
+  const financeSelectionKinds = useMemo(
+    () => new Set(selectedFinanceRows.map((row) => row.kind)).size,
+    [selectedFinanceRows],
+  );
+  const financeAllSelected =
+    financeTableRows.length > 0 && financeSelectedIds.length === financeTableRows.length;
 
   const pendingAuthorApplications = useMemo(
     () =>
@@ -1362,60 +1752,175 @@ export default function AdminPage() {
   const selectedContentReports = selectedContent
     ? (reportsByAlbum.get(selectedContent.id) ?? [])
     : [];
+  const isFinanceTab = tab === "finance";
+
+  const toggleFinanceRowSelection = (rowId: string) => {
+    setFinanceSelectedIds((prev) =>
+      prev.includes(rowId) ? prev.filter((id) => id !== rowId) : [...prev, rowId],
+    );
+  };
+
+  const toggleFinanceSelectAll = () => {
+    setFinanceSelectedIds((prev) =>
+      prev.length === financeTableRows.length ? [] : financeTableRows.map((row) => row.id),
+    );
+  };
+
+  const toggleFinanceColumn = (column: FinanceColumnKey) => {
+    if (column === "actions") return;
+    setVisibleFinanceColumns((prev) =>
+      prev.includes(column) ? prev.filter((item) => item !== column) : [...prev, column],
+    );
+  };
+
+  const exportFinanceRows = () => {
+    const rows = selectedFinanceRows.length > 0 ? selectedFinanceRows : financeTableRows;
+    const csv = [
+      [
+        "Usuario",
+        "Tipo",
+        "Monto",
+        "Estado",
+        "Fecha",
+        "Descripcion",
+        "Cuenta",
+      ].join(","),
+      ...rows.map((row) =>
+        [
+          row.user,
+          row.kind,
+          row.amount,
+          row.status,
+          row.createdAt,
+          `"${row.description.replaceAll('"', '""')}"`,
+          `"${row.account.replaceAll('"', '""')}"`,
+        ].join(","),
+      ),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fanpush-finanzas.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
-        <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
-          <div className="flex flex-col gap-5">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-400">
-                FanPush Admin
+    <div
+      className={cn(
+        "min-h-screen text-zinc-950 transition-colors",
+        isFinanceTab ? "bg-black text-white" : "bg-zinc-50",
+      )}
+    >
+      {isFinanceTab ? (
+        <div className="w-full border-y border-zinc-900 bg-[#050505] px-4 py-3 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-zinc-800 bg-[#121212] p-3">
+            <div className="flex items-center gap-3 px-2 py-1.5">
+              <Image
+                src="/fanpush-logo.png"
+                alt="FanPush"
+                width={32}
+                height={32}
+                className="h-8 w-8 rounded-[10px]"
+              />
+              <div className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-300">
+                FanPush
               </div>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-950 md:text-5xl">
-                Panel de control
-              </h1>
-              <p className="mt-3 max-w-[720px] text-sm text-zinc-500 md:text-base">
-                Supervisá métricas del sitio, flujo de compras, retiros y todo
-                el contenido publicado desde un solo lugar.
-              </p>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              {[
+                { id: "metrics", label: "Métricas", icon: BarChart3 },
+                { id: "finance", label: "Finanzas", icon: CircleDollarSign },
+                {
+                  id: "commerce",
+                  label: "Compras, ventas y retiros",
+                  icon: CreditCard,
+                },
+                { id: "users", label: "Usuarios", icon: Eye },
+                { id: "authors", label: "Autores y verificación", icon: Shield },
+                { id: "reports", label: "Reportes y denuncias", icon: Eye },
+                { id: "content", label: "Moderación de contenido", icon: Shield },
+              ].map((item) => {
+                const Icon = item.icon;
+                const active = tab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setTab(item.id as typeof tab)}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                      active
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            {[
-              { id: "metrics", label: "Métricas", icon: BarChart3 },
-              {
-                id: "commerce",
-                label: "Compras, ventas y retiros",
-                icon: CreditCard,
-              },
-              { id: "users", label: "Usuarios", icon: Eye },
-              { id: "authors", label: "Autores y verificación", icon: Shield },
-              { id: "reports", label: "Reportes y denuncias", icon: Eye },
-              { id: "content", label: "Moderación de contenido", icon: Shield },
-            ].map((item) => {
-              const Icon = item.icon;
-              const active = tab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setTab(item.id as typeof tab)}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-[18px] px-4 py-3 text-sm font-semibold transition",
-                    active
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
         </div>
+      ) : null}
+
+      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
+        {!isFinanceTab ? (
+          <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
+            <div className="flex flex-col gap-5">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-400">
+                  FanPush Admin
+                </div>
+                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-950 md:text-5xl">
+                  Panel de control
+                </h1>
+                <p className="mt-3 max-w-[720px] text-sm text-zinc-500 md:text-base">
+                  Supervisá métricas del sitio, flujo de compras, retiros y todo
+                  el contenido publicado desde un solo lugar.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              {[
+                { id: "metrics", label: "Métricas", icon: BarChart3 },
+                { id: "finance", label: "Finanzas", icon: CircleDollarSign },
+                {
+                  id: "commerce",
+                  label: "Compras, ventas y retiros",
+                  icon: CreditCard,
+                },
+                { id: "users", label: "Usuarios", icon: Eye },
+                { id: "authors", label: "Autores y verificación", icon: Shield },
+                { id: "reports", label: "Reportes y denuncias", icon: Eye },
+                { id: "content", label: "Moderación de contenido", icon: Shield },
+              ].map((item) => {
+                const Icon = item.icon;
+                const active = tab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setTab(item.id as typeof tab)}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                      active
+                        ? "bg-zinc-950 text-white"
+                        : "border border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
 
         {error ? (
           <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1647,6 +2152,303 @@ export default function AdminPage() {
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {!loading && data && tab === "finance" ? (
+          <div className="mx-auto w-full max-w-[1480px] space-y-7">
+            <FinanceHeroCard
+              eyebrow="Intelligence"
+              title="Finanzas"
+              subtitle="Vista operativa para entender cómo se distribuyen ventas, propinas, retiros y netos por autor, estado y flujo financiero."
+              stats={financeHeroStats}
+            />
+
+            <div className="rounded-[20px] border border-zinc-800 bg-[#121212] p-3 shadow-[0_20px_60px_rgba(0,0,0,0.24)]">
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["overview", "Finanzas", LayoutList],
+                    ["sales", "Ventas", ReceiptText],
+                    ["tips", "Propinas", CircleDollarSign],
+                    ["withdrawals", "Retiros", Landmark],
+                    ["creators", "Creadores", Wallet],
+                    ["classification", "Clasificación", Package],
+                    ["analysis", "Análisis", LineChart],
+                    ["pnl", "P&L", PieChart],
+                  ] as const
+                ).map(([id, label, Icon]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setFinanceView(id)}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-[12px] px-4 py-3 text-sm font-semibold transition",
+                      financeView === id
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[22px] border border-[#3b332d] bg-[#1b1818] p-3 shadow-[0_20px_60px_rgba(0,0,0,0.24)]">
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.4fr_repeat(3,minmax(0,0.95fr))]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por descripción, usuario, payout o concepto..."
+                    className="h-[46px] w-full rounded-[14px] border border-zinc-800 bg-[#0c0c0c] pl-11 pr-4 text-sm text-zinc-300 outline-none placeholder:text-zinc-500 focus:border-zinc-700"
+                  />
+                </div>
+                <select className="h-[46px] rounded-[14px] border border-zinc-800 bg-[#0c0c0c] px-4 text-sm font-medium text-zinc-300 outline-none">
+                  <option>Vista por flujo</option>
+                  <option>Vista por autor</option>
+                  <option>Vista por estado</option>
+                </select>
+                <select className="h-[46px] rounded-[14px] border border-zinc-800 bg-[#0c0c0c] px-4 text-sm font-medium text-zinc-300 outline-none">
+                  <option>Todos los períodos</option>
+                  <option>Últimos 7 días</option>
+                  <option>Últimos 30 días</option>
+                </select>
+                <select className="h-[46px] rounded-[14px] border border-zinc-800 bg-[#0c0c0c] px-4 text-sm font-medium text-zinc-300 outline-none">
+                  <option>Todos los estados</option>
+                  <option>Pendiente</option>
+                  <option>Enviado</option>
+                  <option>Rechazado</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+              {[
+                {
+                  label: "Monto seleccionado",
+                  value: formatARS(financeSelectionAmount),
+                  helper: `${financeSelectionCount} movimientos`,
+                },
+                {
+                  label: "Tipos presentes",
+                  value: String(financeSelectionKinds),
+                  helper: "Compra, propina o retiro",
+                },
+                {
+                  label: "Comisión plataforma",
+                  value: formatARS(data?.metrics.platformFee ?? 0),
+                  helper: "Total global del panel",
+                },
+                {
+                  label: "Neto creadores",
+                  value: formatARS(data?.metrics.creatorsNet ?? 0),
+                  helper: "Monto retenible por autores",
+                },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className={cn(
+                    "rounded-[18px] border px-5 py-4 text-white shadow-[0_18px_50px_rgba(0,0,0,0.18)]",
+                    item.label === "Ventas"
+                      ? "border-emerald-950 bg-[#07110d]"
+                      : "border-[#2e2825] bg-[#221f1f]",
+                  )}
+                >
+                  <div className="text-sm font-medium leading-5 text-zinc-300">
+                    {item.label}
+                  </div>
+                  <div className="mt-2 text-[1.75rem] font-semibold leading-none tracking-tight text-white">
+                    {item.value}
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-zinc-300">{item.helper}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-white">
+                    Tabla financiera
+                  </h3>
+                  <p className="mt-1 text-sm text-zinc-300">
+                    Dejé una sola tabla base para iterarla con las opciones que quieras sumar.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFinanceFiltersOpen((prev) => !prev)}
+                    className="rounded-[14px] border border-zinc-900 bg-[#111111] px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Filtros
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFinanceColumnsOpen((prev) => !prev)}
+                    className="rounded-[14px] border border-zinc-900 bg-[#111111] px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Columns
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportFinanceRows}
+                    className="rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900"
+                  >
+                    Export
+                  </button>
+                </div>
+              </div>
+              {financeColumnsOpen ? (
+                <div className="absolute z-20 mt-2 w-[320px] rounded-[18px] border border-zinc-800 bg-[#1d1d1d] p-4 text-white shadow-2xl">
+                  <div className="mb-4 text-lg font-semibold">Mostrar columnas</div>
+                  <div className="space-y-2">
+                    {FINANCE_COLUMN_ORDER.filter((column) => column !== "actions").map(
+                      (column) => (
+                        <button
+                          key={column}
+                          type="button"
+                          onClick={() => toggleFinanceColumn(column)}
+                          className="flex w-full items-center gap-3 rounded-[12px] px-3 py-2 text-left hover:bg-zinc-800"
+                        >
+                          <span className="flex h-5 w-5 items-center justify-center">
+                            {visibleFinanceColumns.includes(column) ? (
+                              <Check className="h-4 w-4" />
+                            ) : null}
+                          </span>
+                          <span className="text-base">{FINANCE_COLUMN_LABELS[column]}</span>
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ) : null}
+              {financeFiltersOpen ? (
+                <div className="rounded-[18px] border border-zinc-800 bg-[#171717] px-4 py-3 text-sm text-zinc-300">
+                  Los filtros reales los conectamos después. La estructura ya quedó preparada.
+                </div>
+              ) : null}
+              <div className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
+                <div className="overflow-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-[0.95rem] text-zinc-600">
+                      <tr>
+                        <th className="w-12 px-4 py-3 font-semibold">
+                          <button
+                            type="button"
+                            onClick={toggleFinanceSelectAll}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md border transition",
+                              financeAllSelected
+                                ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                : "border-emerald-400 bg-white text-transparent",
+                            )}
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        </th>
+                        {FINANCE_COLUMN_ORDER.filter((column) =>
+                          visibleFinanceColumns.includes(column),
+                        ).map((column) => (
+                          <th
+                            key={column}
+                            className={cn(
+                              "px-4 py-3 font-semibold",
+                              column === "actions" && "w-16",
+                            )}
+                          >
+                            {FINANCE_COLUMN_LABELS[column]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      {financeTableRows.map((row) => {
+                        const selected = financeSelectedIds.includes(row.id);
+                        return (
+                          <tr key={row.id} className="align-top">
+                            <td className="px-4 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleFinanceRowSelection(row.id)}
+                                className={cn(
+                                  "flex h-6 w-6 items-center justify-center rounded-md border transition",
+                                  selected
+                                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                    : "border-emerald-400 bg-white text-transparent",
+                                )}
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                            </td>
+                            {visibleFinanceColumns.includes("date") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">
+                                {new Date(row.createdAt).toLocaleDateString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("description") ? (
+                              <td className="max-w-[380px] px-4 py-2.5 font-medium text-zinc-700">
+                                {row.description}
+                              </td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("provider") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.provider}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("amount") ? (
+                              <td className="px-4 py-2.5 font-semibold text-red-500">
+                                -{formatARS(Math.abs(row.amount))}
+                              </td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("origin") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.origin}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("category") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.category}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("project") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.project}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("costCenter") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.costCenter}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("percentage") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.percentage}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("period") ? (
+                              <td className="px-4 py-2.5 text-zinc-700">{row.period}</td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("account") ? (
+                              <td className="px-4 py-2.5 font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2">
+                                {row.account}
+                              </td>
+                            ) : null}
+                            {visibleFinanceColumns.includes("actions") ? (
+                              <td className="px-4 py-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedFinanceRow(row)}
+                                  className="rounded-[12px] border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50"
+                                  aria-label="Abrir detalle"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              </td>
+                            ) : null}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -4739,7 +5541,85 @@ export default function AdminPage() {
         </div>
       ) : null}
 
-      {deletingContent ? (
+        {selectedFinanceRow ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-[640px] rounded-[26px] border border-zinc-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                    Movimiento financiero
+                  </div>
+                  <h3 className="mt-2 text-2xl font-semibold text-zinc-950">
+                    {selectedFinanceRow.description}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFinanceRow(null)}
+                  className="rounded-[12px] border border-zinc-200 p-2 text-zinc-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Usuario
+                  </div>
+                  <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.user}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Contraparte
+                  </div>
+                  <div className="mt-1 text-base text-zinc-900">
+                    {selectedFinanceRow.counterparty}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Monto
+                  </div>
+                  <div className="mt-1 text-base font-semibold text-red-500">
+                    -{formatARS(Math.abs(selectedFinanceRow.amount))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Estado
+                  </div>
+                  <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.status}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Cuenta
+                  </div>
+                  <div className="mt-1 text-base text-zinc-900">
+                    {selectedFinanceRow.account}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Periodo
+                  </div>
+                  <div className="mt-1 text-base text-zinc-900">
+                    {selectedFinanceRow.period}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                  Detalle extendido
+                </div>
+                <div className="mt-2 rounded-[18px] bg-zinc-50 p-4 text-sm leading-7 text-zinc-700">
+                  {selectedFinanceRow.detail}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {deletingContent ? (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4">
           <button
             type="button"

@@ -1,0 +1,21 @@
+# Execution
+
+- id: 2026-04-27-01-admin-finance-operating-framework
+- plan_id: none
+- executed_by: matias
+- scope: safe
+- files_changed:
+  - vibe-coding/admin-finance-operating-framework.md
+  - vibe-coding/inbox/2026-04-27-01-admin-finance-operating-framework.md
+  - vibe-coding/executions/2026-04-27-01-admin-finance-operating-framework.md
+  - vibe-coding/changelog/2026-04-27-01-admin-finance-operating-framework.md
+  - vibe-coding/README.md
+  - vibe-coding/registry/index.json
+- what_changed:
+  - Se agrego un marco operativo para trabajo admin y financiero dentro de `vibe-coding`.
+  - El documento define reglas para modelado de dominio, capas backend, persistencia, UI interna, auditabilidad, reconciliacion y delivery de features sensibles.
+  - Se referencio el marco en el `README` del workflow para que quede visible como guia estable.
+- validation:
+  - Revisado contra las reglas de identidad y scope del workflow `vibe-coding`.
+  - Confirmado como trabajo documental y aditivo, sin cambios estructurales del producto.
+- matched_plan: yes

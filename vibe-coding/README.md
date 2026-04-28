@@ -57,3 +57,17 @@ If Manuel ships frontend-only work and backend is still pending, record the requ
   - what response shape the frontend expects
   - how the UI should behave on success or failure
 - Backend handoff does not authorize Manuel to change DB, auth, or structural backend scope. It only makes the pending work explicit for Matias/admin.
+
+## Admin And Finance Framework
+
+For admin, balances, purchases, withdrawals, and other sensitive reporting surfaces, use:
+
+- `admin-finance-operating-framework.md`
+
+This framework defines the working rules for:
+
+- business semantics before UI
+- separation between operational, financial, and visual data
+- backend ownership of critical rules
+- atomicity and no misleading partial success
+- auditability and drilldown for critical totals

@@ -18,6 +18,7 @@ type AuthorPromotionSuggestionRow = {
   is_active: boolean | null;
   promote_in_suggestions: boolean | null;
   suggestions_rank: number | null;
+  expires_at?: string | null;
 };
 
 const buildError = (error: unknown, fallback: string) => ({
@@ -68,7 +69,7 @@ export const socialApi = createApi({
             supabase
               .from("author_promotions")
               .select(
-                "user_id,is_active,promote_in_suggestions,suggestions_rank",
+                "user_id,is_active,promote_in_suggestions,suggestions_rank,expires_at",
               )
               .eq("is_active", true)
               .eq("promote_in_suggestions", true),
@@ -76,7 +77,13 @@ export const socialApi = createApi({
 
           const suggestionRankMap = new Map<string, number>();
           for (const row of (promotionRows ?? []) as AuthorPromotionSuggestionRow[]) {
-            if (!row.user_id || !row.promote_in_suggestions || row.is_active === false) continue;
+            if (
+              !row.user_id ||
+              !row.promote_in_suggestions ||
+              row.is_active === false ||
+              (row.expires_at &&
+                new Date(row.expires_at).getTime() <= Date.now())
+            ) continue;
             suggestionRankMap.set(row.user_id, Number(row.suggestions_rank ?? 9999));
           }
 

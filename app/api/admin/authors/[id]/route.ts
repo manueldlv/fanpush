@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import {
   type AuthorApplicationStatus,
 } from "@/lib/authorApplications";
@@ -119,6 +120,20 @@ export async function PATCH(
       message: buildAuthorMessage(body.status, body.reason),
     });
 
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "author.reviewed",
+      targetType: "author_application",
+      targetId: params.id,
+      summary: `Actualizo solicitud de autor ${params.id} a ${body.status}.`,
+      metadata: {
+        status: body.status,
+        reason: body.reason?.trim() || null,
+        userId: row.userId,
+      },
+    });
+
     return NextResponse.json({ ok: true, record: nextRecord });
   } catch (error) {
     return NextResponse.json(
@@ -170,6 +185,18 @@ export async function DELETE(
       record: { ...row.record, archived: true },
     });
 
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "author.archived",
+      targetType: "author_application",
+      targetId: params.id,
+      summary: `Archivo solicitud de autor ${params.id}.`,
+      metadata: {
+        userId: row.userId,
+      },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
@@ -212,6 +239,18 @@ export async function POST(
       admin,
       id: params.id,
       record: { ...row.record, archived: false },
+    });
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "author.restored",
+      targetType: "author_application",
+      targetId: params.id,
+      summary: `Restauro solicitud de autor ${params.id}.`,
+      metadata: {
+        userId: row.userId,
+      },
     });
 
     return NextResponse.json({ ok: true });

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { coerceAccountState } from "@/lib/accountState";
 import { isAuthorPromotionsSchemaMissingError } from "@/lib/authorPromotions";
-import { resolveTipAmountMap } from "@/lib/earnings";
 import { PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
+import { hasPermission } from "@/lib/server/auth/roles";
 import {
   buildPremiumMediaPath,
   parseLockedPreviewPath,
@@ -23,8 +24,6 @@ import {
 } from "@/lib/authorApplications";
 import {
   getWithdrawalStatusLabel,
-  parseWithdrawalHistory,
-  parseWithdrawalRecord,
 } from "@/lib/withdrawals";
 import {
   coerceUserCommissionProfile,
@@ -35,6 +34,7 @@ import {
   getPlatformShareForReferralCount,
   getReferralTier,
 } from "@/lib/referrals";
+import { USER_META_KEYS } from "@/lib/userMeta";
 
 const DASHBOARD_USER_LIMIT = 500;
 const DASHBOARD_CONTENT_LIMIT = 500;
@@ -53,6 +53,20 @@ export async function GET(request: Request) {
         { status: error === "Solo admins." ? 403 : 401 },
       );
     }
+
+    const [
+      canManageRoles,
+      canViewFinance,
+      canReviewAuthors,
+      canModerateContent,
+      canManageCommissions,
+    ] = await Promise.all([
+      hasPermission(admin, user, "roles.manage"),
+      hasPermission(admin, user, "withdrawals.review"),
+      hasPermission(admin, user, "authors.review"),
+      hasPermission(admin, user, "content.moderate"),
+      hasPermission(admin, user, "commissions.manage"),
+    ]);
 
     const [
       usersCountResult,
@@ -74,6 +88,7 @@ export async function GET(request: Request) {
       allUsersRowsResult,
       profilesRowsResult,
       followsRowsResult,
+      userMetaRowsResult,
       allAlbumsResult,
       commissionRowsResult,
       userReferralsRowsResult,
@@ -82,22 +97,29 @@ export async function GET(request: Request) {
       admin.from("users").select("id", { count: "exact", head: true }),
       admin.from("albums").select("id", { count: "exact", head: true }),
       admin.from("posts").select("id", { count: "exact", head: true }),
-      admin
+      canViewFinance
+        ? admin
         .from("purchases")
         .select("id, user_id, post_id, amount, created_at")
         .order("created_at", { ascending: false })
-        .limit(DASHBOARD_FINANCE_EVENT_LIMIT),
-      admin
-        .from("notifications")
-        .select("id, actor_id, user_id, entity_id, message, created_at")
-        .eq("type", "tip")
+        .limit(DASHBOARD_FINANCE_EVENT_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
+        .from("ledger_transactions")
+        .select("id,buyer_user_id,recipient_user_id,transaction_amount,created_at")
+        .eq("kind", "tip")
+        .in("status", ["approved", "settled"])
         .order("created_at", { ascending: false })
-        .limit(DASHBOARD_FINANCE_EVENT_LIMIT),
-      admin
+        .limit(DASHBOARD_FINANCE_EVENT_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
         .from("purchases")
         .select("id, user_id, post_id, amount, created_at")
         .order("created_at", { ascending: false })
-        .limit(20),
+        .limit(20)
+        : Promise.resolve({ data: [], error: null }),
       admin
         .from("albums")
         .select(
@@ -105,57 +127,75 @@ export async function GET(request: Request) {
         )
         .order("created_at", { ascending: false })
         .limit(30),
-      admin
+      canViewFinance
+        ? admin
         .from("withdrawal_requests")
         .select("id,user_id,amount,status,requested_at,month_key")
         .order("requested_at", { ascending: false })
-        .limit(30),
-      admin
+        .limit(30)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
         .from("payouts_meta")
         .select("user_id,meta_key,meta_value,updated_at")
-        .limit(DASHBOARD_USER_LIMIT),
-      admin
+        .limit(DASHBOARD_USER_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,user_id,actor_id,entity_id,message,created_at")
         .eq("type", "content_report")
         .order("created_at", { ascending: false })
-        .limit(50),
-      admin
+        .limit(50)
+        : Promise.resolve({ data: [], error: null }),
+      canReviewAuthors
+        ? admin
         .from("notifications")
         .select("id,user_id,actor_id,message,created_at")
         .eq("type", "author_application")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canReviewAuthors
+        ? admin
         .from("notifications")
         .select("id,user_id,actor_id,entity_id,message,created_at")
         .eq("type", "author_application_history")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,actor_id,entity_id,message,created_at")
         .eq("type", "moderation_action")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
-        .from("notifications")
-        .select("id,actor_id,entity_id,message,created_at")
-        .eq("type", "withdrawal_history")
-        .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canViewFinance
+        ? admin
+        .from("withdrawal_requests")
+        .select("id,user_id,amount,status,reviewed_at,reviewed_by,notes")
+        .in("status", ["paid", "rejected", "cancelled"])
+        .order("reviewed_at", { ascending: false })
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,user_id,entity_id,message,created_at")
         .eq("type", "moderation_archive")
         .order("created_at", { ascending: false })
-        .limit(100),
-      admin
+        .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      canModerateContent
+        ? admin
         .from("notifications")
         .select("id,user_id,entity_id,message,created_at")
         .eq("type", "moderation_content_state")
         .order("created_at", { ascending: false })
-        .limit(200),
+        .limit(200)
+        : Promise.resolve({ data: [], error: null }),
       admin
         .from("users")
         .select("id,username,avatar_url,created_at")
@@ -169,19 +209,26 @@ export async function GET(request: Request) {
         .select("follower_id,following_id")
         .limit(DASHBOARD_RELATION_LIMIT),
       admin
+        .from("user_meta")
+        .select("user_id,meta_key,meta_value")
+        .eq("meta_key", USER_META_KEYS.accountState)
+        .limit(DASHBOARD_USER_LIMIT),
+      admin
         .from("albums")
         .select(
           "id,user_id,description,price,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,caption,created_at,likes_count))",
         )
         .order("created_at", { ascending: false })
         .limit(DASHBOARD_CONTENT_LIMIT),
-      admin
+      canManageCommissions
+        ? admin
         .from("user_commission_profiles")
         .select(
-          "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by",
+          "user_id,creator_share_rate,platform_share_rate,created_at,reason,updated_by,expires_at",
         )
         .order("created_at", { ascending: false })
-        .limit(DASHBOARD_USER_LIMIT),
+        .limit(DASHBOARD_USER_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
       admin
         .from("user_referrals")
         .select("referrer_user_id,referred_user_id,created_at")
@@ -190,7 +237,7 @@ export async function GET(request: Request) {
       admin
         .from("author_promotions")
         .select(
-          "user_id,is_active,promote_in_feed,feed_rank,promote_in_suggestions,suggestions_rank,promote_in_explore,explore_rank,note,updated_at",
+          "user_id,is_active,promote_in_feed,feed_rank,promote_in_suggestions,suggestions_rank,promote_in_explore,explore_rank,note,updated_at,expires_at",
         )
         .limit(DASHBOARD_USER_LIMIT),
     ]);
@@ -252,6 +299,7 @@ export async function GET(request: Request) {
         created_at: row.created_at,
         reason: row.reason,
         updated_by: row.updated_by,
+        expires_at: row.expires_at,
       });
       if (profile) {
         commissionMap.set(row.user_id, profile);
@@ -265,8 +313,14 @@ export async function GET(request: Request) {
     const authorPromotionMap = new Map(
       authorPromotionRows.map((row) => [
         row.user_id,
-        {
-          isActive: row.is_active ?? true,
+        (() => {
+          const expiresAt = row.expires_at ?? null;
+          const isExpired =
+            typeof expiresAt === "string" &&
+            Number.isFinite(new Date(expiresAt).getTime()) &&
+            new Date(expiresAt).getTime() <= Date.now();
+          return {
+          isActive: (row.is_active ?? true) && !isExpired,
           promoteInFeed: row.promote_in_feed ?? false,
           feedRank: Number(row.feed_rank ?? 9999),
           promoteInSuggestions: row.promote_in_suggestions ?? false,
@@ -275,11 +329,19 @@ export async function GET(request: Request) {
           exploreRank: Number(row.explore_rank ?? 9999),
           note: typeof row.note === "string" ? row.note : "",
           updatedAt: row.updated_at ?? null,
-        },
+          expiresAt,
+        };
+        })(),
       ]),
     );
 
     const follows = followsRowsResult.data ?? [];
+    const accountStateMap = new Map(
+      (userMetaRowsResult.data ?? []).map((row) => [
+        row.user_id,
+        coerceAccountState(row.meta_value),
+      ]),
+    );
     const allAlbums = allAlbumsResult.data ?? [];
     const allPurchases = purchasesRowsResult.data ?? [];
     const allTips = tipRowsResult.data ?? [];
@@ -353,22 +415,13 @@ export async function GET(request: Request) {
       purchasePlatformFeeTotal += platformFee;
     });
 
-    const tipAmountMap = await resolveTipAmountMap(
-      admin,
-      allTips as Array<{
-        id: string;
-        entity_id?: string | null;
-        message?: string | null;
-      }>,
-    );
-
     allTips.forEach((row) => {
-      const amount = Number(tipAmountMap.get(row.id) || 0);
-      const commissionProfile = commissionMap.get(row.user_id) ?? null;
+      const amount = Number(row.transaction_amount || 0);
+      const commissionProfile = commissionMap.get(row.recipient_user_id) ?? null;
       const creatorShare = getCreatorShareFromProfile(commissionProfile);
       const platformFee = amount - amount * creatorShare;
-      addSales(row.user_id, 0, amount);
-      addSpending(row.actor_id, 0, amount, platformFee);
+      addSales(row.recipient_user_id, 0, amount);
+      addSpending(row.buyer_user_id, 0, amount, platformFee);
       tipGrossTotal += amount;
       tipPlatformFeeTotal += platformFee;
     });
@@ -481,6 +534,7 @@ export async function GET(request: Request) {
         const latestAuthorApplication =
           authorApplications.find((entry) => entry.userId === row.id)?.parsed ??
           null;
+        const accountState = accountStateMap.get(row.id);
         const referralEntries = referralsByUser.get(row.id) ?? [];
         const referralCount = referralEntries.length;
         const referralTier = getReferralTier(referralCount);
@@ -534,10 +588,12 @@ export async function GET(request: Request) {
           referralsCount: referralCount,
           referrals,
           referralTierLabel: referralTier.label,
+          badges: accountState?.badges ?? [],
           promotion,
           referralCreatorSharePercent,
           referralPlatformSharePercent,
           commissionPercent: Math.round(creatorShare * 100),
+          commissionExpiresAt: commissionProfile?.expiresAt ?? null,
           salesGross: totalGross,
           creatorNet,
           platformFee,
@@ -689,6 +745,13 @@ export async function GET(request: Request) {
     );
 
     return NextResponse.json({
+      viewerAccess: {
+        canManageRoles,
+        canViewFinance,
+        canReviewAuthors,
+        canModerateContent,
+        canManageCommissions,
+      },
       metrics: {
         users: usersCountResult.count ?? 0,
         authors: authorsCount,
@@ -707,9 +770,9 @@ export async function GET(request: Request) {
         recentPurchases,
         recentTips: (tipRowsResult.data ?? []).slice(0, 20).map((row) => ({
           id: row.id,
-          amount: Number(tipAmountMap.get(row.id) || 0),
-          actor: userMap.get(row.actor_id)?.username ?? "usuario",
-          receiver: userMap.get(row.user_id)?.username ?? "usuario",
+          amount: Number(row.transaction_amount || 0),
+          actor: userMap.get(row.buyer_user_id)?.username ?? "usuario",
+          receiver: userMap.get(row.recipient_user_id)?.username ?? "usuario",
           createdAt: row.created_at,
         })),
         withdrawals: (withdrawalRowsResult.data ?? [])
@@ -821,20 +884,22 @@ export async function GET(request: Request) {
           .filter(Boolean),
         withdrawalHistory: (withdrawalHistoryRowsResult.data ?? [])
           .map((row) => {
-            const parsed = parseWithdrawalHistory(row.message);
-            if (!parsed) return null;
+            const status =
+              row.status === "paid"
+                ? ("sent" as const)
+                : ("rejected" as const);
             return {
               id: row.id,
-              withdrawalId: parsed.withdrawalId,
-              status: parsed.status,
-              statusLabel: getWithdrawalStatusLabel(parsed.status),
-              amount: parsed.amount,
-              actedAt: row.created_at,
-              actor: userMap.get(row.actor_id)?.username ?? "admin",
-              reason: parsed.reason ?? "",
+              withdrawalId: row.id,
+              status,
+              statusLabel: getWithdrawalStatusLabel(status),
+              amount: Number(row.amount || 0),
+              actedAt: row.reviewed_at ?? "",
+              actor: userMap.get(row.reviewed_by ?? "")?.username ?? "admin",
+              reason: row.status === "paid" ? "" : row.notes ?? "",
             };
           })
-          .filter(Boolean),
+          .filter((item) => Boolean(item.actedAt)),
         users: usersDetailed,
       },
       content,

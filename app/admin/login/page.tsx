@@ -1,12 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
 import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -64,16 +62,16 @@ export default function AdminLoginPage() {
     <div className="min-h-screen bg-white px-4 py-10 text-zinc-950">
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[1280px] items-center justify-center">
         <div className="w-full max-w-[460px] rounded-[28px] border border-zinc-200 bg-white p-8 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-600">
-              <ShieldCheck className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="text-sm uppercase tracking-[0.22em] text-zinc-400">
-                FanPush Admin
-              </div>
-              <h1 className="text-3xl font-semibold text-zinc-950">Ingresar</h1>
-            </div>
+          <div>
+            <Image
+              src="/fanpush-logo.png"
+              alt="FanPush"
+              width={180}
+              height={44}
+              className="h-auto w-[122px]"
+              priority
+            />
+            <h1 className="mt-5 text-3xl font-semibold text-zinc-950">Ingresar</h1>
           </div>
 
           <p className="mt-3 text-sm text-zinc-500">
@@ -105,7 +103,7 @@ export default function AdminLoginPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="h-12 w-full rounded-2xl bg-zinc-950 font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60"
+              className="h-12 w-full rounded-2xl bg-[#5A3EE7] font-semibold text-white transition hover:bg-[#4c32d1] disabled:opacity-60"
             >
               {submitting ? "Ingresando..." : "Entrar al panel admin"}
             </button>

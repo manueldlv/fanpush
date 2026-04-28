@@ -622,13 +622,13 @@ export default function AuthPage() {
                 }}
               >
               {!forgot ? (
-                <div className="flex items-center gap-2 rounded-[16px] bg-[#f2ede5] p-1.5">
+                <div className="flex items-center gap-2 rounded-[16px] bg-zinc-100 p-1.5">
                   <button
                     type="button"
                     onClick={() => setMode("login")}
                     className={`flex-1 rounded-[12px] px-3 py-3 text-sm font-semibold transition ${
                       mode === "login"
-                        ? "bg-zinc-900 text-white shadow-sm"
+                        ? "bg-white text-zinc-700 shadow-sm"
                         : "bg-transparent text-zinc-600"
                     }`}
                   >
@@ -639,7 +639,7 @@ export default function AuthPage() {
                     onClick={() => setMode("register")}
                     className={`flex-1 rounded-[12px] px-3 py-3 text-sm font-semibold transition ${
                       mode === "register"
-                        ? "bg-zinc-900 text-white shadow-sm"
+                        ? "bg-white text-zinc-700 shadow-sm"
                         : "bg-transparent text-zinc-600"
                     }`}
                   >
@@ -811,7 +811,7 @@ export default function AuthPage() {
                     !reset &&
                     usernameStatus !== "available")
                 }
-                className="mt-6 w-full rounded-[14px] bg-[#1a1a1f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-70"
+                className="mt-6 w-full rounded-[14px] bg-[var(--brand-accent)] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {submitting
                   ? "Procesando..."

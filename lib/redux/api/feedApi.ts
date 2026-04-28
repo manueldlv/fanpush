@@ -23,6 +23,7 @@ type AuthorPromotionRow = {
   is_active: boolean | null;
   promote_in_feed: boolean | null;
   feed_rank: number | null;
+  expires_at?: string | null;
 };
 
 const FEED_ALBUM_LIMIT = 30;
@@ -132,14 +133,22 @@ export const feedApi = createApi({
             : { data: [] };
           const { data: promotionRows } = await supabase
             .from("author_promotions")
-            .select("user_id,is_active,promote_in_feed,feed_rank")
+            .select("user_id,is_active,promote_in_feed,feed_rank,expires_at")
             .eq("is_active", true)
             .eq("promote_in_feed", true);
 
           const prioritizedAuthorIds = Array.from(
             new Set(
               ((promotionRows ?? []) as AuthorPromotionRow[])
-                .filter((row) => row.user_id && row.promote_in_feed && row.is_active !== false)
+                .filter(
+                  (row) =>
+                    row.user_id &&
+                    row.promote_in_feed &&
+                    row.is_active !== false &&
+                    (!("expires_at" in row) ||
+                      !row.expires_at ||
+                      new Date(row.expires_at).getTime() > Date.now()),
+                )
                 .map((row) => row.user_id as string),
             ),
           );

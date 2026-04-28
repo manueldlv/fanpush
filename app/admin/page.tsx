@@ -1,29 +1,17 @@
 "use client";
 
-import Image from "next/image";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   BarChart3,
-  Check,
   ChevronLeft,
   ChevronRight,
-  CircleDollarSign,
   CreditCard,
-  Download,
   Eye,
   Filter,
-  Layers3,
-  LayoutList,
-  Landmark,
-  LineChart,
-  Package,
-  PieChart,
-  ReceiptText,
   Search,
   Shield,
-  Target,
   Trash2,
-  Wallet,
   X,
 } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
@@ -40,10 +28,20 @@ import {
   getReferralProgress,
   getReferralTierForLevel,
 } from "@/lib/referrals";
+import { getAllBadgeDefinitions } from "@/lib/badges";
+import { useSignOutMutation } from "@/lib/redux/api/sessionApi";
 import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 import { cn, formatARS } from "@/lib/utils";
 
 type AdminDashboardData = {
+  viewerAccess: {
+    canManageRoles: boolean;
+    canViewFinance: boolean;
+    canReviewAuthors: boolean;
+    canModerateContent: boolean;
+    canManageCommissions: boolean;
+  };
   metrics: {
     users: number;
     authors: number;
@@ -191,6 +189,7 @@ type AdminDashboardData = {
         referredAt: string | null;
       }>;
       referralTierLabel: string;
+      badges: string[];
       promotion: {
         isActive: boolean;
         promoteInFeed: boolean;
@@ -201,10 +200,12 @@ type AdminDashboardData = {
         exploreRank: number;
         note: string;
         updatedAt: string | null;
+        expiresAt: string | null;
       };
       referralCreatorSharePercent: number;
       referralPlatformSharePercent: number;
       commissionPercent: number;
+      commissionExpiresAt?: string | null;
       salesGross: number;
       creatorNet: number;
       platformFee: number;
@@ -259,57 +260,25 @@ type AdminDashboardData = {
   }>;
 };
 
-type FinanceTableRow = {
-  id: string;
-  kind: "purchase" | "tip" | "withdrawal";
-  user: string;
-  counterparty: string;
-  amount: number;
-  status: string;
-  statusTone: "emerald" | "sky" | "amber";
-  createdAt: string;
-  description: string;
-  provider: string;
-  origin: string;
-  category: string;
-  project: string;
-  costCenter: string;
-  percentage: string;
-  period: string;
-  account: string;
-  detail: string;
-};
-
-const FINANCE_COLUMN_ORDER = [
-  "date",
-  "description",
-  "provider",
-  "amount",
-  "origin",
-  "category",
-  "project",
-  "costCenter",
-  "percentage",
-  "period",
-  "account",
-  "actions",
-] as const;
-
-type FinanceColumnKey = (typeof FINANCE_COLUMN_ORDER)[number];
-
-const FINANCE_COLUMN_LABELS: Record<FinanceColumnKey, string> = {
-  date: "Fecha",
-  description: "Descripción",
-  provider: "Proveedor",
-  amount: "Monto",
-  origin: "Origen",
-  category: "Categoría",
-  project: "Proyecto",
-  costCenter: "Centro de costo",
-  percentage: "%",
-  period: "Periodo",
-  account: "Cuenta",
-  actions: "",
+type AccessManagementData = {
+  adminUsers: Array<{
+    id: string;
+    username: string;
+    email: string;
+    fullName: string;
+    roles: string[];
+    accessLevel: "super_admin" | "content_admin";
+  }>;
+  actionLogs: Array<{
+    id: string;
+    actionType: string;
+    targetType: string;
+    targetId: string | null;
+    summary: string;
+    actor: string;
+    createdAt: string;
+    metadata: Record<string, unknown>;
+  }>;
 };
 
 type ContentItem = AdminDashboardData["content"][number];
@@ -342,161 +311,31 @@ function StatCard({
   );
 }
 
-function FinanceHeroCard({
-  eyebrow,
-  title,
-  subtitle,
-  stats,
-}: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-  stats: Array<{
-    label: string;
-    value: string;
-    tone?: "default" | "emerald" | "blue";
-  }>;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-[24px] border border-cyan-950/70 bg-[#0d1220] px-5 py-5 text-white shadow-[0_24px_80px_rgba(0,0,0,0.28)] md:px-8 md:py-5">
-      <div className="absolute inset-0 bg-[linear-gradient(112deg,rgba(22,52,60,0.9)_0%,rgba(15,24,47,0.92)_43%,rgba(12,20,37,0.96)_43%,rgba(12,20,37,0.96)_68%,rgba(8,15,34,0.98)_68%,rgba(8,15,34,0.98)_100%)]" />
-      <div className="absolute inset-y-0 left-[44%] w-[180px] bg-white/5 [clip-path:polygon(30%_0,100%_0,70%_100%,0_100%)]" />
-      <div className="absolute inset-y-0 left-[69%] w-[160px] bg-cyan-300/5 [clip-path:polygon(24%_0,100%_0,76%_100%,0_100%)]" />
-      <div className="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-        <div className="max-w-[700px]">
-            <div className="flex items-center gap-3 text-emerald-200">
-              <Layers3 className="h-4 w-4" />
-            <div className="!text-zinc-300 text-[0.78rem] font-semibold uppercase tracking-[0.36em]">
-              {eyebrow}
-            </div>
-          </div>
-          <h2 className="mt-3 text-[1.9rem] font-semibold tracking-tight text-white md:text-[2.55rem]">
-            {title}
-          </h2>
-          <p className="mt-3 max-w-[660px] !text-zinc-300 text-sm leading-7 md:text-[0.95rem] md:leading-7">
-            {subtitle}
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {stats.map((item) => (
-            <div
-              key={item.label}
-              className="min-w-[160px] rounded-[18px] border border-white/10 bg-white/6 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm"
-            >
-              <div className="text-[0.78rem] font-medium uppercase tracking-[0.3em] text-zinc-300">
-                {item.label}
-              </div>
-              <div
-                className={cn(
-                  "mt-2.5 text-[1.65rem] font-semibold tracking-tight text-white",
-                  item.tone === "emerald" && "text-emerald-300",
-                  item.tone === "blue" && "text-sky-300",
-                )}
-              >
-                {item.value}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+const formatCompactId = (value?: string | null) => {
+  if (!value) return "";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+};
 
-function CompactFinanceTable({
-  headers,
-  rows,
-  empty,
-}: {
-  headers: string[];
-  rows: ReactNode[][];
-  empty: string;
-}) {
-  return (
-    <div className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
-      <div className="overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-[0.95rem] text-zinc-600">
-            <tr>
-              {headers.map((header) => (
-                <th key={header} className="px-4 py-3 font-semibold">
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 bg-white">
-            {rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={headers.length}
-                  className="px-4 py-8 text-center text-sm text-zinc-500"
-                >
-                  {empty}
-                </td>
-              </tr>
-            ) : (
-              rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="align-top">
-                  {row.map((cell, cellIndex) => (
-                    <td
-                      key={`${rowIndex}-${cellIndex}`}
-                      className="px-4 py-2.5 leading-[1.15rem] text-zinc-700"
-                    >
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+const getActionLogAlbumId = (
+  item: AccessManagementData["actionLogs"][number],
+) => {
+  if (item.targetType === "album" && item.targetId) {
+    return item.targetId;
+  }
+
+  const metadata = item.metadata as Record<string, unknown>;
+  const albumId =
+    typeof metadata.albumId === "string" ? metadata.albumId : null;
+  return albumId;
+};
 
 export default function AdminPage() {
+  const router = useRouter();
+  const [signOut, { isLoading: signingOut }] = useSignOutMutation();
   const [tab, setTab] = useState<
-    | "metrics"
-    | "finance"
-    | "commerce"
-    | "users"
-    | "authors"
-    | "reports"
-    | "content"
+    "metrics" | "commerce" | "users" | "authors" | "reports" | "content" | "admins"
   >("metrics");
-  const [financeView, setFinanceView] = useState<
-    | "overview"
-    | "sales"
-    | "tips"
-    | "withdrawals"
-    | "creators"
-    | "classification"
-    | "analysis"
-    | "pnl"
-  >("overview");
-  const [financeSelectedIds, setFinanceSelectedIds] = useState<string[]>([]);
-  const [financeColumnsOpen, setFinanceColumnsOpen] = useState(false);
-  const [financeFiltersOpen, setFinanceFiltersOpen] = useState(false);
-  const [visibleFinanceColumns, setVisibleFinanceColumns] = useState<
-    FinanceColumnKey[]
-  >([
-    "date",
-    "description",
-    "provider",
-    "amount",
-    "origin",
-    "category",
-    "project",
-    "costCenter",
-    "percentage",
-    "period",
-    "account",
-    "actions",
-  ]);
-  const [selectedFinanceRow, setSelectedFinanceRow] =
-    useState<FinanceTableRow | null>(null);
   const [commerceView, setCommerceView] = useState<
     "purchases" | "tips" | "withdrawals" | "withdrawal-history"
   >("purchases");
@@ -543,6 +382,9 @@ export default function AdminPage() {
     null,
   );
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
+  const [selectedContentReturnTab, setSelectedContentReturnTab] = useState<
+    "admins" | null
+  >(null);
   const [updatingReportId, setUpdatingReportId] = useState<string | null>(null);
   const [restoringArchiveId, setRestoringArchiveId] = useState<string | null>(
     null,
@@ -590,7 +432,7 @@ export default function AdminPage() {
     AdminDashboardData["commerce"]["users"][number] | null
   >(null);
   const [selectedUserView, setSelectedUserView] = useState<
-    "overview" | "details" | "posts" | "followers" | "following" | "referrals"
+    "overview" | "details" | "posts" | "followers" | "following" | "referrals" | "badges"
   >("overview");
   const [selectedUserPost, setSelectedUserPost] = useState<
     AdminDashboardData["commerce"]["users"][number]["posts"][number] | null
@@ -604,6 +446,71 @@ export default function AdminPage() {
     string | null
   >(null);
   const [commissionDraft, setCommissionDraft] = useState(70);
+  const [commissionDurationDaysDraft, setCommissionDurationDaysDraft] =
+    useState("");
+  const [promotionDurationDrafts, setPromotionDurationDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [selectedUserBadgeDrafts, setSelectedUserBadgeDrafts] = useState<string[]>([]);
+  const [updatingUserBadgesId, setUpdatingUserBadgesId] = useState<string | null>(null);
+  const [accessData, setAccessData] = useState<AccessManagementData | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessMutationUserId, setAccessMutationUserId] = useState<string | null>(null);
+  const [adminCreateForm, setAdminCreateForm] = useState({
+    email: "",
+    password: "",
+    username: "",
+    fullName: "",
+    accessLevel: "content_admin" as "content_admin" | "super_admin",
+  });
+
+  const handleAdminSignOut = async () => {
+    setError(null);
+    try {
+      await signOut({ admin: true }).unwrap();
+      router.replace("/admin/login");
+      window.location.assign("/admin/login");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo cerrar la sesión.",
+      );
+    }
+  };
+
+  const handleOpenActionLogResource = (
+    item: AccessManagementData["actionLogs"][number],
+  ) => {
+    const albumId = getActionLogAlbumId(item);
+    if (!albumId || !data?.viewerAccess.canManageRoles) return;
+    setSelectedContentReturnTab("admins");
+
+    const contentItem = data.content.find((entry) => entry.id === albumId);
+    if (!contentItem) {
+      setTab("content");
+      setContentView("archived");
+      return;
+    }
+
+    setTab("content");
+    setContentView("reported");
+    setSelectedContent(contentItem);
+    setSelectedMediaIndex(0);
+  };
+
+  const closeSelectedContent = useCallback(() => {
+    setSelectedContent(null);
+    setSelectedMediaIndex(0);
+
+    if (selectedContentReturnTab === "admins") {
+      setTab("admins");
+      setSelectedContentReturnTab(null);
+      return;
+    }
+
+    setSelectedContentReturnTab(null);
+  }, [selectedContentReturnTab]);
 
   const load = async () => {
     setLoading(true);
@@ -643,6 +550,61 @@ export default function AdminPage() {
     load();
   }, []);
 
+  const loadAccessManagement = async () => {
+    setAccessLoading(true);
+    try {
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch("/api/admin/access-management", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const result = (await response.json()) as AccessManagementData & {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo cargar la gestion admin.");
+      }
+      setAccessData(result);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo cargar la gestion admin.",
+      );
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === "admins" && !accessData && !accessLoading) {
+      void loadAccessManagement();
+    }
+  }, [tab, accessData, accessLoading]);
+
+  useEffect(() => {
+    if (!data) return;
+
+    const allowedTabs = new Set<string>(["metrics"]);
+    if (data.viewerAccess.canViewFinance) allowedTabs.add("commerce");
+    if (data.viewerAccess.canManageCommissions) allowedTabs.add("users");
+    if (data.viewerAccess.canManageRoles) allowedTabs.add("admins");
+    if (data.viewerAccess.canReviewAuthors) allowedTabs.add("authors");
+    if (data.viewerAccess.canModerateContent) {
+      allowedTabs.add("reports");
+      allowedTabs.add("content");
+    }
+
+    if (!allowedTabs.has(tab)) {
+      setTab("metrics");
+    }
+  }, [data, tab]);
+
   useEffect(() => {
     if (!selectedContent) return;
     const maxIndex = Math.max((selectedContent.media?.length ?? 1) - 1, 0);
@@ -657,6 +619,7 @@ export default function AdminPage() {
     if (refreshed) {
       setSelectedUser(refreshed);
       setCommissionDraft(refreshed.commissionPercent);
+      setSelectedUserBadgeDrafts(refreshed.badges ?? []);
     }
   }, [data, selectedUser]);
 
@@ -665,6 +628,7 @@ export default function AdminPage() {
     setSelectedUserView("overview");
     setSelectedUserPost(null);
     setSelectedUserPostMediaIndex(0);
+    setSelectedUserBadgeDrafts(selectedUser.badges ?? []);
   }, [selectedUser?.id]);
 
   useEffect(() => {
@@ -672,6 +636,25 @@ export default function AdminPage() {
     const maxIndex = Math.max((selectedUserPost.media?.length ?? 1) - 1, 0);
     setSelectedUserPostMediaIndex((prev) => Math.min(prev, maxIndex));
   }, [selectedUserPost]);
+
+  useEscapeKey(Boolean(selectedContent), closeSelectedContent);
+  useEscapeKey(Boolean(selectedUser) && !updatingUserCommissionId, () => setSelectedUser(null));
+  useEscapeKey(Boolean(selectedUserPost), () => setSelectedUserPost(null));
+  useEscapeKey(Boolean(deletingContent) && !deletingId, () => {
+    setDeletingContent(null);
+    setDeleteReason("");
+  });
+  useEscapeKey(Boolean(rejectingWithdrawal) && !updatingWithdrawalId, () => {
+    setRejectingWithdrawal(null);
+    setWithdrawalRejectReason("");
+  });
+  useEscapeKey(Boolean(authorRejectState.target) && !updatingAuthorId, () => {
+    setAuthorRejectState({
+      target: null,
+      reason: "",
+    });
+  });
+  useEscapeKey(Boolean(selectedReportReason), () => setSelectedReportReason(null));
 
   const overviewStats = useMemo(
     () => [
@@ -682,7 +665,9 @@ export default function AdminPage() {
   );
 
   const financeStats = useMemo(
-    () => [
+    () =>
+      data?.viewerAccess.canViewFinance
+        ? [
       {
         label: "Ventas totales",
         value: formatARS(data?.metrics.purchaseGross ?? 0),
@@ -708,182 +693,10 @@ export default function AdminPage() {
         value: formatARS(data?.metrics.platformFee ?? 0),
         tone: "blue" as const,
       },
-    ],
+    ]
+        : [],
     [data],
   );
-  const financeTotalVolume = useMemo(
-    () => (data?.metrics.purchaseGross ?? 0) + (data?.metrics.tipGross ?? 0),
-    [data],
-  );
-  const financeUsersSorted = useMemo(
-    () =>
-      [...(data?.commerce.users ?? [])]
-        .sort((a, b) => b.creatorNet - a.creatorNet)
-        .slice(0, 8),
-    [data],
-  );
-  const compactPurchases = useMemo(
-    () =>
-      [...(data?.commerce.recentPurchases ?? [])]
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        )
-        .slice(0, 10),
-    [data],
-  );
-  const compactTips = useMemo(
-    () =>
-      [...(data?.commerce.recentTips ?? [])]
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        )
-        .slice(0, 10),
-    [data],
-  );
-  const pendingWithdrawals = useMemo(
-    () =>
-      (data?.commerce.withdrawals ?? []).filter((item) => item.status === "requested"),
-    [data],
-  );
-  const withdrawalHistoryRows = useMemo(
-    () =>
-      [...(data?.commerce.withdrawalHistory ?? [])]
-        .sort(
-          (a, b) =>
-            new Date(b.actedAt).getTime() - new Date(a.actedAt).getTime(),
-        )
-        .slice(0, 12),
-    [data],
-  );
-  const financeMiniStats = useMemo(
-    () => [
-      {
-        label: "Ventas",
-        value: formatARS(data?.metrics.purchaseGross ?? 0),
-        helper: `${data?.metrics.purchases ?? 0} operaciones`,
-      },
-      {
-        label: "Propinas",
-        value: formatARS(data?.metrics.tipGross ?? 0),
-        helper: "Flujo bruto recibido",
-      },
-      {
-        label: "Comisión plataforma",
-        value: formatARS(data?.metrics.platformFee ?? 0),
-        helper: "Ventas + propinas",
-      },
-      {
-        label: "Neto creadores",
-        value: formatARS(data?.metrics.creatorsNet ?? 0),
-        helper: "Monto retenible por autores",
-      },
-    ],
-    [data],
-  );
-  const financeHeroStats = useMemo(
-    () => [
-      {
-        label: "Total filtrado",
-        value: formatARS(financeTotalVolume),
-      },
-      {
-        label: "Creadores",
-        value: formatARS(data?.metrics.creatorsNet ?? 0),
-        tone: "emerald" as const,
-      },
-      {
-        label: "Plataforma",
-        value: formatARS(data?.metrics.platformFee ?? 0),
-        tone: "blue" as const,
-      },
-    ],
-    [data, financeTotalVolume],
-  );
-  const financeTableRows = useMemo<FinanceTableRow[]>(
-    () => [
-      ...compactPurchases.map((item) => ({
-        id: `purchase-${item.id}`,
-        kind: "purchase" as const,
-        user: `@${item.buyer}`,
-        counterparty: `Vendedor @${item.seller}`,
-        amount: item.amount,
-        status: "Aprobado",
-        statusTone: "emerald" as const,
-        createdAt: item.createdAt,
-        description: `Compra a ${item.seller}`,
-        provider: "-",
-        origin: "Compra",
-        category: "Contenido premium",
-        project: "-",
-        costCenter: "-",
-        percentage: "-",
-        period: new Date(item.createdAt).toISOString().slice(0, 7),
-        account: "FanPush ARS",
-        detail: `Compra aprobada del usuario ${item.buyer} al creador ${item.seller}.`,
-      })),
-      ...compactTips.map((item) => ({
-        id: `tip-${item.id}`,
-        kind: "tip" as const,
-        user: `@${item.actor}`,
-        counterparty: `Receptor @${item.receiver}`,
-        amount: item.amount,
-        status: "Liquidada",
-        statusTone: "sky" as const,
-        createdAt: item.createdAt,
-        description: `Propina enviada a ${item.receiver}`,
-        provider: "-",
-        origin: "Propina",
-        category: "Apoyo directo",
-        project: "-",
-        costCenter: "-",
-        percentage: "-",
-        period: new Date(item.createdAt).toISOString().slice(0, 7),
-        account: "FanPush ARS",
-        detail: `Propina enviada por ${item.actor} al creador ${item.receiver}.`,
-      })),
-      ...pendingWithdrawals.map((item) => ({
-        id: `withdrawal-${item.id}`,
-        kind: "withdrawal" as const,
-        user: `@${item.username}`,
-        counterparty: item.payoutAlias ?? "Sin payout",
-        amount: item.amount,
-        status: item.statusLabel,
-        statusTone: "amber" as const,
-        createdAt: item.createdAt,
-        description: `Retiro solicitado por ${item.username}`,
-        provider: item.payoutHolder ?? "-",
-        origin: "Retiro",
-        category: "Payout",
-        project: "-",
-        costCenter: "-",
-        percentage: "-",
-        period: new Date(item.createdAt).toISOString().slice(0, 7),
-        account: item.payoutAlias ?? "Sin cuenta",
-        detail: `Solicitud de retiro para ${item.username}. Titular: ${item.payoutHolder ?? "Sin titular"}. Documento: ${item.payoutDocument ?? "Sin documento"}.`,
-      })),
-    ].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    ),
-    [compactPurchases, compactTips, pendingWithdrawals],
-  );
-  const selectedFinanceRows = useMemo(
-    () => financeTableRows.filter((row) => financeSelectedIds.includes(row.id)),
-    [financeSelectedIds, financeTableRows],
-  );
-  const financeSelectionAmount = useMemo(
-    () =>
-      selectedFinanceRows.reduce((total, row) => total + Math.abs(row.amount), 0),
-    [selectedFinanceRows],
-  );
-  const financeSelectionCount = selectedFinanceRows.length;
-  const financeSelectionKinds = useMemo(
-    () => new Set(selectedFinanceRows.map((row) => row.kind)).size,
-    [selectedFinanceRows],
-  );
-  const financeAllSelected =
-    financeTableRows.length > 0 && financeSelectedIds.length === financeTableRows.length;
 
   const pendingAuthorApplications = useMemo(
     () =>
@@ -1169,6 +982,9 @@ export default function AdminPage() {
           promoteInExplore: nextPromotion.promoteInExplore,
           exploreRank: nextPromotion.exploreRank,
           note: nextPromotion.note,
+          durationDays: promotionDurationDrafts[userId]?.trim()
+            ? Number(promotionDurationDrafts[userId])
+            : null,
         }),
       });
       const result = (await response.json()) as {
@@ -1223,6 +1039,57 @@ export default function AdminPage() {
       );
     } finally {
       setUpdatingPromotionUserId(null);
+    }
+  };
+
+  const handleUpdateUserBadges = async (userId: string) => {
+    try {
+      setUpdatingUserBadgesId(userId);
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch(`/api/admin/users/${userId}/badges`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          badges: selectedUserBadgeDrafts,
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        badges?: string[];
+      };
+      if (!response.ok || !Array.isArray(result.badges)) {
+        throw new Error(result.error ?? "No se pudieron guardar las badges.");
+      }
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              commerce: {
+                ...current.commerce,
+                users: current.commerce.users.map((item) =>
+                  item.id === userId ? { ...item, badges: result.badges! } : item,
+                ),
+              },
+            }
+          : current,
+      );
+      setSelectedUserBadgeDrafts(result.badges);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudieron guardar las badges.",
+      );
+    } finally {
+      setUpdatingUserBadgesId(null);
     }
   };
 
@@ -1315,6 +1182,90 @@ export default function AdminPage() {
       );
     } finally {
       setUpdatingReportId(null);
+    }
+  };
+
+  const handleCreateAdminUser = async () => {
+    try {
+      setAccessMutationUserId("create");
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch("/api/admin/access-management", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(adminCreateForm),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo crear el usuario admin.");
+      }
+
+      setAdminCreateForm({
+        email: "",
+        password: "",
+        username: "",
+        fullName: "",
+        accessLevel: "content_admin",
+      });
+      await loadAccessManagement();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo crear el usuario admin.",
+      );
+    } finally {
+      setAccessMutationUserId(null);
+    }
+  };
+
+  const handleUpdateAdminAccess = async (
+    userId: string,
+    accessLevel: "content_admin" | "super_admin",
+  ) => {
+    try {
+      setAccessMutationUserId(userId);
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch(`/api/admin/users/${userId}/roles`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          grant: [accessLevel],
+          revoke:
+            accessLevel === "super_admin"
+              ? ["content_admin", "admin", "moderator"]
+              : ["super_admin", "admin", "moderator"],
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo actualizar el acceso admin.");
+      }
+
+      await loadAccessManagement();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo actualizar el acceso admin.",
+      );
+    } finally {
+      setAccessMutationUserId(null);
     }
   };
 
@@ -1656,7 +1607,12 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ creatorShare: percent / 100 }),
+        body: JSON.stringify({
+          creatorShare: percent / 100,
+          durationDays: commissionDurationDaysDraft.trim()
+            ? Number(commissionDurationDaysDraft)
+            : null,
+        }),
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok) {
@@ -1752,179 +1708,364 @@ export default function AdminPage() {
   const selectedContentReports = selectedContent
     ? (reportsByAlbum.get(selectedContent.id) ?? [])
     : [];
-  const isFinanceTab = tab === "finance";
-
-  const toggleFinanceRowSelection = (rowId: string) => {
-    setFinanceSelectedIds((prev) =>
-      prev.includes(rowId) ? prev.filter((id) => id !== rowId) : [...prev, rowId],
-    );
-  };
-
-  const toggleFinanceSelectAll = () => {
-    setFinanceSelectedIds((prev) =>
-      prev.length === financeTableRows.length ? [] : financeTableRows.map((row) => row.id),
-    );
-  };
-
-  const toggleFinanceColumn = (column: FinanceColumnKey) => {
-    if (column === "actions") return;
-    setVisibleFinanceColumns((prev) =>
-      prev.includes(column) ? prev.filter((item) => item !== column) : [...prev, column],
-    );
-  };
-
-  const exportFinanceRows = () => {
-    const rows = selectedFinanceRows.length > 0 ? selectedFinanceRows : financeTableRows;
-    const csv = [
-      [
-        "Usuario",
-        "Tipo",
-        "Monto",
-        "Estado",
-        "Fecha",
-        "Descripcion",
-        "Cuenta",
-      ].join(","),
-      ...rows.map((row) =>
-        [
-          row.user,
-          row.kind,
-          row.amount,
-          row.status,
-          row.createdAt,
-          `"${row.description.replaceAll('"', '""')}"`,
-          `"${row.account.replaceAll('"', '""')}"`,
-        ].join(","),
-      ),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "fanpush-finanzas.csv";
-    link.click();
-    URL.revokeObjectURL(url);
-  };
 
   return (
-    <div
-      className={cn(
-        "min-h-screen text-zinc-950 transition-colors",
-        isFinanceTab ? "bg-black text-white" : "bg-zinc-50",
-      )}
-    >
-      {isFinanceTab ? (
-        <div className="w-full border-y border-zinc-900 bg-[#050505] px-4 py-3 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-zinc-800 bg-[#121212] p-3">
-            <div className="flex items-center gap-3 px-2 py-1.5">
-              <Image
-                src="/fanpush-logo.png"
-                alt="FanPush"
-                width={32}
-                height={32}
-                className="h-8 w-8 rounded-[10px]"
-              />
-              <div className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-300">
-                FanPush
+    <div className="min-h-screen bg-zinc-50 text-zinc-950">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
+        <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="text-sm font-medium text-zinc-500">
+                Administración
               </div>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-950 md:text-5xl">
+                Panel de control
+              </h1>
+              <p className="mt-3 max-w-[720px] text-sm text-zinc-500 md:text-base">
+                Supervisá métricas del sitio, flujo de compras, retiros y todo
+                el contenido publicado desde un solo lugar.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => void handleAdminSignOut()}
+              disabled={signingOut}
+              className="rounded-[16px] border border-zinc-200 bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 disabled:opacity-60"
+            >
+              {signingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+            </button>
+          </div>
 
-            <div className="flex flex-wrap justify-end gap-3">
-              {[
-                { id: "metrics", label: "Métricas", icon: BarChart3 },
-                { id: "finance", label: "Finanzas", icon: CircleDollarSign },
-                {
-                  id: "commerce",
-                  label: "Compras, ventas y retiros",
-                  icon: CreditCard,
-                },
-                { id: "users", label: "Usuarios", icon: Eye },
-                { id: "authors", label: "Autores y verificación", icon: Shield },
-                { id: "reports", label: "Reportes y denuncias", icon: Eye },
-                { id: "content", label: "Moderación de contenido", icon: Shield },
-              ].map((item) => {
-                const Icon = item.icon;
-                const active = tab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setTab(item.id as typeof tab)}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-[14px] px-4 py-3 text-sm font-semibold transition",
-                      active
-                        ? "bg-zinc-700 text-white"
-                        : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="mt-6 flex flex-wrap gap-3">
+            {[
+              { id: "metrics", label: "Métricas", icon: BarChart3, visible: true },
+              {
+                id: "commerce",
+                label: "Compras, ventas y retiros",
+                icon: CreditCard,
+                visible: Boolean(data?.viewerAccess.canViewFinance),
+              },
+              {
+                id: "users",
+                label: "Usuarios",
+                icon: Eye,
+                visible: Boolean(data?.viewerAccess.canManageCommissions),
+              },
+              {
+                id: "admins",
+                label: "Admins y accesos",
+                icon: Shield,
+                visible: Boolean(data?.viewerAccess.canManageRoles),
+              },
+              {
+                id: "authors",
+                label: "Autores y verificación",
+                icon: Shield,
+                visible: Boolean(data?.viewerAccess.canReviewAuthors),
+              },
+              {
+                id: "reports",
+                label: "Reportes y denuncias",
+                icon: Eye,
+                visible: Boolean(data?.viewerAccess.canModerateContent),
+              },
+              {
+                id: "content",
+                label: "Moderación de contenido",
+                icon: Shield,
+                visible: Boolean(data?.viewerAccess.canModerateContent),
+              },
+            ]
+              .filter((item) => item.visible)
+              .map((item) => {
+              const Icon = item.icon;
+              const active = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setTab(item.id as typeof tab)}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-[18px] px-4 py-3 text-sm font-semibold transition",
+                    active
+                      ? "bg-[var(--brand-accent)] text-white"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-      ) : null}
-
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
-        {!isFinanceTab ? (
-          <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
-            <div className="flex flex-col gap-5">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-400">
-                  FanPush Admin
-                </div>
-                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-950 md:text-5xl">
-                  Panel de control
-                </h1>
-                <p className="mt-3 max-w-[720px] text-sm text-zinc-500 md:text-base">
-                  Supervisá métricas del sitio, flujo de compras, retiros y todo
-                  el contenido publicado desde un solo lugar.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              {[
-                { id: "metrics", label: "Métricas", icon: BarChart3 },
-                { id: "finance", label: "Finanzas", icon: CircleDollarSign },
-                {
-                  id: "commerce",
-                  label: "Compras, ventas y retiros",
-                  icon: CreditCard,
-                },
-                { id: "users", label: "Usuarios", icon: Eye },
-                { id: "authors", label: "Autores y verificación", icon: Shield },
-                { id: "reports", label: "Reportes y denuncias", icon: Eye },
-                { id: "content", label: "Moderación de contenido", icon: Shield },
-              ].map((item) => {
-                const Icon = item.icon;
-                const active = tab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setTab(item.id as typeof tab)}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-[14px] px-4 py-3 text-sm font-semibold transition",
-                      active
-                        ? "bg-zinc-950 text-white"
-                        : "border border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
 
         {error ? (
           <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
+          </div>
+        ) : null}
+
+        {tab === "admins" ? (
+          <div className="space-y-6">
+            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="text-lg font-semibold text-zinc-950">
+                Crear usuario admin
+              </div>
+              <div className="mt-1 text-sm text-zinc-500">
+                Puedes crear un `super admin` o un admin de moderación con acceso
+                solo a contenido y reportes, sin datos financieros.
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <input
+                  type="email"
+                  placeholder="Correo electrónico"
+                  value={adminCreateForm.email}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Nombre completo"
+                  value={adminCreateForm.fullName}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      fullName: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Username"
+                  value={adminCreateForm.username}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      username: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={adminCreateForm.password}
+                  onChange={(event) =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
+                />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      accessLevel: "content_admin",
+                    }))
+                  }
+                  className={cn(
+                    "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                    adminCreateForm.accessLevel === "content_admin"
+                      ? "border border-zinc-200 bg-zinc-200 text-zinc-900"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
+                  )}
+                >
+                  Solo moderación
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAdminCreateForm((current) => ({
+                      ...current,
+                      accessLevel: "super_admin",
+                    }))
+                  }
+                  className={cn(
+                    "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
+                    adminCreateForm.accessLevel === "super_admin"
+                      ? "border border-zinc-200 bg-zinc-200 text-zinc-900"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
+                  )}
+                >
+                  Super admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCreateAdminUser()}
+                  disabled={accessMutationUserId === "create"}
+                  className="fanpush-button-primary rounded-[14px] px-5 py-3 text-sm disabled:opacity-60"
+                >
+                  {accessMutationUserId === "create"
+                    ? "Creando..."
+                    : "Crear usuario"}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="text-lg font-semibold text-zinc-950">
+                Usuarios con acceso admin
+              </div>
+              <div className="mt-4 overflow-auto rounded-[20px] border border-zinc-200">
+                <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                  <thead className="bg-zinc-100 text-left text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Usuario</th>
+                      <th className="px-4 py-3 font-medium">Email</th>
+                      <th className="px-4 py-3 font-medium">Acceso</th>
+                      <th className="px-4 py-3 font-medium">Roles</th>
+                      <th className="px-4 py-3 font-medium">Cambiar acceso</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 bg-white">
+                    {accessLoading ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                          Cargando accesos...
+                        </td>
+                      </tr>
+                    ) : (accessData?.adminUsers.length ?? 0) === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                          No hay usuarios admin cargados.
+                        </td>
+                      </tr>
+                    ) : (
+                      accessData?.adminUsers.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-4 py-3 font-medium text-zinc-900">
+                            @{item.username}
+                            <div className="text-xs font-normal text-zinc-500">
+                              {item.fullName || "Sin nombre"}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-700">{item.email}</td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            {item.accessLevel === "super_admin"
+                              ? "Super admin"
+                              : "Solo moderación"}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {item.roles.join(", ")}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleUpdateAdminAccess(item.id, "content_admin")
+                                }
+                                disabled={accessMutationUserId === item.id}
+                                className={cn(
+                                  "rounded-[12px] border px-3 py-2 text-xs font-semibold disabled:opacity-60",
+                                  item.accessLevel === "content_admin"
+                                    ? "border-[var(--brand-accent)] bg-[var(--brand-accent)] text-white"
+                                    : "border-zinc-200 bg-zinc-100 text-zinc-700",
+                                )}
+                              >
+                                Solo moderación
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleUpdateAdminAccess(item.id, "super_admin")
+                                }
+                                disabled={accessMutationUserId === item.id}
+                                className={cn(
+                                  "rounded-[12px] border px-3 py-2 text-xs font-semibold disabled:opacity-60",
+                                  item.accessLevel === "super_admin"
+                                    ? "border-[var(--brand-accent)] bg-[var(--brand-accent)] text-white"
+                                    : "border-zinc-200 bg-zinc-100 text-zinc-700",
+                                )}
+                              >
+                                Super admin
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="text-lg font-semibold text-zinc-950">
+                Historial de acciones admin
+              </div>
+              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
+                <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                  <thead className="bg-zinc-100 text-left text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Acción</th>
+                      <th className="px-4 py-3 font-medium">Admin</th>
+                      <th className="px-4 py-3 font-medium">Recurso</th>
+                      <th className="px-4 py-3 font-medium">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 bg-white">
+                    {accessLoading ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
+                          Cargando historial...
+                        </td>
+                      </tr>
+                    ) : (accessData?.actionLogs.length ?? 0) === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
+                          Todavía no hay acciones registradas.
+                        </td>
+                      </tr>
+                    ) : (
+                      accessData?.actionLogs.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-4 py-3 text-zinc-900">{item.summary}</td>
+                          <td className="px-4 py-3 text-zinc-700">@{item.actor}</td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {getActionLogAlbumId(item) &&
+                            data?.viewerAccess.canManageRoles ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenActionLogResource(item)}
+                                className="text-left font-medium text-[var(--brand-accent)] hover:underline"
+                              >
+                                {item.targetType}
+                                {item.targetId
+                                  ? ` · ${formatCompactId(item.targetId)}`
+                                  : ""}
+                              </button>
+                            ) : (
+                              <>
+                                {item.targetType}
+                                {item.targetId
+                                  ? ` · ${formatCompactId(item.targetId)}`
+                                  : ""}
+                              </>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {new Date(item.createdAt).toLocaleString("es-AR")}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -2031,6 +2172,7 @@ export default function AdminPage() {
                               onClick={() => {
                                 setSelectedUser(item);
                                 setCommissionDraft(item.commissionPercent);
+                                setCommissionDurationDaysDraft("");
                               }}
                               className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
                             >
@@ -2065,392 +2207,97 @@ export default function AdminPage() {
               ))}
             </div>
 
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Ingresos del sitio
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Suma global sobre todos los autores y operaciones registradas en
-                el sitio.
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-                {financeStats.map((item) => (
-                  <StatCard
-                    key={item.label}
-                    label={item.label}
-                    value={item.value}
-                    tone={item.tone}
-                  />
-                ))}
-              </div>
-
-              <div className="mt-6 overflow-hidden rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Concepto</th>
-                      <th className="px-4 py-3 font-medium">Monto</th>
-                      <th className="px-4 py-3 font-medium">Detalle</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Ventas totales
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.purchaseGross)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Todo lo vendido por publicaciones y contenido pago.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Comisión sobre ventas
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.purchasePlatformFee)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Comisión FanPush retenida sobre ventas.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Propinas
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.tipGross)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Todo lo recibido en propinas.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Comisión sobre propinas
-                      </td>
-                      <td className="px-4 py-3 text-zinc-900">
-                        {formatARS(data.metrics.tipPlatformFee)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Comisión FanPush retenida sobre propinas.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        Ganancia FanPush
-                      </td>
-                      <td className="px-4 py-3 text-blue-700">
-                        {formatARS(data.metrics.platformFee)}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        Suma de comisión sobre ventas y sobre propinas.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {!loading && data && tab === "finance" ? (
-          <div className="mx-auto w-full max-w-[1480px] space-y-7">
-            <FinanceHeroCard
-              eyebrow="Intelligence"
-              title="Finanzas"
-              subtitle="Vista operativa para entender cómo se distribuyen ventas, propinas, retiros y netos por autor, estado y flujo financiero."
-              stats={financeHeroStats}
-            />
-
-            <div className="rounded-[20px] border border-zinc-800 bg-[#121212] p-3 shadow-[0_20px_60px_rgba(0,0,0,0.24)]">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["overview", "Finanzas", LayoutList],
-                    ["sales", "Ventas", ReceiptText],
-                    ["tips", "Propinas", CircleDollarSign],
-                    ["withdrawals", "Retiros", Landmark],
-                    ["creators", "Creadores", Wallet],
-                    ["classification", "Clasificación", Package],
-                    ["analysis", "Análisis", LineChart],
-                    ["pnl", "P&L", PieChart],
-                  ] as const
-                ).map(([id, label, Icon]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setFinanceView(id)}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-[12px] px-4 py-3 text-sm font-semibold transition",
-                      financeView === id
-                        ? "bg-zinc-700 text-white"
-                        : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[22px] border border-[#3b332d] bg-[#1b1818] p-3 shadow-[0_20px_60px_rgba(0,0,0,0.24)]">
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.4fr_repeat(3,minmax(0,0.95fr))]">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por descripción, usuario, payout o concepto..."
-                    className="h-[46px] w-full rounded-[14px] border border-zinc-800 bg-[#0c0c0c] pl-11 pr-4 text-sm text-zinc-300 outline-none placeholder:text-zinc-500 focus:border-zinc-700"
-                  />
+            {data.viewerAccess.canViewFinance ? (
+              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="text-lg font-semibold text-zinc-950">
+                  Ingresos del sitio
                 </div>
-                <select className="h-[46px] rounded-[14px] border border-zinc-800 bg-[#0c0c0c] px-4 text-sm font-medium text-zinc-300 outline-none">
-                  <option>Vista por flujo</option>
-                  <option>Vista por autor</option>
-                  <option>Vista por estado</option>
-                </select>
-                <select className="h-[46px] rounded-[14px] border border-zinc-800 bg-[#0c0c0c] px-4 text-sm font-medium text-zinc-300 outline-none">
-                  <option>Todos los períodos</option>
-                  <option>Últimos 7 días</option>
-                  <option>Últimos 30 días</option>
-                </select>
-                <select className="h-[46px] rounded-[14px] border border-zinc-800 bg-[#0c0c0c] px-4 text-sm font-medium text-zinc-300 outline-none">
-                  <option>Todos los estados</option>
-                  <option>Pendiente</option>
-                  <option>Enviado</option>
-                  <option>Rechazado</option>
-                </select>
-              </div>
-            </div>
+                <div className="mt-1 text-sm text-zinc-500">
+                  Suma global sobre todos los autores y operaciones registradas en
+                  el sitio.
+                </div>
 
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-              {[
-                {
-                  label: "Monto seleccionado",
-                  value: formatARS(financeSelectionAmount),
-                  helper: `${financeSelectionCount} movimientos`,
-                },
-                {
-                  label: "Tipos presentes",
-                  value: String(financeSelectionKinds),
-                  helper: "Compra, propina o retiro",
-                },
-                {
-                  label: "Comisión plataforma",
-                  value: formatARS(data?.metrics.platformFee ?? 0),
-                  helper: "Total global del panel",
-                },
-                {
-                  label: "Neto creadores",
-                  value: formatARS(data?.metrics.creatorsNet ?? 0),
-                  helper: "Monto retenible por autores",
-                },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className={cn(
-                    "rounded-[18px] border px-5 py-4 text-white shadow-[0_18px_50px_rgba(0,0,0,0.18)]",
-                    item.label === "Ventas"
-                      ? "border-emerald-950 bg-[#07110d]"
-                      : "border-[#2e2825] bg-[#221f1f]",
-                  )}
-                >
-                  <div className="text-sm font-medium leading-5 text-zinc-300">
-                    {item.label}
-                  </div>
-                  <div className="mt-2 text-[1.75rem] font-semibold leading-none tracking-tight text-white">
-                    {item.value}
-                  </div>
-                  <div className="mt-2 text-xs leading-5 text-zinc-300">{item.helper}</div>
+                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  {financeStats.map((item) => (
+                    <StatCard
+                      key={item.label}
+                      label={item.label}
+                      value={item.value}
+                      tone={item.tone}
+                    />
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-white">
-                    Tabla financiera
-                  </h3>
-                  <p className="mt-1 text-sm text-zinc-300">
-                    Dejé una sola tabla base para iterarla con las opciones que quieras sumar.
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFinanceFiltersOpen((prev) => !prev)}
-                    className="rounded-[14px] border border-zinc-900 bg-[#111111] px-4 py-2.5 text-sm font-semibold text-white"
-                  >
-                    Filtros
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFinanceColumnsOpen((prev) => !prev)}
-                    className="rounded-[14px] border border-zinc-900 bg-[#111111] px-4 py-2.5 text-sm font-semibold text-white"
-                  >
-                    Columns
-                  </button>
-                  <button
-                    type="button"
-                    onClick={exportFinanceRows}
-                    className="rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900"
-                  >
-                    Export
-                  </button>
-                </div>
-              </div>
-              {financeColumnsOpen ? (
-                <div className="absolute z-20 mt-2 w-[320px] rounded-[18px] border border-zinc-800 bg-[#1d1d1d] p-4 text-white shadow-2xl">
-                  <div className="mb-4 text-lg font-semibold">Mostrar columnas</div>
-                  <div className="space-y-2">
-                    {FINANCE_COLUMN_ORDER.filter((column) => column !== "actions").map(
-                      (column) => (
-                        <button
-                          key={column}
-                          type="button"
-                          onClick={() => toggleFinanceColumn(column)}
-                          className="flex w-full items-center gap-3 rounded-[12px] px-3 py-2 text-left hover:bg-zinc-800"
-                        >
-                          <span className="flex h-5 w-5 items-center justify-center">
-                            {visibleFinanceColumns.includes(column) ? (
-                              <Check className="h-4 w-4" />
-                            ) : null}
-                          </span>
-                          <span className="text-base">{FINANCE_COLUMN_LABELS[column]}</span>
-                        </button>
-                      ),
-                    )}
-                  </div>
-                </div>
-              ) : null}
-              {financeFiltersOpen ? (
-                <div className="rounded-[18px] border border-zinc-800 bg-[#171717] px-4 py-3 text-sm text-zinc-300">
-                  Los filtros reales los conectamos después. La estructura ya quedó preparada.
-                </div>
-              ) : null}
-              <div className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
-                <div className="overflow-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-[0.95rem] text-zinc-600">
+                <div className="mt-6 overflow-hidden rounded-[20px] border border-zinc-200">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-100 text-left text-zinc-500">
                       <tr>
-                        <th className="w-12 px-4 py-3 font-semibold">
-                          <button
-                            type="button"
-                            onClick={toggleFinanceSelectAll}
-                            className={cn(
-                              "flex h-6 w-6 items-center justify-center rounded-md border transition",
-                              financeAllSelected
-                                ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                                : "border-emerald-400 bg-white text-transparent",
-                            )}
-                          >
-                            <Check className="h-4 w-4" />
-                          </button>
-                        </th>
-                        {FINANCE_COLUMN_ORDER.filter((column) =>
-                          visibleFinanceColumns.includes(column),
-                        ).map((column) => (
-                          <th
-                            key={column}
-                            className={cn(
-                              "px-4 py-3 font-semibold",
-                              column === "actions" && "w-16",
-                            )}
-                          >
-                            {FINANCE_COLUMN_LABELS[column]}
-                          </th>
-                        ))}
+                        <th className="px-4 py-3 font-medium">Concepto</th>
+                        <th className="px-4 py-3 font-medium">Monto</th>
+                        <th className="px-4 py-3 font-medium">Detalle</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-200 bg-white">
-                      {financeTableRows.map((row) => {
-                        const selected = financeSelectedIds.includes(row.id);
-                        return (
-                          <tr key={row.id} className="align-top">
-                            <td className="px-4 py-2.5">
-                              <button
-                                type="button"
-                                onClick={() => toggleFinanceRowSelection(row.id)}
-                                className={cn(
-                                  "flex h-6 w-6 items-center justify-center rounded-md border transition",
-                                  selected
-                                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                                    : "border-emerald-400 bg-white text-transparent",
-                                )}
-                              >
-                                <Check className="h-4 w-4" />
-                              </button>
-                            </td>
-                            {visibleFinanceColumns.includes("date") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">
-                                {new Date(row.createdAt).toLocaleDateString("en-GB", {
-                                  day: "2-digit",
-                                  month: "short",
-                                  year: "numeric",
-                                })}
-                              </td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("description") ? (
-                              <td className="max-w-[380px] px-4 py-2.5 font-medium text-zinc-700">
-                                {row.description}
-                              </td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("provider") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.provider}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("amount") ? (
-                              <td className="px-4 py-2.5 font-semibold text-red-500">
-                                -{formatARS(Math.abs(row.amount))}
-                              </td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("origin") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.origin}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("category") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.category}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("project") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.project}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("costCenter") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.costCenter}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("percentage") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.percentage}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("period") ? (
-                              <td className="px-4 py-2.5 text-zinc-700">{row.period}</td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("account") ? (
-                              <td className="px-4 py-2.5 font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2">
-                                {row.account}
-                              </td>
-                            ) : null}
-                            {visibleFinanceColumns.includes("actions") ? (
-                              <td className="px-4 py-2.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedFinanceRow(row)}
-                                  className="rounded-[12px] border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50"
-                                  aria-label="Abrir detalle"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </button>
-                              </td>
-                            ) : null}
-                          </tr>
-                        );
-                      })}
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Ventas totales
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.purchaseGross)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Todo lo vendido por publicaciones y contenido pago.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Comisión sobre ventas
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.purchasePlatformFee)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Comisión FanPush retenida sobre ventas.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Propinas
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.tipGross)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Todo lo recibido en propinas.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Comisión sobre propinas
+                        </td>
+                        <td className="px-4 py-3 text-zinc-900">
+                          {formatARS(data.metrics.tipPlatformFee)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Comisión FanPush retenida sobre propinas.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          Ganancia FanPush
+                        </td>
+                        <td className="px-4 py-3 text-blue-700">
+                          {formatARS(data.metrics.platformFee)}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-500">
+                          Suma de comisión sobre ventas y sobre propinas.
+                        </td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
-            </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -3257,6 +3104,7 @@ export default function AdminPage() {
                         <th className="px-4 py-3 font-medium">Feed</th>
                         <th className="px-4 py-3 font-medium">Sugerencias</th>
                         <th className="px-4 py-3 font-medium">Explorar</th>
+                        <th className="px-4 py-3 font-medium">Duración</th>
                         <th className="px-4 py-3 font-medium">Nota interna</th>
                       </tr>
                     </thead>
@@ -3264,7 +3112,7 @@ export default function AdminPage() {
                       {curatedAuthors.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={7}
+                            colSpan={8}
                             className="px-4 py-6 text-center text-zinc-500"
                           >
                             No encontramos autores con ese filtro.
@@ -3361,6 +3209,27 @@ export default function AdminPage() {
                                 />
                               </td>
                             ))}
+                            <td className="px-4 py-3 align-top">
+                              <input
+                                type="number"
+                                min={1}
+                                placeholder="Días"
+                                value={promotionDurationDrafts[item.id] ?? ""}
+                                disabled={updatingPromotionUserId === item.id}
+                                onChange={(event) =>
+                                  setPromotionDurationDrafts((prev) => ({
+                                    ...prev,
+                                    [item.id]: event.target.value,
+                                  }))
+                                }
+                                className="h-10 w-[92px] rounded-[12px] border border-zinc-200 px-3 text-sm text-zinc-900 outline-none"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                {item.promotion.expiresAt
+                                  ? `Vence ${new Date(item.promotion.expiresAt).toLocaleDateString("es-AR")}`
+                                  : "Fijo hasta cambiarlo"}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 align-top">
                               <textarea
                                 value={item.promotion.note}
@@ -4350,7 +4219,7 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
           <button
             type="button"
-            onClick={() => setSelectedContent(null)}
+            onClick={closeSelectedContent}
             className="absolute inset-0"
             aria-label="Cerrar visor"
           />
@@ -4428,7 +4297,7 @@ export default function AdminPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedContent(null)}
+                  onClick={closeSelectedContent}
                   className="rounded-[12px] border border-zinc-200 p-2 text-zinc-700"
                 >
                   <X className="h-4 w-4" />
@@ -4436,7 +4305,7 @@ export default function AdminPage() {
               </div>
 
               <div className="mt-4 rounded-[18px] bg-zinc-100 p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                <div className="text-sm font-medium text-zinc-500">
                   Descripción
                 </div>
                 <div className="mt-2 text-sm text-zinc-700">
@@ -4445,7 +4314,7 @@ export default function AdminPage() {
               </div>
 
               <div className="mt-4 rounded-[18px] border border-zinc-200 bg-white p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                <div className="text-sm font-medium text-zinc-500">
                   Clasificación
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -4499,7 +4368,7 @@ export default function AdminPage() {
 
               {selectedContentReports.length > 0 ? (
                 <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-red-500">
+                  <div className="text-sm font-medium text-red-500">
                     Reportes pendientes
                   </div>
                   <div className="mt-3 space-y-3">
@@ -4623,7 +4492,7 @@ export default function AdminPage() {
                   iconClassName="h-5 w-5"
                 />
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                  <div className="text-sm font-medium text-zinc-500">
                     Usuario
                   </div>
                   <div className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950">
@@ -4665,6 +4534,10 @@ export default function AdminPage() {
                   id: "referrals",
                   label: `Referidos (${selectedUser.referralsCount})`,
                 },
+                {
+                  id: "badges",
+                  label: `Badges (${selectedUser.badges.length})`,
+                },
               ].map((view) => (
                 <button
                   key={view.id}
@@ -4674,16 +4547,17 @@ export default function AdminPage() {
                       view.id as
                         | "overview"
                         | "details"
-                        | "posts"
-                        | "followers"
-                        | "following"
-                        | "referrals",
+                      | "posts"
+                      | "followers"
+                      | "following"
+                      | "referrals"
+                      | "badges",
                     )
                   }
                   className={cn(
                     "rounded-full border px-4 py-2 text-sm font-medium transition",
                     selectedUserView === view.id
-                      ? "border-zinc-950 bg-zinc-950 text-white"
+                      ? "border-zinc-300 bg-zinc-100 text-zinc-950"
                       : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
                   )}
                 >
@@ -4791,6 +4665,21 @@ export default function AdminPage() {
                               </option>
                             ))}
                           </select>
+                          <input
+                            type="number"
+                            min={1}
+                            value={commissionDurationDaysDraft}
+                            onChange={(event) =>
+                              setCommissionDurationDaysDraft(event.target.value)
+                            }
+                            placeholder="Días opcionales"
+                            className="mt-3 w-full rounded-[14px] border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 outline-none"
+                          />
+                          <div className="mt-2 text-xs text-zinc-500">
+                            {selectedUser.commissionExpiresAt
+                              ? `Override actual vigente hasta ${new Date(selectedUser.commissionExpiresAt).toLocaleDateString("es-AR")}`
+                              : "Si no cargas días, la comisión queda fija hasta volver a cambiarla."}
+                          </div>
                           <button
                             type="button"
                             onClick={() =>
@@ -5343,6 +5232,100 @@ export default function AdminPage() {
                   })()}
                 </div>
               ) : null}
+
+              {selectedUserView === "badges" ? (
+                <div className="space-y-6">
+                  <div className="rounded-[24px] border border-zinc-200 p-5">
+                    <div className="flex flex-col gap-4">
+                      <div>
+                        <div className="text-lg font-semibold text-zinc-950">
+                          Badges manuales
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          Asigna o quita badges manuales del usuario. Las badges automáticas por ventas,
+                          compras, referidos o promoción no se gestionan desde acá.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {getAllBadgeDefinitions().map((badge) => {
+                        const checked = selectedUserBadgeDrafts.includes(badge.slug);
+                        return (
+                          <label
+                            key={badge.slug}
+                            className={cn(
+                              "flex cursor-pointer items-start gap-3 rounded-[18px] border px-4 py-4 transition",
+                              checked
+                                ? "border-zinc-300 bg-zinc-100 text-zinc-950"
+                                : "border-zinc-200 bg-zinc-50 text-zinc-900",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                setSelectedUserBadgeDrafts((current) =>
+                                  event.target.checked
+                                    ? [...current, badge.slug]
+                                    : current.filter((item) => item !== badge.slug),
+                                );
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-zinc-300"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-semibold">
+                                  {badge.label}
+                                </div>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                    checked
+                                      ? "bg-white text-zinc-600"
+                                      : "bg-white text-zinc-500",
+                                  )}
+                                >
+                                  {badge.category}
+                                </span>
+                              </div>
+                              <div
+                                className={cn(
+                                  "mt-1 text-sm leading-5",
+                                  checked ? "text-zinc-600" : "text-zinc-500",
+                                )}
+                              >
+                                {badge.description}
+                              </div>
+                              <div
+                                className={cn(
+                                  "mt-2 text-xs",
+                                  checked ? "text-zinc-400" : "text-zinc-400",
+                                )}
+                              >
+                                {badge.slug}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateUserBadges(selectedUser.id)}
+                        disabled={updatingUserBadgesId === selectedUser.id}
+                        className="rounded-[16px] bg-[#5A3EE7] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4c32d1] disabled:opacity-60"
+                      >
+                        {updatingUserBadgesId === selectedUser.id
+                          ? "Guardando badges..."
+                          : "Guardar badges"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -5359,7 +5342,7 @@ export default function AdminPage() {
           <div className="relative z-10 flex max-h-[88vh] w-full max-w-[1080px] flex-col overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-6 py-5">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Post del usuario
                 </div>
                 <div className="mt-1 text-2xl font-semibold tracking-tight text-zinc-950">
@@ -5452,7 +5435,7 @@ export default function AdminPage() {
                   </div>
                   <div className="mt-4 space-y-4 text-sm text-zinc-700">
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                      <div className="text-sm font-medium text-zinc-500">
                         Descripción
                       </div>
                       <div className="mt-2 whitespace-pre-wrap leading-6 text-zinc-900">
@@ -5461,7 +5444,7 @@ export default function AdminPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Acceso
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -5471,7 +5454,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Precio
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -5479,7 +5462,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Archivos
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -5487,7 +5470,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="rounded-[18px] bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        <div className="text-sm font-medium text-zinc-500">
                           Me gusta
                         </div>
                         <div className="mt-2 text-base font-semibold text-zinc-950">
@@ -5496,7 +5479,7 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="rounded-[18px] bg-zinc-50 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                      <div className="text-sm font-medium text-zinc-500">
                         Archivos del post
                       </div>
                       <div className="mt-3 space-y-2">
@@ -5541,85 +5524,7 @@ export default function AdminPage() {
         </div>
       ) : null}
 
-        {selectedFinanceRow ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="w-full max-w-[640px] rounded-[26px] border border-zinc-200 bg-white p-6 shadow-2xl">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-400">
-                    Movimiento financiero
-                  </div>
-                  <h3 className="mt-2 text-2xl font-semibold text-zinc-950">
-                    {selectedFinanceRow.description}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedFinanceRow(null)}
-                  className="rounded-[12px] border border-zinc-200 p-2 text-zinc-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Usuario
-                  </div>
-                  <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.user}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Contraparte
-                  </div>
-                  <div className="mt-1 text-base text-zinc-900">
-                    {selectedFinanceRow.counterparty}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Monto
-                  </div>
-                  <div className="mt-1 text-base font-semibold text-red-500">
-                    -{formatARS(Math.abs(selectedFinanceRow.amount))}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Estado
-                  </div>
-                  <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.status}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Cuenta
-                  </div>
-                  <div className="mt-1 text-base text-zinc-900">
-                    {selectedFinanceRow.account}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Periodo
-                  </div>
-                  <div className="mt-1 text-base text-zinc-900">
-                    {selectedFinanceRow.period}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-6">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                  Detalle extendido
-                </div>
-                <div className="mt-2 rounded-[18px] bg-zinc-50 p-4 text-sm leading-7 text-zinc-700">
-                  {selectedFinanceRow.detail}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {deletingContent ? (
+      {deletingContent ? (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4">
           <button
             type="button"
@@ -5778,7 +5683,7 @@ export default function AdminPage() {
           <div className="relative w-full max-w-[560px] rounded-[28px] border border-zinc-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Solicitud de autor
                 </div>
                 <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">
@@ -5867,7 +5772,7 @@ export default function AdminPage() {
           <div className="relative w-full max-w-[680px] rounded-[28px] border border-zinc-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Reporte
                 </div>
                 <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">

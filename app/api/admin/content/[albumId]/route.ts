@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAdminAction } from "@/lib/server/admin/audit";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
 import {
   createModerationAction,
@@ -116,6 +117,20 @@ export async function DELETE(
       message: `eliminó una de tus publicaciones. Motivo: ${reason}`,
     });
 
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "content.removed",
+      targetType: "album",
+      targetId: bundle.album.id,
+      summary: `Elimino contenido ${bundle.album.id}.`,
+      metadata: {
+        ownerUserId: bundle.album.user_id,
+        reason,
+        reportsAffected: reports.map((row) => row.id),
+      },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
@@ -204,6 +219,20 @@ export async function PATCH(
         ),
       );
     }
+
+    await recordAdminAction({
+      admin,
+      actorUserId: user.id,
+      actionType: "content.reviewed",
+      targetType: "album",
+      targetId: albumId,
+      summary: `Marco contenido ${albumId} como ${action}.`,
+      metadata: {
+        action,
+        ownerUserId: album.user_id,
+        reportsAffected: reportRows.map((row) => row.id),
+      },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

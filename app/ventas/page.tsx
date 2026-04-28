@@ -13,6 +13,7 @@ import {
 } from "@/lib/redux/api/commerceApi";
 import { useGetViewerQuery } from "@/lib/redux/api/sessionApi";
 import { getCurrentMonthKey, getWithdrawalReservedAmount } from "@/lib/withdrawals";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 import { FANPUSH_WITHDRAWAL_MIN_ARS, formatARS } from "@/lib/utils";
 
 const SALES_PAGE_SIZE = 10;
@@ -40,6 +41,15 @@ export default function VentasPage() {
   const { data, isLoading: loading, refetch } = useGetSalesQuery();
   const [requestWithdrawal, { isLoading: requesting }] = useRequestWithdrawalMutation();
   const [cancelWithdrawal, { isLoading: cancelling }] = useCancelWithdrawalMutation();
+
+  useEscapeKey(Boolean(selectedWithdrawal), () => setSelectedWithdrawal(null));
+  useEscapeKey(withdrawalModalOpen, () => {
+    setWithdrawalModalOpen(false);
+    setWithdrawalAmount("");
+    setWithdrawalSubmitAttempted(false);
+    setRequestError(null);
+    setRequestSuccess(null);
+  });
 
   useEffect(() => {
     if (!viewerLoading && viewer && !viewer.access.isAuthor) {

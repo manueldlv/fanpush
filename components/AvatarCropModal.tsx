@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import { Minus, Plus, X } from "lucide-react";
 import { createCroppedImageBlob } from "@/lib/imageCrop";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 
 type AvatarCropModalProps = {
   imageSrc: string;
@@ -63,6 +64,8 @@ export default function AvatarCropModal({
     setCroppedAreaPixels(null);
     setProcessingError(null);
   }, [imageSrc, open]);
+
+  useEscapeKey(open && !processing, onCancel);
 
   if (!open) return null;
 

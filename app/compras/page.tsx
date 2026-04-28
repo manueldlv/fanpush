@@ -17,6 +17,7 @@ import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { useGetPurchasesQuery } from "@/lib/redux/api/commerceApi";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 import { formatARS } from "@/lib/utils";
 
 type PurchaseItem = {
@@ -41,12 +42,24 @@ type SentTipItem = {
   message: string;
 };
 
+type DepositHistoryItem = {
+  id: string;
+  date: string;
+  amount: number;
+  provider: "mercadopago";
+  paymentId: string | null;
+  status: string;
+};
+
 export default function ComprasPage() {
-  const [activeTab, setActiveTab] = useState<"purchases" | "tips">("purchases");
+  const [activeTab, setActiveTab] = useState<
+    "purchases" | "tips" | "deposit-history"
+  >("purchases");
   const [openPurchase, setOpenPurchase] = useState<PurchaseItem | null>(null);
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  useEscapeKey(Boolean(openPurchase), () => setOpenPurchase(null));
   const {
     data,
     isLoading: loading,
@@ -56,6 +69,7 @@ export default function ComprasPage() {
   });
   const items = data?.items ?? [];
   const sentTips = data?.sentTips ?? [];
+  const depositHistory = data?.depositHistory ?? [];
   const ITEMS_PER_PAGE = 10;
 
   useEffect(() => {
@@ -70,9 +84,13 @@ export default function ComprasPage() {
     };
   }, [refetch]);
 
-  const displayItems = useMemo(() => items, [items]);
-  const displayTips = useMemo(() => sentTips, [sentTips]);
-  const hasAnyHistory = displayItems.length > 0 || displayTips.length > 0;
+  const displayItems = items;
+  const displayTips = sentTips;
+  const displayDepositHistory = depositHistory;
+  const hasAnyHistory =
+    displayItems.length > 0 ||
+    displayTips.length > 0 ||
+    displayDepositHistory.length > 0;
 
   const totalSpent = useMemo(
     () => displayItems.reduce((acc, item) => acc + item.price, 0),
@@ -82,8 +100,16 @@ export default function ComprasPage() {
     () => displayTips.reduce((acc, item) => acc + item.amount, 0),
     [displayTips],
   );
+  const totalDeposited = useMemo(
+    () => displayDepositHistory.reduce((acc, item) => acc + item.amount, 0),
+    [displayDepositHistory],
+  );
   const totalPages = Math.max(1, Math.ceil(displayItems.length / ITEMS_PER_PAGE));
   const totalTipPages = Math.max(1, Math.ceil(displayTips.length / ITEMS_PER_PAGE));
+  const totalDepositPages = Math.max(
+    1,
+    Math.ceil(displayDepositHistory.length / ITEMS_PER_PAGE),
+  );
   const paginatedItems = useMemo(
     () =>
       displayItems.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
@@ -94,21 +120,40 @@ export default function ComprasPage() {
       displayTips.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
     [displayTips, page],
   );
+  const paginatedDeposits = useMemo(
+    () =>
+      displayDepositHistory.slice(
+        (page - 1) * ITEMS_PER_PAGE,
+        page * ITEMS_PER_PAGE,
+      ),
+    [displayDepositHistory, page],
+  );
+  const activeCount =
+    activeTab === "purchases"
+      ? displayItems.length
+      : activeTab === "tips"
+        ? displayTips.length
+        : displayDepositHistory.length;
   const rangeStart =
-    (activeTab === "purchases" ? displayItems.length : displayTips.length) === 0
+    activeCount === 0
       ? 0
       : (page - 1) * ITEMS_PER_PAGE + 1;
   const rangeEnd = Math.min(
     page * ITEMS_PER_PAGE,
-    activeTab === "purchases" ? displayItems.length : displayTips.length,
+    activeCount,
   );
   const isPurchasesTab = activeTab === "purchases";
+  const isTipsTab = activeTab === "tips";
+  const isDepositHistoryTab = activeTab === "deposit-history";
+  const activeTotalPages = isPurchasesTab
+    ? totalPages
+    : isTipsTab
+      ? totalTipPages
+      : totalDepositPages;
 
   useEffect(() => {
-    setPage((current) =>
-      Math.min(current, activeTab === "purchases" ? totalPages : totalTipPages),
-    );
-  }, [activeTab, totalPages, totalTipPages]);
+    setPage((current) => Math.min(current, activeTotalPages));
+  }, [activeTotalPages]);
 
   useEffect(() => {
     setPage(1);
@@ -323,10 +368,20 @@ export default function ComprasPage() {
               </div>
               <div className="rounded-[12px] border border-zinc-200 bg-white p-4">
                 <div className="text-[13px] font-medium text-zinc-500">
-                  {isPurchasesTab ? "invertido en contenido" : "propinas enviadas"}
+                  {isPurchasesTab
+                    ? "invertido en contenido"
+                    : isTipsTab
+                      ? "propinas enviadas"
+                      : "cargado con Mercado Pago"}
                 </div>
                 <div className="mt-2 text-xl font-semibold text-zinc-900">
-                  {formatARS(isPurchasesTab ? totalSpent : totalTipsSent)}
+                  {formatARS(
+                    isPurchasesTab
+                      ? totalSpent
+                      : isTipsTab
+                        ? totalTipsSent
+                        : totalDeposited,
+                  )}
                 </div>
               </div>
             </div>
@@ -344,8 +399,9 @@ export default function ComprasPage() {
                   Aún no tienes compras
                 </div>
                 <p className="mt-2 max-w-[560px] leading-6">
-                  Cuando compres contenido bloqueado o envíes propinas, lo verás
-                  reflejado aquí con acceso rápido para volver a abrirlo o descargarlo.
+                  Cuando compres contenido bloqueado, cargues monedas con Mercado
+                  Pago o envíes propinas, lo verás reflejado aquí con acceso
+                  rápido para volver a abrirlo o revisar el historial.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <a
@@ -389,6 +445,17 @@ export default function ComprasPage() {
                     >
                       Propinas enviadas
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("deposit-history")}
+                      className={`rounded-[12px] px-4 py-2.5 text-sm font-semibold transition ${
+                        activeTab === "deposit-history"
+                          ? "bg-zinc-100 text-zinc-950"
+                          : "bg-white text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                      }`}
+                    >
+                      Historial de compras
+                    </button>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -396,15 +463,19 @@ export default function ComprasPage() {
                     <div className="text-sm font-semibold text-zinc-900">
                       {isPurchasesTab
                         ? "Historial de compras"
-                        : "Historial de propinas"}
+                        : isTipsTab
+                          ? "Historial de propinas"
+                          : "Historial de compras de monedas"}
                     </div>
                     <div className="text-xs text-zinc-500">
                       {isPurchasesTab
                         ? `Mostrando ${rangeStart}-${rangeEnd} de ${displayItems.length} compras`
-                        : `Mostrando ${rangeStart}-${rangeEnd} de ${displayTips.length} propinas`}
+                        : isTipsTab
+                          ? `Mostrando ${rangeStart}-${rangeEnd} de ${displayTips.length} propinas`
+                          : `Mostrando ${rangeStart}-${rangeEnd} de ${displayDepositHistory.length} recargas`}
                     </div>
                   </div>
-                  {(isPurchasesTab ? totalPages : totalTipPages) > 1 ? (
+                  {activeTotalPages > 1 ? (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -416,19 +487,16 @@ export default function ComprasPage() {
                         Anterior
                       </button>
                       <div className="min-w-[88px] text-center text-xs font-semibold text-zinc-600">
-                        Página {page} de {isPurchasesTab ? totalPages : totalTipPages}
+                        Página {page} de {activeTotalPages}
                       </div>
                       <button
                         type="button"
                         onClick={() =>
                           setPage((current) =>
-                            Math.min(
-                              isPurchasesTab ? totalPages : totalTipPages,
-                              current + 1,
-                            ),
+                            Math.min(activeTotalPages, current + 1),
                           )
                         }
-                        disabled={page === (isPurchasesTab ? totalPages : totalTipPages)}
+                        disabled={page === activeTotalPages}
                         className="inline-flex items-center gap-1 rounded-[10px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Siguiente
@@ -444,9 +512,14 @@ export default function ComprasPage() {
                       Todavía no hiciste compras de contenido.
                     </div>
                   ) : null}
-                  {!isPurchasesTab && paginatedTips.length === 0 ? (
+                  {isTipsTab && paginatedTips.length === 0 ? (
                     <div className="px-4 py-8 text-sm text-zinc-500">
                       Todavía no enviaste propinas.
+                    </div>
+                  ) : null}
+                  {isDepositHistoryTab && paginatedDeposits.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-zinc-500">
+                      Todavía no hiciste compras de monedas con Mercado Pago.
                     </div>
                   ) : null}
                   {isPurchasesTab
@@ -530,7 +603,8 @@ export default function ComprasPage() {
                       </div>
                     </div>
                     ))
-                    : paginatedTips.map((tip) => (
+                    : isTipsTab
+                      ? paginatedTips.map((tip) => (
                     <div
                       key={tip.id}
                       className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
@@ -571,6 +645,37 @@ export default function ComprasPage() {
                         </div>
                       </div>
                     </div>
+                    ))
+                      : paginatedDeposits.map((deposit) => (
+                    <div
+                      key={deposit.id}
+                      className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <div className="truncate text-[15px] font-semibold text-zinc-900">
+                            Compra de monedas con Mercado Pago
+                          </div>
+                          <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium uppercase text-zinc-600">
+                            {deposit.status}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          Mercado Pago · {deposit.date}
+                        </div>
+                        <div className="mt-2 text-sm leading-6 text-zinc-500">
+                          {deposit.paymentId
+                            ? `ID de pago: ${deposit.paymentId}`
+                            : "Pago acreditado en tu saldo."}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-left md:min-w-[170px] md:text-right">
+                        <div className="text-xs font-medium text-zinc-500">Monto</div>
+                        <div className="mt-1 text-[20px] font-semibold leading-none text-zinc-900">
+                          {formatARS(deposit.amount)}
+                        </div>
+                      </div>
+                    </div>
                     ))}
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t border-zinc-200 px-4 py-3 md:px-6">
@@ -587,12 +692,12 @@ export default function ComprasPage() {
                     onClick={() =>
                       setPage((current) =>
                         Math.min(
-                          activeTab === "purchases" ? totalPages : totalTipPages,
+                          activeTotalPages,
                           current + 1,
                         ),
                       )
                     }
-                    disabled={page === (activeTab === "purchases" ? totalPages : totalTipPages)}
+                    disabled={page === activeTotalPages}
                     className="inline-flex items-center gap-2 rounded-[10px] border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Siguiente

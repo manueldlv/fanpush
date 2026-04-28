@@ -15,7 +15,7 @@ const buildError = (error: unknown, fallback: string) => ({
   error: error instanceof Error ? error.message : fallback,
 });
 
-const authedRequest = async <T,>(input: string, init?: RequestInit) => {
+const getValidAccessToken = async () => {
   const supabase = getSupabaseClient();
   if (!supabase) {
     throw new Error("Falta configurar Supabase.");
@@ -25,20 +25,54 @@ const authedRequest = async <T,>(input: string, init?: RequestInit) => {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session?.access_token) {
+  if (session?.access_token) {
+    return session.access_token;
+  }
+
+  const refreshed = await supabase.auth.refreshSession();
+  return refreshed.data.session?.access_token ?? null;
+};
+
+const authedRequest = async <T,>(input: string, init?: RequestInit) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Falta configurar Supabase.");
+  }
+
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) {
     return null;
   }
 
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
+  const runRequest = async (token: string) =>
+    fetch(input, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+    });
 
-  const result = (await response.json()) as T & { error?: string };
+  let response = await runRequest(accessToken);
+  let result = (await response.json()) as T & { error?: string };
+
+  if (
+    response.status === 401 &&
+    (result.error === "Sesion invalida." ||
+      result.error === "No encontramos la sesión del usuario para continuar.")
+  ) {
+    const refreshed = await supabase.auth.refreshSession();
+    const nextAccessToken = refreshed.data.session?.access_token ?? null;
+
+    if (!nextAccessToken) {
+      return null;
+    }
+
+    response = await runRequest(nextAccessToken);
+    result = (await response.json()) as T & { error?: string };
+  }
+
   if (!response.ok) {
     throw new Error(result.error ?? "No se pudo completar la operación.");
   }

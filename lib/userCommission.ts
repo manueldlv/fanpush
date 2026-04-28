@@ -4,6 +4,7 @@ export type UserCommissionProfile = {
   creatorShare: number;
   platformShare: number;
   updatedAt: string;
+  expiresAt?: string | null;
 };
 
 type UserCommissionProfileRow = {
@@ -13,6 +14,7 @@ type UserCommissionProfileRow = {
   created_at: string;
   reason?: string | null;
   updated_by?: string | null;
+  expires_at?: string | null;
 };
 
 const PREFIX = "user_commission_profile:";
@@ -49,7 +51,11 @@ export const getCreatorShareFromProfile = (
   profile?: UserCommissionProfile | null,
 ) => {
   const share = profile?.creatorShare;
-  if (typeof share !== "number" || Number.isNaN(share)) {
+  if (
+    typeof share !== "number" ||
+    Number.isNaN(share) ||
+    isCommissionProfileExpired(profile)
+  ) {
     return DEFAULT_CREATOR_SHARE;
   }
   return Math.min(Math.max(share, 0), 1);
@@ -87,7 +93,18 @@ export const coerceUserCommissionProfile = (
     creatorShare,
     platformShare,
     updatedAt: row.created_at,
+    expiresAt: row.expires_at ?? null,
   };
+};
+
+export const isCommissionProfileExpired = (
+  profile?: UserCommissionProfile | null,
+  now = Date.now(),
+) => {
+  if (!profile?.expiresAt) return false;
+  const expiresAt = new Date(profile.expiresAt).getTime();
+  if (Number.isNaN(expiresAt)) return false;
+  return expiresAt <= now;
 };
 
 export const getLatestUserCommissionProfile = async (
@@ -96,7 +113,7 @@ export const getLatestUserCommissionProfile = async (
 ) => {
   const { data: tableRow } = await supabase
     .from("user_commission_profiles")
-    .select("id,creator_share_rate,platform_share_rate,created_at,reason,updated_by")
+    .select("id,creator_share_rate,platform_share_rate,created_at,reason,updated_by,expires_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)

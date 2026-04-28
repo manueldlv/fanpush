@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { coercePayoutProfile } from "@/lib/payouts";
 import { getPayoutMetaEntries, PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
-import { resolveTipAmountMap } from "@/lib/earnings";
 import { PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import { getAuthenticatedUser } from "@/lib/server/auth/session";
 import {
@@ -129,10 +128,11 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(SALES_POST_LIMIT),
       admin
-        .from("notifications")
-        .select("id,actor_id,entity_id,message,created_at")
-        .eq("user_id", userId)
-        .eq("type", "tip")
+        .from("ledger_transactions")
+        .select("id,buyer_user_id,transaction_amount,created_at")
+        .eq("kind", "tip")
+        .eq("recipient_user_id", userId)
+        .in("status", ["approved", "settled"])
         .order("created_at", { ascending: false })
         .limit(SALES_EVENT_LIMIT),
       admin
@@ -220,7 +220,7 @@ export async function GET(request: Request) {
       new Set([
         ...purchaseRows.map((row) => row.user_id),
         ...directPurchaseRows.map((row) => row.buyer_user_id),
-        ...(tipRowsResult.data ?? []).map((row) => row.actor_id),
+        ...(tipRowsResult.data ?? []).map((row) => row.buyer_user_id),
       ]),
     );
 
@@ -327,14 +327,10 @@ export async function GET(request: Request) {
       });
     });
 
-    const tipAmountMap = await resolveTipAmountMap(
-      admin,
-      tipRowsResult.data ?? [],
-    );
     (tipRowsResult.data ?? []).forEach((row) => {
-      const amount = Number(tipAmountMap.get(row.id) || 0);
+      const amount = Number(row.transaction_amount || 0);
       if (!amount) return;
-      const buyer = buyerMap.get(row.actor_id);
+      const buyer = buyerMap.get(row.buyer_user_id);
       grouped.set(`tip-${row.id}`, {
         id: `tip-${row.id}`,
         albumId: `tip-${row.id}`,
@@ -344,7 +340,7 @@ export async function GET(request: Request) {
         total: amount,
         createdAt: row.created_at,
         buyer: {
-          id: row.actor_id,
+          id: row.buyer_user_id,
           name: buyer?.username ?? "usuario",
           full: buyer?.username ?? "Usuario",
           avatar: resolvePublicUrl(admin, buyer?.avatar_url ?? null),

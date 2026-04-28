@@ -409,12 +409,9 @@ export default function TopBar() {
                           sizeClassName="h-9 w-9"
                           iconClassName="h-4 w-4"
                         />
-                        <div className="min-w-0">
-                          <div className="truncate text-[13px] font-semibold text-zinc-900">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13px] font-semibold leading-none text-zinc-900">
                             {item.name}
-                          </div>
-                          <div className="truncate text-[12px] text-zinc-500">
-                            Abrir perfil
                           </div>
                         </div>
                       </button>

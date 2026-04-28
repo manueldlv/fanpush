@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { coerceAccountState } from "@/lib/accountState";
 import { isAuthorPromotionsSchemaMissingError } from "@/lib/authorPromotions";
 import { PAYOUT_META_KEYS } from "@/lib/payoutMeta";
 import { requireAdminAccess } from "@/lib/server/auth/authorization";
@@ -33,6 +34,7 @@ import {
   getPlatformShareForReferralCount,
   getReferralTier,
 } from "@/lib/referrals";
+import { USER_META_KEYS } from "@/lib/userMeta";
 
 const DASHBOARD_USER_LIMIT = 500;
 const DASHBOARD_CONTENT_LIMIT = 500;
@@ -86,6 +88,7 @@ export async function GET(request: Request) {
       allUsersRowsResult,
       profilesRowsResult,
       followsRowsResult,
+      userMetaRowsResult,
       allAlbumsResult,
       commissionRowsResult,
       userReferralsRowsResult,
@@ -205,6 +208,11 @@ export async function GET(request: Request) {
         .from("follows")
         .select("follower_id,following_id")
         .limit(DASHBOARD_RELATION_LIMIT),
+      admin
+        .from("user_meta")
+        .select("user_id,meta_key,meta_value")
+        .eq("meta_key", USER_META_KEYS.accountState)
+        .limit(DASHBOARD_USER_LIMIT),
       admin
         .from("albums")
         .select(
@@ -328,6 +336,12 @@ export async function GET(request: Request) {
     );
 
     const follows = followsRowsResult.data ?? [];
+    const accountStateMap = new Map(
+      (userMetaRowsResult.data ?? []).map((row) => [
+        row.user_id,
+        coerceAccountState(row.meta_value),
+      ]),
+    );
     const allAlbums = allAlbumsResult.data ?? [];
     const allPurchases = purchasesRowsResult.data ?? [];
     const allTips = tipRowsResult.data ?? [];
@@ -520,6 +534,7 @@ export async function GET(request: Request) {
         const latestAuthorApplication =
           authorApplications.find((entry) => entry.userId === row.id)?.parsed ??
           null;
+        const accountState = accountStateMap.get(row.id);
         const referralEntries = referralsByUser.get(row.id) ?? [];
         const referralCount = referralEntries.length;
         const referralTier = getReferralTier(referralCount);
@@ -573,6 +588,7 @@ export async function GET(request: Request) {
           referralsCount: referralCount,
           referrals,
           referralTierLabel: referralTier.label,
+          badges: accountState?.badges ?? [],
           promotion,
           referralCreatorSharePercent,
           referralPlatformSharePercent,

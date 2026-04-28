@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import ProfileBadgeIcon from "@/components/ProfileBadgeIcon";
 import SidebarLeft from "@/components/SidebarLeft";
 import {
   formatBadgeThresholdValue,
@@ -37,21 +37,6 @@ const categoryOrder: BadgeCategory[] = [
   "referrals",
   "prestige",
 ];
-
-const getBadgeIcon = (category: BadgeCategory) => {
-  switch (category) {
-    case "sales":
-      return "/profile-badges/badge-sales.png";
-    case "promotion":
-    case "referrals":
-      return "/profile-badges/badge-referrals.png";
-    case "prestige":
-      return "/profile-badges/badge-creator.png";
-    case "founders":
-    default:
-      return "/profile-badges/badge-core.png";
-  }
-};
 
 const rarityTone: Record<string, string> = {
   common: "border-zinc-200 bg-zinc-50 text-zinc-600",
@@ -208,16 +193,14 @@ export default function BadgesPage() {
                         </div>
 
                         <div className="mt-5 flex justify-center">
-                          <Image
-                            src={getBadgeIcon(badge.category)}
-                            alt=""
-                            width={74}
-                            height={74}
-                            className={`h-[74px] w-[74px] object-contain transition ${
+                          <ProfileBadgeIcon
+                            slug={badge.slug}
+                            category={badge.category}
+                            rarity={badge.rarity}
+                            size={74}
+                            className={`h-[74px] w-[74px] transition ${
                               unlocked ? "opacity-100" : "grayscale opacity-40"
                             }`}
-                            unoptimized
-                            aria-hidden="true"
                           />
                         </div>
 

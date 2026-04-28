@@ -17,6 +17,7 @@ import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { useGetPurchasesQuery } from "@/lib/redux/api/commerceApi";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 import { formatARS } from "@/lib/utils";
 
 type PurchaseItem = {
@@ -58,6 +59,7 @@ export default function ComprasPage() {
   const [openIndex, setOpenIndex] = useState(0);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  useEscapeKey(Boolean(openPurchase), () => setOpenPurchase(null));
   const {
     data,
     isLoading: loading,

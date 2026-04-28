@@ -1,6 +1,7 @@
 export type BadgeCategory =
   | "founders"
   | "sales"
+  | "purchases"
   | "promotion"
   | "referrals"
   | "prestige";
@@ -22,6 +23,7 @@ export type ResolvedBadge = BadgeDefinition;
 type BadgeContext = {
   persistedBadges?: string[] | null;
   lifetimeEarnedArs?: number | null;
+  lifetimeSpentArs?: number | null;
   referralCount?: number | null;
   hasActivePromotion?: boolean | null;
   isFeatured?: boolean | null;
@@ -64,6 +66,19 @@ const referralThresholds = [
   ["referrals-250", 250],
   ["referrals-500", 500],
   ["referrals-1000", 1000],
+] as const;
+
+const purchaseThresholds = [
+  ["purchases-10k", 10_000],
+  ["purchases-25k", 25_000],
+  ["purchases-50k", 50_000],
+  ["purchases-100k", 100_000],
+  ["purchases-250k", 250_000],
+  ["purchases-500k", 500_000],
+  ["purchases-1m", 1_000_000],
+  ["purchases-2m", 2_000_000],
+  ["purchases-5m", 5_000_000],
+  ["purchases-10m", 10_000_000],
 ] as const;
 
 const promoterThresholds = [
@@ -247,6 +262,22 @@ const badgeCatalog: BadgeDefinition[] = [
             : ("common" as const),
     displayPriority: 300 + index,
   })),
+  ...purchaseThresholds.map(([slug, amount], index) => ({
+    slug,
+    label: `Compras ${formatBadgeMoney(amount)}`,
+    description: `Gastó ${formatBadgeMoney(amount)} en compras acumuladas.`,
+    category: "purchases" as const,
+    source: "automatic" as const,
+    rarity:
+      amount >= 10_000_000
+        ? ("legendary" as const)
+        : amount >= 1_000_000
+          ? ("epic" as const)
+          : amount >= 100_000
+            ? ("rare" as const)
+            : ("common" as const),
+    displayPriority: 400 + index,
+  })),
   ...referralThresholds.map(([slug, count], index) => ({
     slug,
     label: count === 1 ? "Primer referido" : `${count} referidos`,
@@ -333,6 +364,14 @@ export const getBadgeThreshold = (slug: string) => {
     };
   }
 
+  const purchaseThreshold = purchaseThresholds.find(([badgeSlug]) => badgeSlug === slug);
+  if (purchaseThreshold) {
+    return {
+      kind: "purchases" as const,
+      value: purchaseThreshold[1],
+    };
+  }
+
   const referralThreshold = referralThresholds.find(([badgeSlug]) => badgeSlug === slug);
   if (referralThreshold) {
     return {
@@ -353,12 +392,14 @@ export const getBadgeThreshold = (slug: string) => {
 };
 
 export const getNextBadgeThreshold = (
-  kind: "sales" | "referrals" | "promotion",
+  kind: "sales" | "purchases" | "referrals" | "promotion",
   currentValue: number,
 ) => {
   const thresholds =
     kind === "sales"
       ? salesThresholds
+      : kind === "purchases"
+        ? purchaseThresholds
       : kind === "referrals"
         ? referralThresholds
         : promoterThresholds;
@@ -373,10 +414,10 @@ export const getNextBadgeThreshold = (
 };
 
 export const formatBadgeThresholdValue = (
-  kind: "sales" | "referrals" | "promotion",
+  kind: "sales" | "purchases" | "referrals" | "promotion",
   value: number,
 ) => {
-  if (kind === "sales") {
+  if (kind === "sales" || kind === "purchases") {
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency: "ARS",
@@ -390,6 +431,7 @@ export const formatBadgeThresholdValue = (
 export const resolveBadgeSlugs = ({
   persistedBadges,
   lifetimeEarnedArs,
+  lifetimeSpentArs,
   referralCount,
   hasActivePromotion,
   isFeatured,
@@ -401,10 +443,14 @@ export const resolveBadgeSlugs = ({
   );
 
   const earned = Math.max(Number(lifetimeEarnedArs ?? 0), 0);
+  const spent = Math.max(Number(lifetimeSpentArs ?? 0), 0);
   const referrals = Math.max(Number(referralCount ?? 0), 0);
 
   const topSalesBadge = pickHighestUnlocked(earned, salesThresholds);
   if (topSalesBadge) slugs.add(topSalesBadge);
+
+  const topPurchaseBadge = pickHighestUnlocked(spent, purchaseThresholds);
+  if (topPurchaseBadge) slugs.add(topPurchaseBadge);
 
   const topReferralBadge = pickHighestUnlocked(referrals, referralThresholds);
   if (topReferralBadge) slugs.add(topReferralBadge);
@@ -439,4 +485,21 @@ export const getPrimaryBadges = (context: BadgeContext, limit = 4): ResolvedBadg
   return Array.from(byCategory.values())
     .sort((a, b) => b.displayPriority - a.displayPriority)
     .slice(0, limit);
+};
+
+export const getProfileBadges = (context: BadgeContext): ResolvedBadge[] => {
+  const resolved = resolveBadges(context);
+  const manualBadges = resolved.filter((badge) => badge.source === "manual");
+  const automaticBadges = resolved.filter((badge) => badge.source === "automatic");
+
+  const topAutomaticByCategory = new Map<BadgeCategory, ResolvedBadge>();
+  for (const badge of automaticBadges) {
+    if (!topAutomaticByCategory.has(badge.category)) {
+      topAutomaticByCategory.set(badge.category, badge);
+    }
+  }
+
+  return [...manualBadges, ...Array.from(topAutomaticByCategory.values())].sort(
+    (a, b) => b.displayPriority - a.displayPriority,
+  );
 };

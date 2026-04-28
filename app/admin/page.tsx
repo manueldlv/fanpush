@@ -28,8 +28,10 @@ import {
   getReferralProgress,
   getReferralTierForLevel,
 } from "@/lib/referrals";
+import { getAllBadgeDefinitions } from "@/lib/badges";
 import { useSignOutMutation } from "@/lib/redux/api/sessionApi";
 import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 import { cn, formatARS } from "@/lib/utils";
 
 type AdminDashboardData = {
@@ -187,6 +189,7 @@ type AdminDashboardData = {
         referredAt: string | null;
       }>;
       referralTierLabel: string;
+      badges: string[];
       promotion: {
         isActive: boolean;
         promoteInFeed: boolean;
@@ -429,7 +432,7 @@ export default function AdminPage() {
     AdminDashboardData["commerce"]["users"][number] | null
   >(null);
   const [selectedUserView, setSelectedUserView] = useState<
-    "overview" | "details" | "posts" | "followers" | "following" | "referrals"
+    "overview" | "details" | "posts" | "followers" | "following" | "referrals" | "badges"
   >("overview");
   const [selectedUserPost, setSelectedUserPost] = useState<
     AdminDashboardData["commerce"]["users"][number]["posts"][number] | null
@@ -448,6 +451,8 @@ export default function AdminPage() {
   const [promotionDurationDrafts, setPromotionDurationDrafts] = useState<
     Record<string, string>
   >({});
+  const [selectedUserBadgeDrafts, setSelectedUserBadgeDrafts] = useState<string[]>([]);
+  const [updatingUserBadgesId, setUpdatingUserBadgesId] = useState<string | null>(null);
   const [accessData, setAccessData] = useState<AccessManagementData | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessMutationUserId, setAccessMutationUserId] = useState<string | null>(null);
@@ -614,6 +619,7 @@ export default function AdminPage() {
     if (refreshed) {
       setSelectedUser(refreshed);
       setCommissionDraft(refreshed.commissionPercent);
+      setSelectedUserBadgeDrafts(refreshed.badges ?? []);
     }
   }, [data, selectedUser]);
 
@@ -622,6 +628,7 @@ export default function AdminPage() {
     setSelectedUserView("overview");
     setSelectedUserPost(null);
     setSelectedUserPostMediaIndex(0);
+    setSelectedUserBadgeDrafts(selectedUser.badges ?? []);
   }, [selectedUser?.id]);
 
   useEffect(() => {
@@ -630,17 +637,24 @@ export default function AdminPage() {
     setSelectedUserPostMediaIndex((prev) => Math.min(prev, maxIndex));
   }, [selectedUserPost]);
 
-  useEffect(() => {
-    if (!selectedContent) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      closeSelectedContent();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [closeSelectedContent, selectedContent]);
+  useEscapeKey(Boolean(selectedContent), closeSelectedContent);
+  useEscapeKey(Boolean(selectedUser) && !updatingUserCommissionId, () => setSelectedUser(null));
+  useEscapeKey(Boolean(selectedUserPost), () => setSelectedUserPost(null));
+  useEscapeKey(Boolean(deletingContent) && !deletingId, () => {
+    setDeletingContent(null);
+    setDeleteReason("");
+  });
+  useEscapeKey(Boolean(rejectingWithdrawal) && !updatingWithdrawalId, () => {
+    setRejectingWithdrawal(null);
+    setWithdrawalRejectReason("");
+  });
+  useEscapeKey(Boolean(authorRejectState.target) && !updatingAuthorId, () => {
+    setAuthorRejectState({
+      target: null,
+      reason: "",
+    });
+  });
+  useEscapeKey(Boolean(selectedReportReason), () => setSelectedReportReason(null));
 
   const overviewStats = useMemo(
     () => [
@@ -1025,6 +1039,57 @@ export default function AdminPage() {
       );
     } finally {
       setUpdatingPromotionUserId(null);
+    }
+  };
+
+  const handleUpdateUserBadges = async (userId: string) => {
+    try {
+      setUpdatingUserBadgesId(userId);
+      const supabase = getSupabaseAdminBrowserClient();
+      if (!supabase) throw new Error("Falta configurar Supabase.");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
+
+      const response = await fetch(`/api/admin/users/${userId}/badges`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          badges: selectedUserBadgeDrafts,
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        badges?: string[];
+      };
+      if (!response.ok || !Array.isArray(result.badges)) {
+        throw new Error(result.error ?? "No se pudieron guardar las badges.");
+      }
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              commerce: {
+                ...current.commerce,
+                users: current.commerce.users.map((item) =>
+                  item.id === userId ? { ...item, badges: result.badges! } : item,
+                ),
+              },
+            }
+          : current,
+      );
+      setSelectedUserBadgeDrafts(result.badges);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudieron guardar las badges.",
+      );
+    } finally {
+      setUpdatingUserBadgesId(null);
     }
   };
 
@@ -4469,6 +4534,10 @@ export default function AdminPage() {
                   id: "referrals",
                   label: `Referidos (${selectedUser.referralsCount})`,
                 },
+                {
+                  id: "badges",
+                  label: `Badges (${selectedUser.badges.length})`,
+                },
               ].map((view) => (
                 <button
                   key={view.id}
@@ -4478,16 +4547,17 @@ export default function AdminPage() {
                       view.id as
                         | "overview"
                         | "details"
-                        | "posts"
-                        | "followers"
-                        | "following"
-                        | "referrals",
+                      | "posts"
+                      | "followers"
+                      | "following"
+                      | "referrals"
+                      | "badges",
                     )
                   }
                   className={cn(
                     "rounded-full border px-4 py-2 text-sm font-medium transition",
                     selectedUserView === view.id
-                      ? "border-zinc-950 bg-zinc-950 text-white"
+                      ? "border-zinc-300 bg-zinc-100 text-zinc-950"
                       : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
                   )}
                 >
@@ -5160,6 +5230,100 @@ export default function AdminPage() {
                       </>
                     );
                   })()}
+                </div>
+              ) : null}
+
+              {selectedUserView === "badges" ? (
+                <div className="space-y-6">
+                  <div className="rounded-[24px] border border-zinc-200 p-5">
+                    <div className="flex flex-col gap-4">
+                      <div>
+                        <div className="text-lg font-semibold text-zinc-950">
+                          Badges manuales
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          Asigna o quita badges manuales del usuario. Las badges automáticas por ventas,
+                          compras, referidos o promoción no se gestionan desde acá.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {getAllBadgeDefinitions().map((badge) => {
+                        const checked = selectedUserBadgeDrafts.includes(badge.slug);
+                        return (
+                          <label
+                            key={badge.slug}
+                            className={cn(
+                              "flex cursor-pointer items-start gap-3 rounded-[18px] border px-4 py-4 transition",
+                              checked
+                                ? "border-zinc-300 bg-zinc-100 text-zinc-950"
+                                : "border-zinc-200 bg-zinc-50 text-zinc-900",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                setSelectedUserBadgeDrafts((current) =>
+                                  event.target.checked
+                                    ? [...current, badge.slug]
+                                    : current.filter((item) => item !== badge.slug),
+                                );
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-zinc-300"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-semibold">
+                                  {badge.label}
+                                </div>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                    checked
+                                      ? "bg-white text-zinc-600"
+                                      : "bg-white text-zinc-500",
+                                  )}
+                                >
+                                  {badge.category}
+                                </span>
+                              </div>
+                              <div
+                                className={cn(
+                                  "mt-1 text-sm leading-5",
+                                  checked ? "text-zinc-600" : "text-zinc-500",
+                                )}
+                              >
+                                {badge.description}
+                              </div>
+                              <div
+                                className={cn(
+                                  "mt-2 text-xs",
+                                  checked ? "text-zinc-400" : "text-zinc-400",
+                                )}
+                              >
+                                {badge.slug}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateUserBadges(selectedUser.id)}
+                        disabled={updatingUserBadgesId === selectedUser.id}
+                        className="rounded-[16px] bg-[#5A3EE7] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4c32d1] disabled:opacity-60"
+                      >
+                        {updatingUserBadgesId === selectedUser.id
+                          ? "Guardando badges..."
+                          : "Guardar badges"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>

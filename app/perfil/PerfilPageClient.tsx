@@ -9,6 +9,7 @@ import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import PostModal from "@/components/PostModal";
 import PurchaseSuccessToast from "@/components/PurchaseSuccessToast";
+import ProfileBadgeIcon from "@/components/ProfileBadgeIcon";
 import SharePostModal from "@/components/SharePostModal";
 import TipModal from "@/components/TipModal";
 import UserAvatar from "@/components/UserAvatar";
@@ -31,7 +32,7 @@ import {
   buildInitialPostMediaState,
   type ResolvedAccessMedia,
 } from "@/lib/postMediaState";
-import { getPrimaryBadges } from "@/lib/badges";
+import { getProfileBadges } from "@/lib/badges";
 import {
   getProfileViewCacheKey,
   profileApi,
@@ -47,6 +48,7 @@ import { buildPostSharePath } from "@/lib/postShare";
 import { redirectToSaldo, shouldRedirectToSaldo } from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import { useEscapeKey } from "@/lib/useEscapeKey";
 import { formatARS } from "@/lib/utils";
 import type { Post } from "@/lib/store/posts";
 
@@ -156,21 +158,6 @@ function ProfilePostsSkeleton() {
   );
 }
 
-const getProfileBadgeIcon = (category: string) => {
-  switch (category) {
-    case "sales":
-      return "/profile-badges/badge-sales.png";
-    case "referrals":
-    case "promotion":
-      return "/profile-badges/badge-referrals.png";
-    case "prestige":
-      return "/profile-badges/badge-creator.png";
-    case "founders":
-    default:
-      return "/profile-badges/badge-core.png";
-  }
-};
-
 export default function PerfilPage({
   forcedUsername,
 }: {
@@ -264,7 +251,7 @@ export default function PerfilPage({
   const isFollowing =
     followStateOverride ?? profileData?.isFollowing ?? false;
   const earnings = profileData?.earnings ?? 0;
-  const primaryBadges = getPrimaryBadges({
+  const primaryBadges = getProfileBadges({
     persistedBadges: profileData?.profile.badges ?? [],
   });
   const profileLoading = !profileData && profileQueryLoading;
@@ -380,6 +367,13 @@ export default function PerfilPage({
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, [profilePostMenuId]);
+
+  useEscapeKey(Boolean(editingPost) && !editSubmitting, () => setEditingPost(null));
+  useEscapeKey(Boolean(reportModal) && !reportSubmitting, () => {
+    setReportModal(null);
+    setReportError(null);
+    setReportSent(false);
+  });
 
   useEffect(() => {
     if (!currentUserId) {
@@ -1501,8 +1495,14 @@ export default function PerfilPage({
                   ) : null}
                 </button>
 
-                <div className="flex min-h-[178px] flex-col justify-end gap-5 pt-[42px] md:flex-row md:items-end md:justify-between md:pt-[58px]">
-                  <div className="max-w-[880px]">
+                <div
+                  className={`flex flex-col justify-end gap-5 md:flex-row md:items-end md:justify-between ${
+                    primaryBadges.length > 0
+                      ? "min-h-[178px] pt-[42px] md:pt-[58px]"
+                      : "min-h-[132px] pt-[20px] md:min-h-[138px] md:pt-[28px]"
+                  }`}
+                >
+                  <div className="w-full flex-1">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                       <div className="flex items-center gap-2">
                         <h1 className="text-[25px] font-semibold leading-none text-zinc-900">
@@ -1553,45 +1553,58 @@ export default function PerfilPage({
                     </div>
 
                     {primaryBadges.length > 0 ? (
-                      <div className="mt-5 flex flex-wrap items-center gap-3">
-                        {primaryBadges.map((badge) => (
-                          <div
-                            key={badge.slug}
-                            className="group relative z-[80]"
-                          >
-                            <span className="inline-flex h-[54px] w-[54px] items-center justify-center">
-                              <Image
-                                src={getProfileBadgeIcon(badge.category)}
-                                alt=""
-                                width={54}
-                                height={54}
-                                className="h-[54px] w-[54px] object-contain"
-                                unoptimized
-                                aria-hidden="true"
-                              />
-                            </span>
-                            <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[120] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
-                              <div className="text-[14px] font-semibold leading-tight text-white">
-                                {badge.label}
-                              </div>
-                              <div className="mt-1 text-[12px] leading-snug text-white/85">
-                                {badge.description}
-                              </div>
-                              <div className="mt-2 text-[11px] uppercase tracking-[0.12em] text-white/55">
-                                {badge.category}
-                              </div>
-                              <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-[9px] border-r-[9px] border-t-[11px] border-l-transparent border-r-transparent border-t-black" />
-                            </div>
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => router.push("/badges")}
-                          className="inline-flex items-center rounded-full border border-[#d8d1e8] bg-white px-4 py-2 text-[13px] font-semibold text-zinc-700 transition hover:border-[#c4b6ff] hover:text-[#5A3EE7]"
+                      <>
+                        <div
+                          className={`mt-5 items-center justify-start gap-x-0.5 gap-y-1 ${
+                            primaryBadges.length <= 10
+                              ? "flex flex-wrap"
+                              : "inline-grid"
+                          }`}
+                          style={
+                            primaryBadges.length > 10
+                              ? { gridTemplateColumns: "repeat(10, max-content)" }
+                              : undefined
+                          }
                         >
-                          Ver todas
-                        </button>
-                      </div>
+                          {primaryBadges.map((badge) => (
+                            <div
+                              key={badge.slug}
+                              className="group relative z-[80] flex h-[46px] w-[46px] items-center justify-center"
+                            >
+                              <span className="inline-flex h-[46px] w-[46px] items-center justify-center">
+                                <ProfileBadgeIcon
+                                  slug={badge.slug}
+                                  category={badge.category}
+                                  rarity={badge.rarity}
+                                  size={46}
+                                  className="h-[46px] w-[46px]"
+                                />
+                              </span>
+                              <div className="pointer-events-none absolute bottom-[calc(100%+12px)] left-1/2 z-[120] w-max max-w-[280px] -translate-x-1/2 rounded-[16px] bg-black px-5 py-3 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                                <div className="text-[14px] font-semibold leading-tight text-white">
+                                  {badge.label}
+                                </div>
+                                <div className="mt-1 text-[12px] leading-snug text-white/85">
+                                  {badge.description}
+                                </div>
+                                <div className="mt-2 text-[11px] uppercase tracking-[0.12em] text-white/55">
+                                  {badge.category}
+                                </div>
+                                <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-[9px] border-r-[9px] border-t-[11px] border-l-transparent border-r-transparent border-t-black" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => router.push("/badges")}
+                            className="inline-flex h-[38px] w-fit items-center rounded-full border border-[#d8d1e8] bg-white px-3 py-2 text-[13px] font-semibold text-zinc-700 transition hover:border-[#c4b6ff] hover:text-[#5A3EE7]"
+                          >
+                            Ver todas
+                          </button>
+                        </div>
+                      </>
                     ) : null}
 
                     {profileBio ? (

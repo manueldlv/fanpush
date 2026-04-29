@@ -2,22 +2,31 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import AdminAccessView from "@/components/admin/AdminAccessView";
+import AdminAuthorsView from "@/components/admin/AdminAuthorsView";
+import AdminCommerceView from "@/components/admin/AdminCommerceView";
+import AdminContentView from "@/components/admin/AdminContentView";
+import AdminReportsView from "@/components/admin/AdminReportsView";
 import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
   CreditCard,
   Eye,
-  Filter,
-  Search,
   Shield,
   Trash2,
   X,
 } from "lucide-react";
+import AdminShell from "@/components/admin/AdminShell";
+import AdminFinanceView from "@/components/admin/finance/AdminFinanceView";
+import AdminUsersView from "@/components/admin/AdminUsersView";
 import UserAvatar from "@/components/UserAvatar";
 import {
-  CONTENT_AUDIENCE_OPTIONS,
-  MODERATION_CATEGORY_OPTIONS,
+  type FinanceColumnKey,
+  type FinanceTableRow,
+  type FinanceView,
+} from "@/lib/admin/finance";
+import {
   getContentAudienceLabel,
   getModerationCategoryLabel,
   type ContentAudience,
@@ -334,8 +343,37 @@ export default function AdminPage() {
   const router = useRouter();
   const [signOut, { isLoading: signingOut }] = useSignOutMutation();
   const [tab, setTab] = useState<
-    "metrics" | "commerce" | "users" | "authors" | "reports" | "content" | "admins"
+    | "metrics"
+    | "finance"
+    | "commerce"
+    | "users"
+    | "authors"
+    | "reports"
+    | "content"
+    | "admins"
   >("metrics");
+  const [financeView, setFinanceView] = useState<FinanceView>("overview");
+  const [financeSelectedIds, setFinanceSelectedIds] = useState<string[]>([]);
+  const [financeColumnsOpen, setFinanceColumnsOpen] = useState(false);
+  const [financeFiltersOpen, setFinanceFiltersOpen] = useState(false);
+  const [visibleFinanceColumns, setVisibleFinanceColumns] = useState<
+    FinanceColumnKey[]
+  >([
+    "date",
+    "description",
+    "provider",
+    "amount",
+    "origin",
+    "category",
+    "project",
+    "costCenter",
+    "percentage",
+    "period",
+    "account",
+    "actions",
+  ]);
+  const [selectedFinanceRow, setSelectedFinanceRow] =
+    useState<FinanceTableRow | null>(null);
   const [commerceView, setCommerceView] = useState<
     "purchases" | "tips" | "withdrawals" | "withdrawal-history"
   >("purchases");
@@ -591,7 +629,10 @@ export default function AdminPage() {
     if (!data) return;
 
     const allowedTabs = new Set<string>(["metrics"]);
-    if (data.viewerAccess.canViewFinance) allowedTabs.add("commerce");
+    if (data.viewerAccess.canViewFinance) {
+      allowedTabs.add("finance");
+      allowedTabs.add("commerce");
+    }
     if (data.viewerAccess.canManageCommissions) allowedTabs.add("users");
     if (data.viewerAccess.canManageRoles) allowedTabs.add("admins");
     if (data.viewerAccess.canReviewAuthors) allowedTabs.add("authors");
@@ -697,6 +738,141 @@ export default function AdminPage() {
         : [],
     [data],
   );
+  const financeTotalVolume = useMemo(
+    () => (data?.metrics.purchaseGross ?? 0) + (data?.metrics.tipGross ?? 0),
+    [data],
+  );
+  const compactPurchases = useMemo(
+    () =>
+      [...(data?.commerce.recentPurchases ?? [])]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 10),
+    [data],
+  );
+  const compactTips = useMemo(
+    () =>
+      [...(data?.commerce.recentTips ?? [])]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 10),
+    [data],
+  );
+  const pendingWithdrawals = useMemo(
+    () =>
+      (data?.commerce.withdrawals ?? []).filter(
+        (item) => item.status === "requested",
+      ),
+    [data],
+  );
+  const financeHeroStats = useMemo(
+    () => [
+      {
+        label: "Total filtrado",
+        value: formatARS(financeTotalVolume),
+      },
+      {
+        label: "Creadores",
+        value: formatARS(data?.metrics.creatorsNet ?? 0),
+        tone: "emerald" as const,
+      },
+      {
+        label: "Plataforma",
+        value: formatARS(data?.metrics.platformFee ?? 0),
+        tone: "blue" as const,
+      },
+    ],
+    [data, financeTotalVolume],
+  );
+  const financeTableRows = useMemo<FinanceTableRow[]>(
+    () =>
+      [
+        ...compactPurchases.map((item) => ({
+          id: `purchase-${item.id}`,
+          kind: "purchase" as const,
+          user: `@${item.buyer}`,
+          counterparty: `Vendedor @${item.seller}`,
+          amount: item.amount,
+          status: "Aprobado",
+          statusTone: "emerald" as const,
+          createdAt: item.createdAt,
+          description: `Compra a ${item.seller}`,
+          provider: "-",
+          origin: "Compra",
+          category: "Contenido premium",
+          project: "-",
+          costCenter: "-",
+          percentage: "-",
+          period: new Date(item.createdAt).toISOString().slice(0, 7),
+          account: "FanPush ARS",
+          detail: `Compra aprobada del usuario ${item.buyer} al creador ${item.seller}.`,
+        })),
+        ...compactTips.map((item) => ({
+          id: `tip-${item.id}`,
+          kind: "tip" as const,
+          user: `@${item.actor}`,
+          counterparty: `Receptor @${item.receiver}`,
+          amount: item.amount,
+          status: "Liquidada",
+          statusTone: "sky" as const,
+          createdAt: item.createdAt,
+          description: `Propina enviada a ${item.receiver}`,
+          provider: "-",
+          origin: "Propina",
+          category: "Apoyo directo",
+          project: "-",
+          costCenter: "-",
+          percentage: "-",
+          period: new Date(item.createdAt).toISOString().slice(0, 7),
+          account: "FanPush ARS",
+          detail: `Propina enviada por ${item.actor} al creador ${item.receiver}.`,
+        })),
+        ...pendingWithdrawals.map((item) => ({
+          id: `withdrawal-${item.id}`,
+          kind: "withdrawal" as const,
+          user: `@${item.username}`,
+          counterparty: item.payoutAlias ?? "Sin payout",
+          amount: item.amount,
+          status: item.statusLabel,
+          statusTone: "amber" as const,
+          createdAt: item.createdAt,
+          description: `Retiro solicitado por ${item.username}`,
+          provider: item.payoutHolder ?? "-",
+          origin: "Retiro",
+          category: "Payout",
+          project: "-",
+          costCenter: "-",
+          percentage: "-",
+          period: new Date(item.createdAt).toISOString().slice(0, 7),
+          account: item.payoutAlias ?? "Sin cuenta",
+          detail: `Solicitud de retiro para ${item.username}. Titular: ${item.payoutHolder ?? "Sin titular"}. Documento: ${item.payoutDocument ?? "Sin documento"}.`,
+        })),
+      ].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [compactPurchases, compactTips, pendingWithdrawals],
+  );
+  const selectedFinanceRows = useMemo(
+    () => financeTableRows.filter((row) => financeSelectedIds.includes(row.id)),
+    [financeSelectedIds, financeTableRows],
+  );
+  const financeSelectionAmount = useMemo(
+    () =>
+      selectedFinanceRows.reduce((total, row) => total + Math.abs(row.amount), 0),
+    [selectedFinanceRows],
+  );
+  const financeSelectionKinds = useMemo(
+    () => new Set(selectedFinanceRows.map((row) => row.kind)).size,
+    [selectedFinanceRows],
+  );
+  const financeAllSelected =
+    financeTableRows.length > 0 &&
+    financeSelectedIds.length === financeTableRows.length;
 
   const pendingAuthorApplications = useMemo(
     () =>
@@ -1708,97 +1884,102 @@ export default function AdminPage() {
   const selectedContentReports = selectedContent
     ? (reportsByAlbum.get(selectedContent.id) ?? [])
     : [];
+  const adminTabs = [
+    { id: "metrics", label: "Métricas", visible: true },
+    {
+      id: "finance",
+      label: "Finanzas",
+      visible: Boolean(data?.viewerAccess.canViewFinance),
+    },
+    {
+      id: "commerce",
+      label: "Compras, ventas y retiros",
+      visible: Boolean(data?.viewerAccess.canViewFinance),
+    },
+    {
+      id: "users",
+      label: "Usuarios",
+      visible: Boolean(data?.viewerAccess.canManageCommissions),
+    },
+    {
+      id: "admins",
+      label: "Admins y accesos",
+      visible: Boolean(data?.viewerAccess.canManageRoles),
+    },
+    {
+      id: "authors",
+      label: "Autores y verificación",
+      visible: Boolean(data?.viewerAccess.canReviewAuthors),
+    },
+    {
+      id: "reports",
+      label: "Reportes y denuncias",
+      visible: Boolean(data?.viewerAccess.canModerateContent),
+    },
+    {
+      id: "content",
+      label: "Moderación de contenido",
+      visible: Boolean(data?.viewerAccess.canModerateContent),
+    },
+  ] as const;
+  const toggleFinanceRowSelection = (rowId: string) => {
+    setFinanceSelectedIds((prev) =>
+      prev.includes(rowId)
+        ? prev.filter((id) => id !== rowId)
+        : [...prev, rowId],
+    );
+  };
+
+  const toggleFinanceSelectAll = () => {
+    setFinanceSelectedIds((prev) =>
+      prev.length === financeTableRows.length
+        ? []
+        : financeTableRows.map((row) => row.id),
+    );
+  };
+
+  const toggleFinanceColumn = (column: FinanceColumnKey) => {
+    if (column === "actions") return;
+    setVisibleFinanceColumns((prev) =>
+      prev.includes(column)
+        ? prev.filter((item) => item !== column)
+        : [...prev, column],
+    );
+  };
+
+  const exportFinanceRows = () => {
+    const rows = selectedFinanceRows.length > 0 ? selectedFinanceRows : financeTableRows;
+    const csv = [
+      ["Usuario", "Tipo", "Monto", "Estado", "Fecha", "Descripcion", "Cuenta"].join(","),
+      ...rows.map((row) =>
+        [
+          row.user,
+          row.kind,
+          row.amount,
+          row.status,
+          row.createdAt,
+          `"${row.description.replaceAll('"', '""')}"`,
+          `"${row.account.replaceAll('"', '""')}"`,
+        ].join(","),
+      ),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fanpush-finanzas.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 pb-10 pt-6 md:px-6">
-        <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
-          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm font-medium text-zinc-500">
-                Administración
-              </div>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-950 md:text-5xl">
-                Panel de control
-              </h1>
-              <p className="mt-3 max-w-[720px] text-sm text-zinc-500 md:text-base">
-                Supervisá métricas del sitio, flujo de compras, retiros y todo
-                el contenido publicado desde un solo lugar.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleAdminSignOut()}
-              disabled={signingOut}
-              className="rounded-[16px] border border-zinc-200 bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 disabled:opacity-60"
-            >
-              {signingOut ? "Cerrando sesión..." : "Cerrar sesión"}
-            </button>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            {[
-              { id: "metrics", label: "Métricas", icon: BarChart3, visible: true },
-              {
-                id: "commerce",
-                label: "Compras, ventas y retiros",
-                icon: CreditCard,
-                visible: Boolean(data?.viewerAccess.canViewFinance),
-              },
-              {
-                id: "users",
-                label: "Usuarios",
-                icon: Eye,
-                visible: Boolean(data?.viewerAccess.canManageCommissions),
-              },
-              {
-                id: "admins",
-                label: "Admins y accesos",
-                icon: Shield,
-                visible: Boolean(data?.viewerAccess.canManageRoles),
-              },
-              {
-                id: "authors",
-                label: "Autores y verificación",
-                icon: Shield,
-                visible: Boolean(data?.viewerAccess.canReviewAuthors),
-              },
-              {
-                id: "reports",
-                label: "Reportes y denuncias",
-                icon: Eye,
-                visible: Boolean(data?.viewerAccess.canModerateContent),
-              },
-              {
-                id: "content",
-                label: "Moderación de contenido",
-                icon: Shield,
-                visible: Boolean(data?.viewerAccess.canModerateContent),
-              },
-            ]
-              .filter((item) => item.visible)
-              .map((item) => {
-              const Icon = item.icon;
-              const active = tab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setTab(item.id as typeof tab)}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-[18px] px-4 py-3 text-sm font-semibold transition",
-                    active
-                      ? "bg-[var(--brand-accent)] text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+    <AdminShell
+      activeTab={tab}
+      onTabChange={(nextTab) => setTab(nextTab)}
+      tabs={[...adminTabs]}
+      signingOut={signingOut}
+      onSignOut={() => void handleAdminSignOut()}
+    >
 
         {error ? (
           <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1807,386 +1988,35 @@ export default function AdminPage() {
         ) : null}
 
         {tab === "admins" ? (
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Crear usuario admin
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Puedes crear un `super admin` o un admin de moderación con acceso
-                solo a contenido y reportes, sin datos financieros.
-              </div>
-              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <input
-                  type="email"
-                  placeholder="Correo electrónico"
-                  value={adminCreateForm.email}
-                  onChange={(event) =>
-                    setAdminCreateForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
-                />
-                <input
-                  type="text"
-                  placeholder="Nombre completo"
-                  value={adminCreateForm.fullName}
-                  onChange={(event) =>
-                    setAdminCreateForm((current) => ({
-                      ...current,
-                      fullName: event.target.value,
-                    }))
-                  }
-                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
-                />
-                <input
-                  type="text"
-                  placeholder="Username"
-                  value={adminCreateForm.username}
-                  onChange={(event) =>
-                    setAdminCreateForm((current) => ({
-                      ...current,
-                      username: event.target.value,
-                    }))
-                  }
-                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={adminCreateForm.password}
-                  onChange={(event) =>
-                    setAdminCreateForm((current) => ({
-                      ...current,
-                      password: event.target.value,
-                    }))
-                  }
-                  className="rounded-[14px] border border-zinc-200 px-4 py-3 text-sm text-zinc-900 outline-none"
-                />
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAdminCreateForm((current) => ({
-                      ...current,
-                      accessLevel: "content_admin",
-                    }))
-                  }
-                  className={cn(
-                    "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
-                    adminCreateForm.accessLevel === "content_admin"
-                      ? "border border-zinc-200 bg-zinc-200 text-zinc-900"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Solo moderación
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAdminCreateForm((current) => ({
-                      ...current,
-                      accessLevel: "super_admin",
-                    }))
-                  }
-                  className={cn(
-                    "rounded-[14px] px-4 py-3 text-sm font-semibold transition",
-                    adminCreateForm.accessLevel === "super_admin"
-                      ? "border border-zinc-200 bg-zinc-200 text-zinc-900"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Super admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleCreateAdminUser()}
-                  disabled={accessMutationUserId === "create"}
-                  className="fanpush-button-primary rounded-[14px] px-5 py-3 text-sm disabled:opacity-60"
-                >
-                  {accessMutationUserId === "create"
-                    ? "Creando..."
-                    : "Crear usuario"}
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Usuarios con acceso admin
-              </div>
-              <div className="mt-4 overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Usuario</th>
-                      <th className="px-4 py-3 font-medium">Email</th>
-                      <th className="px-4 py-3 font-medium">Acceso</th>
-                      <th className="px-4 py-3 font-medium">Roles</th>
-                      <th className="px-4 py-3 font-medium">Cambiar acceso</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {accessLoading ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
-                          Cargando accesos...
-                        </td>
-                      </tr>
-                    ) : (accessData?.adminUsers.length ?? 0) === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
-                          No hay usuarios admin cargados.
-                        </td>
-                      </tr>
-                    ) : (
-                      accessData?.adminUsers.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            @{item.username}
-                            <div className="text-xs font-normal text-zinc-500">
-                              {item.fullName || "Sin nombre"}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">{item.email}</td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.accessLevel === "super_admin"
-                              ? "Super admin"
-                              : "Solo moderación"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {item.roles.join(", ")}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void handleUpdateAdminAccess(item.id, "content_admin")
-                                }
-                                disabled={accessMutationUserId === item.id}
-                                className={cn(
-                                  "rounded-[12px] border px-3 py-2 text-xs font-semibold disabled:opacity-60",
-                                  item.accessLevel === "content_admin"
-                                    ? "border-[var(--brand-accent)] bg-[var(--brand-accent)] text-white"
-                                    : "border-zinc-200 bg-zinc-100 text-zinc-700",
-                                )}
-                              >
-                                Solo moderación
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void handleUpdateAdminAccess(item.id, "super_admin")
-                                }
-                                disabled={accessMutationUserId === item.id}
-                                className={cn(
-                                  "rounded-[12px] border px-3 py-2 text-xs font-semibold disabled:opacity-60",
-                                  item.accessLevel === "super_admin"
-                                    ? "border-[var(--brand-accent)] bg-[var(--brand-accent)] text-white"
-                                    : "border-zinc-200 bg-zinc-100 text-zinc-700",
-                                )}
-                              >
-                                Super admin
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Historial de acciones admin
-              </div>
-              <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Acción</th>
-                      <th className="px-4 py-3 font-medium">Admin</th>
-                      <th className="px-4 py-3 font-medium">Recurso</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {accessLoading ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          Cargando historial...
-                        </td>
-                      </tr>
-                    ) : (accessData?.actionLogs.length ?? 0) === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
-                          Todavía no hay acciones registradas.
-                        </td>
-                      </tr>
-                    ) : (
-                      accessData?.actionLogs.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 text-zinc-900">{item.summary}</td>
-                          <td className="px-4 py-3 text-zinc-700">@{item.actor}</td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {getActionLogAlbumId(item) &&
-                            data?.viewerAccess.canManageRoles ? (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenActionLogResource(item)}
-                                className="text-left font-medium text-[var(--brand-accent)] hover:underline"
-                              >
-                                {item.targetType}
-                                {item.targetId
-                                  ? ` · ${formatCompactId(item.targetId)}`
-                                  : ""}
-                              </button>
-                            ) : (
-                              <>
-                                {item.targetType}
-                                {item.targetId
-                                  ? ` · ${formatCompactId(item.targetId)}`
-                                  : ""}
-                              </>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.createdAt).toLocaleString("es-AR")}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <AdminAccessView
+            adminCreateForm={adminCreateForm}
+            setAdminCreateForm={setAdminCreateForm}
+            accessMutationUserId={accessMutationUserId}
+            handleCreateAdminUser={() => void handleCreateAdminUser()}
+            accessLoading={accessLoading}
+            accessData={accessData}
+            handleUpdateAdminAccess={(userId, accessLevel) =>
+              void handleUpdateAdminAccess(userId, accessLevel)
+            }
+            canOpenActionLogResource={Boolean(data?.viewerAccess.canManageRoles)}
+            handleOpenActionLogResource={handleOpenActionLogResource}
+            formatCompactId={formatCompactId}
+          />
         ) : null}
 
         {!loading && data && tab === "users" ? (
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap gap-3">
-                {(
-                  [
-                    ["all", "Todos"],
-                    ["authors", "Autores"],
-                    ["users", "Usuarios normales"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setUsersView(id)}
-                    className={cn(
-                      "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                      usersView === id
-                        ? "bg-zinc-950 text-white"
-                        : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Usuarios del sitio
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Revisa cada cuenta, su rendimiento, sus relaciones y ajusta la
-                comisión individual cuando haga falta.
-              </div>
-              <div className="mt-4 max-h-[560px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Usuario</th>
-                      <th className="px-4 py-3 font-medium">Tipo</th>
-                      <th className="px-4 py-3 font-medium">Seguidores</th>
-                      <th className="px-4 py-3 font-medium">Posts</th>
-                      <th className="px-4 py-3 font-medium">Ventas</th>
-                      <th className="px-4 py-3 font-medium">
-                        Comisión creador
-                      </th>
-                      <th className="px-4 py-3 font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {visibleUsers.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          className="px-4 py-6 text-center text-zinc-500"
-                        >
-                          No hay usuarios para este filtro.
-                        </td>
-                      </tr>
-                    ) : (
-                      visibleUsers.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <UserAvatar
-                                src={item.avatar}
-                                alt={item.username}
-                              />
-                              <div>
-                                <div className="font-medium text-zinc-900">
-                                  @{item.username}
-                                </div>
-                                <div className="text-xs text-zinc-500">
-                                  {item.fullName || item.email || "Sin datos"}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.role === "author" ? "Autor" : "Usuario"}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.followersCount}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.posts.length}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-900">
-                            {formatARS(
-                              item.role === "author" ? item.creatorNet : 0,
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.commissionPercent}%
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedUser(item);
-                                setCommissionDraft(item.commissionPercent);
-                                setCommissionDurationDaysDraft("");
-                              }}
-                              className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
-                            >
-                              Ver detalle
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <AdminUsersView
+            usersView={usersView}
+            setUsersView={setUsersView}
+            visibleUsers={visibleUsers}
+            onOpenUser={(item) => {
+              const fullUser = data.commerce.users.find((user) => user.id === item.id);
+              if (!fullUser) return;
+              setSelectedUser(fullUser);
+              setCommissionDraft(fullUser.commissionPercent);
+              setCommissionDurationDaysDraft("");
+            }}
+          />
         ) : null}
 
         {loading ? (
@@ -2301,1919 +2131,191 @@ export default function AdminPage() {
           </div>
         ) : null}
 
+        {!loading && data && tab === "finance" ? (
+          <AdminFinanceView
+            financeHeroStats={financeHeroStats}
+            financeView={financeView}
+            setFinanceView={setFinanceView}
+            financeSelectionAmount={financeSelectionAmount}
+            selectedFinanceRowsCount={selectedFinanceRows.length}
+            financeSelectionKinds={financeSelectionKinds}
+            platformFee={data.metrics.platformFee ?? 0}
+            creatorsNet={data.metrics.creatorsNet ?? 0}
+            financeFiltersOpen={financeFiltersOpen}
+            setFinanceFiltersOpen={setFinanceFiltersOpen}
+            financeColumnsOpen={financeColumnsOpen}
+            setFinanceColumnsOpen={setFinanceColumnsOpen}
+            visibleFinanceColumns={visibleFinanceColumns}
+            toggleFinanceColumn={toggleFinanceColumn}
+            financeAllSelected={financeAllSelected}
+            toggleFinanceSelectAll={toggleFinanceSelectAll}
+            financeTableRows={financeTableRows}
+            financeSelectedIds={financeSelectedIds}
+            toggleFinanceRowSelection={toggleFinanceRowSelection}
+            setSelectedFinanceRow={setSelectedFinanceRow}
+            exportFinanceRows={exportFinanceRows}
+            selectedFinanceRow={selectedFinanceRow}
+          />
+        ) : null}
+
         {!loading && data && tab === "commerce" ? (
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCommerceView("purchases")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    commerceView === "purchases"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Compras
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCommerceView("tips")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    commerceView === "tips"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Propinas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCommerceView("withdrawals")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    commerceView === "withdrawals"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Retiros
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCommerceView("withdrawal-history")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    commerceView === "withdrawal-history"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Historial de retiros
-                </button>
-              </div>
-            </div>
-
-            {commerceView === "purchases" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Compras
-                </div>
-                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Comprador</th>
-                        <th className="px-4 py-3 font-medium">Vendedor</th>
-                        <th className="px-4 py-3 font-medium">Monto</th>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {data.commerce.recentPurchases.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={4}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            Todavía no hay compras.
-                          </td>
-                        </tr>
-                      ) : (
-                        data.commerce.recentPurchases.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.buyer}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              @{item.seller}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-900">
-                              {formatARS(item.amount)}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.createdAt).toLocaleString("es-AR")}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            {commerceView === "tips" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Propinas
-                </div>
-                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">
-                          Usuario que envía
-                        </th>
-                        <th className="px-4 py-3 font-medium">
-                          Usuario que recibe
-                        </th>
-                        <th className="px-4 py-3 font-medium">Monto</th>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {data.commerce.recentTips.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={4}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            Todavía no hay propinas.
-                          </td>
-                        </tr>
-                      ) : (
-                        data.commerce.recentTips.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.actor}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              @{item.receiver}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-900">
-                              {formatARS(item.amount)}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.createdAt).toLocaleString("es-AR")}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            {commerceView === "withdrawals" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Retiros
-                </div>
-                <div className="mt-3 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleExportWithdrawals}
-                    className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700"
-                  >
-                    Exportar CSV
-                  </button>
-                </div>
-                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Usuario</th>
-                        <th className="px-4 py-3 font-medium">Monto</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                        <th className="px-4 py-3 font-medium">
-                          Alias / CVU / CBU
-                        </th>
-                        <th className="px-4 py-3 font-medium">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {data.commerce.withdrawals.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay retiros solicitados.
-                          </td>
-                        </tr>
-                      ) : (
-                        data.commerce.withdrawals.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.username}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-900">
-                              {formatARS(item.amount)}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {item.statusLabel}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.createdAt).toLocaleString("es-AR")}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-600">
-                              <div>{item.payoutAlias ?? "Sin datos"}</div>
-                              {item.payoutHolder ? (
-                                <div className="text-xs text-zinc-500">
-                                  {item.payoutHolder} ·{" "}
-                                  {item.payoutDocument ?? "Sin doc"}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateWithdrawal(item.id, "sent")
-                                  }
-                                  disabled={updatingWithdrawalId === item.id}
-                                  className="rounded-[12px] bg-emerald-500 px-3 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
-                                >
-                                  Enviado
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setRejectingWithdrawal({
-                                      id: item.id,
-                                      username: item.username,
-                                    });
-                                    setWithdrawalRejectReason("");
-                                  }}
-                                  disabled={updatingWithdrawalId === item.id}
-                                  className="rounded-[12px] bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                                >
-                                  Rechazar
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            {commerceView === "withdrawal-history" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Historial de retiros
-                </div>
-                <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Acción</th>
-                        <th className="px-4 py-3 font-medium">Monto</th>
-                        <th className="px-4 py-3 font-medium">Motivo</th>
-                        <th className="px-4 py-3 font-medium">Admin</th>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {data.commerce.withdrawalHistory.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay movimientos todavía.
-                          </td>
-                        </tr>
-                      ) : (
-                        data.commerce.withdrawalHistory.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              {item.statusLabel}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {formatARS(item.amount)}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {item.reason || "Sin motivo"}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              @{item.actor}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.actedAt).toLocaleString("es-AR")}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <AdminCommerceView
+            commerceView={commerceView}
+            setCommerceView={setCommerceView}
+            commerce={data.commerce}
+            handleExportWithdrawals={handleExportWithdrawals}
+            updatingWithdrawalId={updatingWithdrawalId}
+            handleUpdateWithdrawal={(id, status) =>
+              void handleUpdateWithdrawal(id, status)
+            }
+            openRejectWithdrawal={(payload) => {
+              setRejectingWithdrawal(payload);
+              setWithdrawalRejectReason("");
+            }}
+          />
         ) : null}
 
         {!loading && data && tab === "authors" ? (
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAuthorsView("pending")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    authorsView === "pending"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Pendientes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAuthorsView("history")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    authorsView === "history"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Historial
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAuthorsView("archived")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    authorsView === "archived"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Archivadas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAuthorsView("promotion")}
-                  className={cn(
-                    "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                    authorsView === "promotion"
-                      ? "bg-zinc-950 text-white"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  Curación manual
-                </button>
-              </div>
-            </div>
-
-            {authorsView === "pending" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Solicitudes de autor
-                </div>
-                <div className="mt-1 text-sm text-zinc-500">
-                  Revisa identidad, edad y documentación antes de habilitar la
-                  creación y venta de contenido.
-                </div>
-                <div className="mt-4 max-h-[520px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Usuario</th>
-                        <th className="px-4 py-3 font-medium">Identidad</th>
-                        <th className="px-4 py-3 font-medium">Ubicación</th>
-                        <th className="px-4 py-3 font-medium">Documentos</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Enviada</th>
-                        <th className="px-4 py-3 font-medium">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {pendingAuthorApplications.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={7}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay solicitudes pendientes para revisar.
-                          </td>
-                        </tr>
-                      ) : (
-                        pendingAuthorApplications.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 align-top">
-                              <div className="font-medium text-zinc-900">
-                                @{item.username}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-700">
-                              <div className="font-medium text-zinc-900">
-                                {item.fullName}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                {item.documentType} {item.documentNumber}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                Nacimiento:{" "}
-                                {new Date(item.birthDate).toLocaleDateString(
-                                  "es-AR",
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-700">
-                              <div>
-                                {item.city}, {item.province}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                {item.country}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                {item.address}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <div className="flex gap-2">
-                                <a
-                                  href={item.documentFrontUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                                >
-                                  Ver frente
-                                </a>
-                                <a
-                                  href={item.documentBackUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                                >
-                                  Ver dorso
-                                </a>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-700">
-                              {item.status === "approved"
-                                ? "Aprobado"
-                                : item.status === "rejected"
-                                  ? "Rechazado"
-                                  : "Pendiente"}
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-500">
-                              {new Date(item.submittedAt).toLocaleString(
-                                "es-AR",
-                              )}
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateAuthor(item.id, "approved")
-                                  }
-                                  disabled={updatingAuthorId === item.id}
-                                  className="rounded-[12px] bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
-                                >
-                                  Aprobar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setAuthorRejectState({
-                                      target: {
-                                        id: item.id,
-                                        username: item.username,
-                                      },
-                                      reason: "",
-                                    });
-                                  }}
-                                  disabled={updatingAuthorId === item.id}
-                                  className="rounded-[12px] bg-red-100 px-4 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                                >
-                                  Rechazar
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            {authorsView === "history" ? (
-              <>
-                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                  <div className="text-lg font-semibold text-zinc-950">
-                    Solicitudes resueltas
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-500">
-                    Consultas puntuales sobre solicitudes ya aprobadas o
-                    rechazadas. Desde acá puedes cambiar la decisión si fue un
-                    error.
-                  </div>
-                  <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                      <thead className="bg-zinc-100 text-left text-zinc-500">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Usuario</th>
-                          <th className="px-4 py-3 font-medium">
-                            Estado actual
-                          </th>
-                          <th className="px-4 py-3 font-medium">Documentos</th>
-                          <th className="px-4 py-3 font-medium">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200 bg-white">
-                        {reviewedAuthorApplications.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-4 py-6 text-center text-zinc-500"
-                            >
-                              No hay solicitudes resueltas todavía.
-                            </td>
-                          </tr>
-                        ) : (
-                          reviewedAuthorApplications.map((item) => (
-                            <tr key={item.id}>
-                              <td className="px-4 py-3 align-top">
-                                <div className="font-medium text-zinc-900">
-                                  @{item.username}
-                                </div>
-                                <div className="text-xs text-zinc-500">
-                                  {item.fullName}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-semibold",
-                                    item.status === "approved"
-                                      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                                      : "border border-red-200 bg-red-50 text-red-700",
-                                  )}
-                                >
-                                  {item.status === "approved"
-                                    ? "Aprobado"
-                                    : "Rechazado"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                <div className="flex gap-2">
-                                  <a
-                                    href={item.documentFrontUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                                  >
-                                    Ver frente
-                                  </a>
-                                  <a
-                                    href={item.documentBackUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-[12px] border border-zinc-200 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800"
-                                  >
-                                    Ver dorso
-                                  </a>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                <div className="flex flex-wrap gap-2">
-                                  {item.status === "rejected" ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleUpdateAuthor(item.id, "approved")
-                                      }
-                                      disabled={updatingAuthorId === item.id}
-                                      className="rounded-[12px] bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 disabled:opacity-60"
-                                    >
-                                      Aprobar
-                                    </button>
-                                  ) : null}
-                                  {item.status === "approved" ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setAuthorRejectState({
-                                          target: {
-                                            id: item.id,
-                                            username: item.username,
-                                          },
-                                          reason: "",
-                                        });
-                                      }}
-                                      disabled={updatingAuthorId === item.id}
-                                      className="rounded-[12px] bg-red-100 px-4 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                                    >
-                                      Rechazar
-                                    </button>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleArchiveAuthor(item.id)}
-                                    disabled={archivingAuthorId === item.id}
-                                    className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                  >
-                                    {archivingAuthorId === item.id
-                                      ? "Archivando..."
-                                      : "Archivar"}
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                  <div className="text-lg font-semibold text-zinc-950">
-                    Historial de movimientos
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-500">
-                    Registro cronológico de cada aprobación o rechazo con su
-                    motivo.
-                  </div>
-                  <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                      <thead className="bg-zinc-100 text-left text-zinc-500">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Estado</th>
-                          <th className="px-4 py-3 font-medium">Motivo</th>
-                          <th className="px-4 py-3 font-medium">Admin</th>
-                          <th className="px-4 py-3 font-medium">Fecha</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200 bg-white">
-                        {data.commerce.authorApplicationHistory.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-4 py-6 text-center text-zinc-500"
-                            >
-                              No hay movimientos todavía.
-                            </td>
-                          </tr>
-                        ) : (
-                          data.commerce.authorApplicationHistory.map((item) => (
-                            <tr key={item.id}>
-                              <td className="px-4 py-3 font-medium text-zinc-900">
-                                {item.action === "approved"
-                                  ? "Aprobado"
-                                  : item.action === "rejected"
-                                    ? "Rechazado"
-                                    : "Pendiente"}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                {item.reason || "Sin motivo"}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                @{item.actor}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-500">
-                                {new Date(item.actedAt).toLocaleString("es-AR")}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </>
-            ) : null}
-
-            {authorsView === "archived" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Solicitudes archivadas
-                </div>
-                <div className="mt-1 text-sm text-zinc-500">
-                  Solicitudes ya procesadas y archivadas. Puedes restaurarlas
-                  para volver a verlas en historial.
-                </div>
-                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Usuario</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Enviada</th>
-                        <th className="px-4 py-3 font-medium">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {archivedAuthorApplications.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={4}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay solicitudes archivadas.
-                          </td>
-                        </tr>
-                      ) : (
-                        archivedAuthorApplications.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.username}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {item.status === "approved"
-                                ? "Aprobado"
-                                : "Rechazado"}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.submittedAt).toLocaleString(
-                                "es-AR",
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => handleRestoreAuthor(item.id)}
-                                disabled={restoringAuthorId === item.id}
-                                className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                              >
-                                {restoringAuthorId === item.id
-                                  ? "Restaurando..."
-                                  : "Restaurar"}
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            {authorsView === "promotion" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="text-lg font-semibold text-zinc-950">
-                      Curación manual de autores
-                    </div>
-                    <div className="mt-1 max-w-[760px] text-sm text-zinc-500">
-                      Define qué autores quieres empujar manualmente en feed, sugerencias y explorar. Sirve para destacar cuentas clave, ordenar exposición y dar publicidad interna sin depender de follows.
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                      <input
-                        value={promotionSearch}
-                        onChange={(event) => setPromotionSearch(event.target.value)}
-                        placeholder="Buscar autor"
-                        className="h-11 rounded-[14px] border border-zinc-200 bg-white pl-10 pr-4 text-sm text-zinc-900 outline-none"
-                      />
-                    </div>
-                    <select
-                      value={promotionSort}
-                      onChange={(event) =>
-                        setPromotionSort(
-                          event.target.value as typeof promotionSort,
-                        )
-                      }
-                      className="h-11 rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none"
-                    >
-                      <option value="sales">Ordenar por ventas</option>
-                      <option value="followers">Ordenar por seguidores</option>
-                      <option value="posts">Ordenar por posts</option>
-                      <option value="recent">Ordenar por alta reciente</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="mt-5 overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Autor</th>
-                        <th className="px-4 py-3 font-medium">Ventas</th>
-                        <th className="px-4 py-3 font-medium">Seguidores</th>
-                        <th className="px-4 py-3 font-medium">Feed</th>
-                        <th className="px-4 py-3 font-medium">Sugerencias</th>
-                        <th className="px-4 py-3 font-medium">Explorar</th>
-                        <th className="px-4 py-3 font-medium">Duración</th>
-                        <th className="px-4 py-3 font-medium">Nota interna</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {curatedAuthors.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={8}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No encontramos autores con ese filtro.
-                          </td>
-                        </tr>
-                      ) : (
-                        curatedAuthors.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 align-top">
-                              <div className="flex items-center gap-3">
-                                <UserAvatar src={item.avatar} alt={item.username} />
-                                <div>
-                                  <div className="font-medium text-zinc-900">
-                                    @{item.username}
-                                  </div>
-                                  <div className="text-xs text-zinc-500">
-                                    {item.fullName || item.email}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-900">
-                              <div className="font-medium">
-                                {formatARS(item.salesGross)}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                {item.posts.length} posts
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-900">
-                              <div className="font-medium">{item.followersCount}</div>
-                              <div className="text-xs text-zinc-500">
-                                {item.followingCount} seguidos
-                              </div>
-                            </td>
-                            {(
-                              [
-                                ["promoteInFeed", "feedRank"],
-                                ["promoteInSuggestions", "suggestionsRank"],
-                                ["promoteInExplore", "exploreRank"],
-                              ] as const
-                            ).map(([flagKey, rankKey]) => (
-                              <td key={`${item.id}-${flagKey}`} className="px-4 py-3 align-top">
-                                <label className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={item.promotion[flagKey]}
-                                    disabled={updatingPromotionUserId === item.id}
-                                    onChange={(event) =>
-                                      void handleUpdateAuthorPromotion(item.id, {
-                                        [flagKey]: event.target.checked,
-                                      } as Partial<typeof item.promotion>)
-                                    }
-                                  />
-                                  <span className="text-xs font-medium text-zinc-700">
-                                    Activar
-                                  </span>
-                                </label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={9999}
-                                  value={item.promotion[rankKey]}
-                                  disabled={updatingPromotionUserId === item.id}
-                                  onChange={(event) =>
-                                    setData((prev) =>
-                                      prev
-                                        ? {
-                                            ...prev,
-                                            commerce: {
-                                              ...prev.commerce,
-                                              users: prev.commerce.users.map((user) =>
-                                                user.id === item.id
-                                                  ? {
-                                                      ...user,
-                                                      promotion: {
-                                                        ...user.promotion,
-                                                        [rankKey]: Number(event.target.value || 0),
-                                                      },
-                                                    }
-                                                  : user,
-                                              ),
-                                            },
-                                          }
-                                        : prev,
-                                    )
-                                  }
-                                  onBlur={(event) =>
-                                    void handleUpdateAuthorPromotion(item.id, {
-                                      [rankKey]: Number(event.target.value || 0),
-                                    } as Partial<typeof item.promotion>)
-                                  }
-                                  className="mt-2 h-10 w-[92px] rounded-[12px] border border-zinc-200 px-3 text-sm text-zinc-900 outline-none"
-                                />
-                              </td>
-                            ))}
-                            <td className="px-4 py-3 align-top">
-                              <input
-                                type="number"
-                                min={1}
-                                placeholder="Días"
-                                value={promotionDurationDrafts[item.id] ?? ""}
-                                disabled={updatingPromotionUserId === item.id}
-                                onChange={(event) =>
-                                  setPromotionDurationDrafts((prev) => ({
-                                    ...prev,
-                                    [item.id]: event.target.value,
-                                  }))
-                                }
-                                className="h-10 w-[92px] rounded-[12px] border border-zinc-200 px-3 text-sm text-zinc-900 outline-none"
-                              />
-                              <div className="mt-2 text-xs text-zinc-500">
-                                {item.promotion.expiresAt
-                                  ? `Vence ${new Date(item.promotion.expiresAt).toLocaleDateString("es-AR")}`
-                                  : "Fijo hasta cambiarlo"}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <textarea
-                                value={item.promotion.note}
-                                disabled={updatingPromotionUserId === item.id}
-                                onChange={(event) =>
-                                  setData((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          commerce: {
-                                            ...prev.commerce,
-                                            users: prev.commerce.users.map((user) =>
-                                              user.id === item.id
-                                                ? {
-                                                    ...user,
-                                                    promotion: {
-                                                      ...user.promotion,
-                                                      note: event.target.value,
-                                                    },
-                                                  }
-                                                : user,
-                                            ),
-                                          },
-                                        }
-                                      : prev,
-                                  )
-                                }
-                                onBlur={(event) =>
-                                  void handleUpdateAuthorPromotion(item.id, {
-                                    note: event.target.value,
-                                  })
-                                }
-                                rows={3}
-                                className="min-h-[86px] w-[240px] rounded-[12px] border border-zinc-200 px-3 py-2 text-sm text-zinc-900 outline-none"
-                                placeholder="Motivo interno, campaña, prioridad, etc."
-                              />
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <AdminAuthorsView
+            authorsView={authorsView}
+            setAuthorsView={setAuthorsView}
+            pendingAuthorApplications={pendingAuthorApplications}
+            reviewedAuthorApplications={reviewedAuthorApplications}
+            archivedAuthorApplications={archivedAuthorApplications}
+            authorApplicationHistory={data.commerce.authorApplicationHistory}
+            updatingAuthorId={updatingAuthorId}
+            archivingAuthorId={archivingAuthorId}
+            restoringAuthorId={restoringAuthorId}
+            handleUpdateAuthor={(id, status) => void handleUpdateAuthor(id, status)}
+            openRejectAuthor={(payload) => {
+              setAuthorRejectState({
+                target: payload,
+                reason: "",
+              });
+            }}
+            handleArchiveAuthor={(id) => void handleArchiveAuthor(id)}
+            handleRestoreAuthor={(id) => void handleRestoreAuthor(id)}
+            promotionSearch={promotionSearch}
+            setPromotionSearch={setPromotionSearch}
+            promotionSort={promotionSort}
+            setPromotionSort={setPromotionSort}
+            curatedAuthors={curatedAuthors}
+            updatingPromotionUserId={updatingPromotionUserId}
+            promotionDurationDrafts={promotionDurationDrafts}
+            setPromotionDurationDrafts={setPromotionDurationDrafts}
+            handleUpdateAuthorPromotion={(userId, patch) =>
+              void handleUpdateAuthorPromotion(userId, patch)
+            }
+            updatePromotionDraft={(userId, patch) =>
+              setData((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      commerce: {
+                        ...prev.commerce,
+                        users: prev.commerce.users.map((user) =>
+                          user.id === userId
+                            ? {
+                                ...user,
+                                promotion: {
+                                  ...user.promotion,
+                                  ...patch,
+                                },
+                              }
+                            : user,
+                        ),
+                      },
+                    }
+                  : prev,
+              )
+            }
+          />
         ) : null}
 
         {!loading && data && tab === "reports" ? (
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Reportes de contenido
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                Denuncias enviadas por usuarios para que moderación pueda
-                revisar y abrir la publicación exacta denunciada.
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap gap-3">
-                {(["pending", "history", "archived"] as const).map((view) => (
-                  <button
-                    key={view}
-                    type="button"
-                    onClick={() => setReportsView(view)}
-                    className={cn(
-                      "rounded-[16px] px-4 py-3 text-sm font-semibold transition",
-                      reportsView === view
-                        ? "bg-zinc-950 text-white"
-                        : "border border-zinc-200 bg-zinc-100 text-zinc-700",
-                    )}
-                  >
-                    {view === "pending"
-                      ? "Pendientes"
-                      : view === "history"
-                        ? "Historial"
-                        : "Archivados"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {reportsView === "pending" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-950">
-                      Cola de denuncias
-                    </div>
-                    <div className="text-sm text-zinc-500">
-                      {pendingReports.length} reportes pendientes de revisión
-                      visual.
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setTab("content")}
-                    className="rounded-[14px] border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-800"
-                  >
-                    Ir a moderación
-                  </button>
-                </div>
-
-                <div className="max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Reportado por</th>
-                        <th className="px-4 py-3 font-medium">Creador</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Motivo</th>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                        <th className="px-4 py-3 font-medium">Contenido</th>
-                        <th className="px-4 py-3 font-medium">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {pendingReports.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={7}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay reportes todavía.
-                          </td>
-                        </tr>
-                      ) : (
-                        pendingReports.map((item) => {
-                          const contentItem =
-                            data.content.find(
-                              (content) => content.id === item.albumId,
-                            ) ?? null;
-                          return (
-                            <tr key={item.id}>
-                              <td className="px-4 py-3 font-medium text-zinc-900">
-                                @{item.reportedBy}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                @{item.owner}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                {item.status === "open"
-                                  ? "Abierto"
-                                  : item.status === "reviewed"
-                                    ? "Revisado"
-                                    : item.status === "dismissed"
-                                      ? "Descartado"
-                                      : "Contenido eliminado"}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                <div className="max-w-[280px] truncate">
-                                  {item.reason}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-zinc-500">
-                                {new Date(item.createdAt).toLocaleString(
-                                  "es-AR",
-                                )}
-                              </td>
-                              <td className="px-4 py-3">
-                                {contentItem ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedContent(contentItem);
-                                      setSelectedMediaIndex(0);
-                                    }}
-                                    className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
-                                  >
-                                    Ver contenido
-                                  </button>
-                                ) : (
-                                  <span className="text-zinc-400">
-                                    No disponible
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setSelectedReportReason({
-                                        title: `Denuncia de @${item.reportedBy}`,
-                                        reason: item.reason || "Sin motivo",
-                                      })
-                                    }
-                                    className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
-                                  >
-                                    Ver detalle
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateReport(item.id, "reviewed")
-                                    }
-                                    disabled={updatingReportId === item.id}
-                                    className="rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                  >
-                                    Revisado
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateReport(item.id, "dismissed")
-                                    }
-                                    disabled={updatingReportId === item.id}
-                                    className="rounded-[12px] bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                  >
-                                    Descartar
-                                  </button>
-                                  {contentItem ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDeletingContent({
-                                          id: contentItem.id,
-                                          username: contentItem.username,
-                                          reportId: item.id,
-                                        });
-                                        setDeleteReason(item.reason || "");
-                                      }}
-                                      disabled={
-                                        updatingReportId === item.id ||
-                                        deletingId === contentItem.id
-                                      }
-                                      className="rounded-[12px] bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                                    >
-                                      Eliminar
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            {reportsView === "history" ? (
-              <>
-                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-lg font-semibold text-zinc-950">
-                        Reportes resueltos
-                      </div>
-                      <div className="mt-1 text-sm text-zinc-500">
-                        Reportes ya revisados, descartados o con contenido
-                        eliminado.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                      <thead className="bg-zinc-100 text-left text-zinc-500">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">
-                            Reportado por
-                          </th>
-                          <th className="px-4 py-3 font-medium">Creador</th>
-                          <th className="px-4 py-3 font-medium">Estado</th>
-                          <th className="px-4 py-3 font-medium">Motivo</th>
-                          <th className="px-4 py-3 font-medium">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200 bg-white">
-                        {reviewedReports.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={5}
-                              className="px-4 py-6 text-center text-zinc-500"
-                            >
-                              No hay reportes resueltos.
-                            </td>
-                          </tr>
-                        ) : (
-                          reviewedReports.map((item) => (
-                            <tr key={item.id}>
-                              <td className="px-4 py-3 font-medium text-zinc-900">
-                                @{item.reportedBy}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                @{item.owner}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                {item.status === "reviewed"
-                                  ? "Revisado"
-                                  : item.status === "dismissed"
-                                    ? "Descartado"
-                                    : "Contenido eliminado"}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                <div className="max-w-[280px] truncate">
-                                  {item.reason}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setSelectedReportReason({
-                                        title: `Reporte resuelto de @${item.reportedBy}`,
-                                        reason: item.reason || "Sin motivo",
-                                      })
-                                    }
-                                    className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
-                                  >
-                                    Ver detalle
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleArchiveReport(item.id)}
-                                    disabled={
-                                      reportActionState.archivingId === item.id
-                                    }
-                                    className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                  >
-                                    {reportActionState.archivingId === item.id
-                                      ? "Archivando..."
-                                      : "Archivar"}
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                  <div className="text-lg font-semibold text-zinc-950">
-                    Historial de moderación
-                  </div>
-                  <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                      <thead className="bg-zinc-100 text-left text-zinc-500">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Acción</th>
-                          <th className="px-4 py-3 font-medium">Motivo</th>
-                          <th className="px-4 py-3 font-medium">Admin</th>
-                          <th className="px-4 py-3 font-medium">Fecha</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200 bg-white">
-                        {data.commerce.reportHistory.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-4 py-6 text-center text-zinc-500"
-                            >
-                              No hay acciones de moderación todavía.
-                            </td>
-                          </tr>
-                        ) : (
-                          data.commerce.reportHistory.map((item) => (
-                            <tr key={item.id}>
-                              <td className="px-4 py-3 font-medium text-zinc-900">
-                                {item.action === "reviewed"
-                                  ? "Revisado"
-                                  : item.action === "dismissed"
-                                    ? "Descartado"
-                                    : "Contenido eliminado"}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                <div className="max-w-[320px] truncate">
-                                  {item.reason}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setSelectedReportReason({
-                                      title: `Acción de moderación · @${item.actor}`,
-                                      reason: item.reason || "Sin motivo",
-                                    })
-                                  }
-                                  className="mt-2 text-xs font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-4"
-                                >
-                                  Ver detalle
-                                </button>
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700">
-                                @{item.actor}
-                              </td>
-                              <td className="px-4 py-3 text-zinc-500">
-                                {new Date(item.actedAt).toLocaleString("es-AR")}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </>
-            ) : null}
-
-            {reportsView === "archived" ? (
-              <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-lg font-semibold text-zinc-950">
-                  Reportes archivados
-                </div>
-                <div className="mt-1 text-sm text-zinc-500">
-                  Reportes ya procesados y archivados para limpieza operativa.
-                  Puedes restaurarlos.
-                </div>
-                <div className="mt-4 max-h-[420px] overflow-auto rounded-[20px] border border-zinc-200">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-100 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Reportado por</th>
-                        <th className="px-4 py-3 font-medium">Creador</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Motivo</th>
-                        <th className="px-4 py-3 font-medium">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 bg-white">
-                      {archivedReports.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay reportes archivados.
-                          </td>
-                        </tr>
-                      ) : (
-                        archivedReports.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.reportedBy}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              @{item.owner}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {item.status === "reviewed"
-                                ? "Revisado"
-                                : item.status === "dismissed"
-                                  ? "Descartado"
-                                  : "Contenido eliminado"}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              <div className="max-w-[280px] truncate">
-                                {item.reason}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setSelectedReportReason({
-                                      title: `Reporte archivado de @${item.reportedBy}`,
-                                      reason: item.reason || "Sin motivo",
-                                    })
-                                  }
-                                  className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
-                                >
-                                  Ver detalle
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRestoreReport(item.id)}
-                                  disabled={
-                                    reportActionState.restoringId === item.id
-                                  }
-                                  className="rounded-[12px] border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                                >
-                                  {reportActionState.restoringId === item.id
-                                    ? "Restaurando..."
-                                    : "Restaurar"}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold text-zinc-950">
-                Historial de contenido eliminado
-              </div>
-              <div className="mt-4 max-h-[320px] overflow-auto rounded-[20px] border border-zinc-200">
-                <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                  <thead className="bg-zinc-100 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Creador</th>
-                      <th className="px-4 py-3 font-medium">Descripción</th>
-                      <th className="px-4 py-3 font-medium">Archivos</th>
-                      <th className="px-4 py-3 font-medium">Fecha</th>
-                      <th className="px-4 py-3 font-medium">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 bg-white">
-                    {data.commerce.archivedContent.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="px-4 py-6 text-center text-zinc-500"
-                        >
-                          No hay contenido archivado.
-                        </td>
-                      </tr>
-                    ) : (
-                      data.commerce.archivedContent.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-4 py-3 font-medium text-zinc-900">
-                            @{item.owner}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            <div className="line-clamp-2 max-w-[360px]">
-                              {item.description}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-zinc-700">
-                            {item.itemsCount}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-500">
-                            {new Date(item.archivedAt).toLocaleString("es-AR")}
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => handleRestoreContent(item.id)}
-                              disabled={restoringArchiveId === item.id}
-                              className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 disabled:opacity-60"
-                            >
-                              Restablecer
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <AdminReportsView
+            reportsView={reportsView}
+            setReportsView={setReportsView}
+            pendingReports={pendingReports}
+            reviewedReports={reviewedReports}
+            archivedReports={archivedReports}
+            reportHistory={data.commerce.reportHistory}
+            archivedContent={data.commerce.archivedContent}
+            updatingReportId={updatingReportId}
+            archivingReportId={reportActionState.archivingId}
+            restoringReportId={reportActionState.restoringId}
+            restoringArchiveId={restoringArchiveId}
+            onGoToContent={() => setTab("content")}
+            findContentByAlbumId={(albumId) => {
+              const contentItem =
+                data.content.find((content) => content.id === albumId) ?? null;
+              return contentItem
+                ? {
+                    id: contentItem.id,
+                    username: contentItem.username,
+                  }
+                : null;
+            }}
+            openContent={(content) => {
+              const contentItem = data.content.find((item) => item.id === content.id);
+              if (!contentItem) return;
+              setSelectedContent(contentItem);
+              setSelectedMediaIndex(0);
+            }}
+            openReportReason={(payload) => setSelectedReportReason(payload)}
+            handleUpdateReport={(id, status) => void handleUpdateReport(id, status)}
+            handleArchiveReport={(id) => void handleArchiveReport(id)}
+            handleRestoreReport={(id) => void handleRestoreReport(id)}
+            openDeleteContent={(payload) => {
+              setDeletingContent({
+                id: payload.id,
+                username: payload.username,
+                reportId: payload.reportId,
+              });
+              setDeleteReason(payload.reason ?? "");
+            }}
+            handleRestoreContent={(id) => void handleRestoreContent(id)}
+          />
         ) : null}
 
         {!loading && data && tab === "content" ? (
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-zinc-200 bg-white px-5 py-4 shadow-sm">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-                <div className="min-w-0">
-                  <div className="text-lg font-semibold text-zinc-950">
-                    Moderación de contenido
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {[
-                    {
-                      label: "Activos",
-                      value: data.content.length,
-                      tone: "default" as const,
-                    },
-                    {
-                      label: "Reportados",
-                      value: reportedContent.length,
-                      tone: "blue" as const,
-                    },
-                    {
-                      label: "En cola",
-                      value: visibleContentQueue.length,
-                      tone: "default" as const,
-                    },
-                    {
-                      label: "Eliminados",
-                      value: data.commerce.archivedContent.length,
-                      tone: "emerald" as const,
-                    },
-                  ].map((item) => (
-                    <div
-                      key={`content-metric-${item.label}`}
-                      className={cn(
-                        "min-w-[132px] rounded-[14px] border px-4 py-3",
-                        item.tone === "default" && "border-zinc-200 bg-white",
-                        item.tone === "blue" && "border-blue-200 bg-blue-50",
-                        item.tone === "emerald" &&
-                          "border-emerald-200 bg-emerald-50",
-                      )}
-                    >
-                      <div className="text-sm font-medium text-zinc-500">
-                        {item.label}
-                      </div>
-                      <div className="mt-1.5 text-[0.95rem] font-semibold text-zinc-950 md:text-[1.05rem]">
-                        {item.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-zinc-200 bg-white p-4 shadow-sm md:p-5">
-              <div className="grid gap-3 xl:grid-cols-[auto_minmax(0,1fr)] xl:items-start">
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    {
-                      id: "queue",
-                      label: "Cola activa",
-                      count: visibleContentQueue.length,
-                    },
-                    {
-                      id: "reported",
-                      label: "Reportados",
-                      count: reportedContent.length,
-                    },
-                    {
-                      id: "resolved",
-                      label: "Resueltos",
-                      count: resolvedContent.length,
-                    },
-                    {
-                      id: "archived",
-                      label: "Eliminados",
-                      count: data.commerce.archivedContent.length,
-                    },
-                  ].map((section) => (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() =>
-                        setContentView(
-                          section.id as
-                            | "queue"
-                            | "reported"
-                            | "resolved"
-                            | "archived",
-                        )
-                      }
-                      className={cn(
-                        "inline-flex items-center rounded-full border px-4 py-2 text-sm font-semibold transition",
-                        contentView === section.id
-                          ? "border-zinc-950 bg-zinc-950 text-white"
-                          : "border-zinc-200 bg-white text-zinc-600",
-                      )}
-                    >
-                      {section.label}
-                      <span
-                        className={cn(
-                          "ml-2 rounded-full px-2 py-0.5 text-xs",
-                          contentView === section.id
-                            ? "bg-white/15 text-white"
-                            : "bg-zinc-100 text-zinc-600",
-                        )}
-                      >
-                        {section.count}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-
-                {contentView !== "archived" ? (
-                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                    <label className="relative block min-w-0">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                      <input
-                        value={contentSearch}
-                        onChange={(event) =>
-                          setContentSearch(event.target.value)
-                        }
-                        placeholder="Buscar por usuario o descripción"
-                        className="w-full rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
-                      />
-                    </label>
-                    <label className="relative block min-w-0">
-                      <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                      <select
-                        value={contentFilter}
-                        onChange={(event) =>
-                          setContentFilter(
-                            event.target.value as
-                              | "all"
-                              | "free"
-                              | "paid"
-                              | "image"
-                              | "video",
-                          )
-                        }
-                        className="w-full appearance-none rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-8 text-sm font-medium text-zinc-900 outline-none"
-                      >
-                        <option value="all">Todo el contenido</option>
-                        <option value="paid">Solo pago</option>
-                        <option value="free">Solo gratis</option>
-                        <option value="image">Solo imágenes</option>
-                        <option value="video">Solo videos</option>
-                      </select>
-                    </label>
-                    <label className="relative block min-w-0">
-                      <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                      <select
-                        value={contentAudienceFilter}
-                        onChange={(event) =>
-                          setContentAudienceFilter(
-                            event.target.value as "all" | ContentAudience,
-                          )
-                        }
-                        className="w-full appearance-none rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-8 text-sm font-medium text-zinc-900 outline-none"
-                      >
-                        <option value="all">Toda audiencia</option>
-                        {CONTENT_AUDIENCE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="relative block min-w-0">
-                      <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                      <select
-                        value={contentCategoryFilter}
-                        onChange={(event) =>
-                          setContentCategoryFilter(
-                            event.target.value as "all" | ModerationCategory,
-                          )
-                        }
-                        className="w-full appearance-none rounded-[14px] border border-zinc-200 bg-white py-2.5 pl-10 pr-8 text-sm font-medium text-zinc-900 outline-none"
-                      >
-                        <option value="all">Toda categoría</option>
-                        {MODERATION_CATEGORY_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            {contentView !== "archived" ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                {(contentView === "reported"
-                  ? reportedContent
-                  : contentView === "resolved"
-                    ? resolvedContent
-                    : visibleContentQueue
-                ).map((item) => (
-                  <div
-                    key={item.id}
-                    className="overflow-hidden rounded-[20px] border border-zinc-200 bg-white shadow-sm"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedContent(item);
-                        setSelectedMediaIndex(0);
-                      }}
-                      className="relative block aspect-square w-full bg-zinc-100 text-left"
-                    >
-                      {item.mediaUrl ? (
-                        item.mediaType === "video" ? (
-                          <video
-                            src={item.mediaUrl}
-                            className="h-full w-full object-cover"
-                            muted
-                            playsInline
-                          />
-                        ) : (
-                          <img
-                            src={item.mediaUrl}
-                            alt={item.description || item.username}
-                            className="h-full w-full object-cover"
-                          />
-                        )
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                          Sin preview
-                        </div>
-                      )}
-                      <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-                        {item.moderationState ? (
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-1 text-[10px] font-bold text-white",
-                              item.moderationState === "approved"
-                                ? "bg-emerald-600"
-                                : "bg-zinc-700",
-                            )}
-                          >
-                            {item.moderationState === "approved"
-                              ? "Aprobado"
-                              : "Archivado"}
-                          </span>
-                        ) : null}
-                        {(pendingReportCountByAlbum.get(item.id) ?? 0) > 0 ? (
-                          <span className="rounded-full bg-red-600 px-2 py-1 text-[10px] font-bold text-white">
-                            {pendingReportCountByAlbum.get(item.id)} reporte
-                            {(pendingReportCountByAlbum.get(item.id) ?? 0) > 1
-                              ? "s"
-                              : ""}
-                          </span>
-                        ) : null}
-                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                          {item.price > 0 ? "Pago" : "Gratis"}
-                        </span>
-                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                          {item.mediaType === "video" ? "Video" : "Imagen"}
-                        </span>
-                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                          {getContentAudienceLabel(item.contentAudience)}
-                        </span>
-                        <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                          {getModerationCategoryLabel(item.moderationCategory)}
-                        </span>
-                      </div>
-                    </button>
-
-                    <div className="p-3">
-                      <div className="flex items-center gap-3">
-                        <UserAvatar src={item.avatar} alt={item.username} />
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-semibold text-zinc-950">
-                            @{item.username}
-                          </div>
-                          <div className="text-xs text-zinc-500">
-                            {new Date(item.createdAt).toLocaleDateString(
-                              "es-AR",
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-2 line-clamp-2 min-h-8 text-xs text-zinc-600">
-                        {item.description || "Sin descripción"}
-                      </div>
-                      {item.moderationTags.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {item.moderationTags.slice(0, 3).map((tag) => (
-                            <span
-                              key={`${item.id}-${tag}`}
-                              className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600"
-                            >
-                              #{tag}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>{item.itemsCount} archivos</span>
-                        <span>{formatARS(item.price)}</span>
-                      </div>
-
-                      <div className="mt-3 flex gap-2">
-                        {contentView !== "resolved" ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleReviewContent(item.id, "approved")
-                            }
-                            disabled={updatingContentId === item.id}
-                            className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 disabled:opacity-60"
-                          >
-                            Aprobar
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedContent(item);
-                            setSelectedMediaIndex(0);
-                          }}
-                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-[12px] border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Revisar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDeletingContent({
-                              id: item.id,
-                              username: item.username,
-                              reportId: (reportsByAlbum.get(item.id) ?? [])[0]
-                                ?.id,
-                            });
-                            setDeleteReason("");
-                          }}
-                          disabled={deletingId === item.id}
-                          className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-60"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {(contentView === "reported"
-                  ? reportedContent
-                  : contentView === "resolved"
-                    ? resolvedContent
-                    : visibleContentQueue
-                ).length === 0 ? (
-                  <div className="col-span-full rounded-[24px] border border-dashed border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500">
-                    {contentView === "reported"
-                      ? "No hay publicaciones reportadas pendientes."
-                      : contentView === "resolved"
-                        ? "No hay publicaciones resueltas para mostrar."
-                        : "No hay publicaciones para revisar con los filtros actuales."}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="rounded-[24px] border border-zinc-200 bg-white shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                    <thead className="bg-zinc-50 text-left text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Usuario</th>
-                        <th className="px-4 py-3 font-medium">Descripción</th>
-                        <th className="px-4 py-3 font-medium">Archivos</th>
-                        <th className="px-4 py-3 font-medium">Archivado</th>
-                        <th className="px-4 py-3 font-medium">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100 bg-white">
-                      {data.commerce.archivedContent.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-6 text-center text-zinc-500"
-                          >
-                            No hay contenido archivado.
-                          </td>
-                        </tr>
-                      ) : (
-                        data.commerce.archivedContent.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-zinc-900">
-                              @{item.owner}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              <div className="line-clamp-2 max-w-[360px]">
-                                {item.description}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-zinc-700">
-                              {item.itemsCount}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-500">
-                              {new Date(item.archivedAt).toLocaleString(
-                                "es-AR",
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => handleRestoreContent(item.id)}
-                                disabled={restoringArchiveId === item.id}
-                                className="rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 disabled:opacity-60"
-                              >
-                                Restablecer
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+          <AdminContentView
+            contentView={contentView}
+            setContentView={setContentView}
+            contentSearch={contentSearch}
+            setContentSearch={setContentSearch}
+            contentFilter={contentFilter}
+            setContentFilter={setContentFilter}
+            contentAudienceFilter={contentAudienceFilter}
+            setContentAudienceFilter={setContentAudienceFilter}
+            contentCategoryFilter={contentCategoryFilter}
+            setContentCategoryFilter={setContentCategoryFilter}
+            contentCount={data.content.length}
+            reportedContent={reportedContent}
+            visibleContentQueue={visibleContentQueue}
+            resolvedContent={resolvedContent}
+            archivedContent={data.commerce.archivedContent}
+            pendingReportCountByAlbum={pendingReportCountByAlbum}
+            updatingContentId={updatingContentId}
+            deletingId={deletingId}
+            restoringArchiveId={restoringArchiveId}
+            openContent={(item) => {
+              setSelectedContent(item);
+              setSelectedMediaIndex(0);
+            }}
+            handleReviewContent={(id) => void handleReviewContent(id, "approved")}
+            openDeleteContent={(payload) => {
+              setDeletingContent({
+                id: payload.id,
+                username: payload.username,
+                reportId: (reportsByAlbum.get(payload.id) ?? [])[0]?.id ?? payload.reportId,
+              });
+              setDeleteReason("");
+            }}
+            handleRestoreContent={(id) => void handleRestoreContent(id)}
+          />
         ) : null}
-      </div>
+      
 
       {selectedContent ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
@@ -5799,6 +3901,6 @@ export default function AdminPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </AdminShell>
   );
 }

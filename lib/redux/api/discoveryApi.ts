@@ -13,6 +13,13 @@ export type ExploreItem = {
   isFollowing?: boolean;
 };
 
+export type ExploreSort =
+  | "featured"
+  | "top-sales"
+  | "trending"
+  | "new"
+  | "top-month";
+
 type AuthorRoleRow = {
   user_id: string | null;
 };
@@ -104,8 +111,8 @@ export const discoveryApi = createApi({
   reducerPath: "discoveryApi",
   baseQuery: fakeBaseQuery<{ error: string }>(),
   endpoints: (builder) => ({
-    getExploreFeed: builder.query<ExploreItem[], void>({
-      async queryFn() {
+    getExploreFeed: builder.query<ExploreItem[], ExploreSort | void>({
+      async queryFn(sort = "featured") {
         try {
           const supabase = getSupabaseClient();
           if (!supabase) {
@@ -115,11 +122,14 @@ export const discoveryApi = createApi({
           const {
             data: { session },
           } = await supabase.auth.getSession();
-          const response = await fetch("/api/explore", {
+          const response = await fetch(
+            `/api/explore?sort=${encodeURIComponent(sort)}`,
+            {
             headers: session?.access_token
               ? { Authorization: `Bearer ${session.access_token}` }
               : undefined,
-          });
+            },
+          );
           const result = (await response.json()) as {
             items?: ExploreItem[];
             error?: string;

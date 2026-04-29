@@ -6,10 +6,15 @@ import MediaImage from "@/components/MediaImage";
 import SidebarLeft from "@/components/SidebarLeft";
 import UserAvatar from "@/components/UserAvatar";
 import { FOLLOW_UPDATED_EVENT } from "@/lib/followSync";
-import { useGetExploreFeedQuery, type ExploreItem } from "@/lib/redux/api/discoveryApi";
+import {
+  useGetExploreFeedQuery,
+  type ExploreItem,
+  type ExploreSort,
+} from "@/lib/redux/api/discoveryApi";
 import { useViewerSession } from "@/lib/redux/useViewerSession";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
 
 function ExploreCardSkeleton() {
   return (
@@ -27,11 +32,12 @@ function ExploreCardSkeleton() {
 }
 
 export default function ExplorarPage() {
+  const [sort, setSort] = useState<ExploreSort>("featured");
   const {
     data: items = [],
     isLoading: loading,
     error,
-  } = useGetExploreFeedQuery();
+  } = useGetExploreFeedQuery(sort);
   const { userId: currentUserId } = useViewerSession();
   const [followState, setFollowState] = useState<Record<string, boolean>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -108,6 +114,30 @@ export default function ExplorarPage() {
           <h1 className="mb-6 text-[25px] font-semibold leading-none text-zinc-900">
             Explorar perfiles
           </h1>
+
+          <div className="mb-6 flex flex-wrap gap-2">
+            {[
+              { id: "featured", label: "✨ Destacados" },
+              { id: "top-sales", label: "💸 Más vendidos" },
+              { id: "trending", label: "🔥 Trending" },
+              { id: "new", label: "🆕 Nuevos" },
+              { id: "top-month", label: "🏆 Top mes" },
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setSort(option.id as ExploreSort)}
+                className={cn(
+                  "rounded-full border px-4 py-2 text-sm font-medium transition",
+                  sort === option.id
+                    ? "border-[#6E41FF] bg-[#6E41FF] text-white shadow-[0_10px_30px_rgba(110,65,255,0.24)]"
+                    : "border-zinc-200 bg-white text-zinc-600 hover:border-[#CFC2FF] hover:text-[#5A3EE7]",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
 
           {loading ? (
             <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:grid-cols-6">

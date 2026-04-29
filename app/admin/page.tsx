@@ -356,6 +356,16 @@ export default function AdminPage() {
   const [financeSelectedIds, setFinanceSelectedIds] = useState<string[]>([]);
   const [financeColumnsOpen, setFinanceColumnsOpen] = useState(false);
   const [financeFiltersOpen, setFinanceFiltersOpen] = useState(false);
+  const [financeSearch, setFinanceSearch] = useState("");
+  const [financeGroupBy, setFinanceGroupBy] = useState<
+    "flow" | "author" | "status"
+  >("flow");
+  const [financePeriodFilter, setFinancePeriodFilter] = useState<
+    "all" | "7d" | "30d"
+  >("all");
+  const [financeStatusFilter, setFinanceStatusFilter] = useState<
+    "all" | "approved" | "settled" | "requested" | "sent" | "rejected"
+  >("all");
   const [visibleFinanceColumns, setVisibleFinanceColumns] = useState<
     FinanceColumnKey[]
   >([
@@ -762,32 +772,7 @@ export default function AdminPage() {
         .slice(0, 10),
     [data],
   );
-  const pendingWithdrawals = useMemo(
-    () =>
-      (data?.commerce.withdrawals ?? []).filter(
-        (item) => item.status === "requested",
-      ),
-    [data],
-  );
-  const financeHeroStats = useMemo(
-    () => [
-      {
-        label: "Total filtrado",
-        value: formatARS(financeTotalVolume),
-      },
-      {
-        label: "Creadores",
-        value: formatARS(data?.metrics.creatorsNet ?? 0),
-        tone: "emerald" as const,
-      },
-      {
-        label: "Plataforma",
-        value: formatARS(data?.metrics.platformFee ?? 0),
-        tone: "blue" as const,
-      },
-    ],
-    [data, financeTotalVolume],
-  );
+  const financeSearchQuery = financeSearch.trim().toLowerCase();
   const financeTableRows = useMemo<FinanceTableRow[]>(
     () =>
       [
@@ -831,14 +816,19 @@ export default function AdminPage() {
           account: "FanPush ARS",
           detail: `Propina enviada por ${item.actor} al creador ${item.receiver}.`,
         })),
-        ...pendingWithdrawals.map((item) => ({
+        ...(data?.commerce.withdrawals ?? []).map((item) => ({
           id: `withdrawal-${item.id}`,
           kind: "withdrawal" as const,
           user: `@${item.username}`,
           counterparty: item.payoutAlias ?? "Sin payout",
           amount: item.amount,
           status: item.statusLabel,
-          statusTone: "amber" as const,
+          statusTone:
+            item.status === "sent"
+              ? ("emerald" as const)
+              : item.status === "rejected"
+                ? ("sky" as const)
+                : ("amber" as const),
           createdAt: item.createdAt,
           description: `Retiro solicitado por ${item.username}`,
           provider: item.payoutHolder ?? "-",
@@ -855,11 +845,104 @@ export default function AdminPage() {
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
-    [compactPurchases, compactTips, pendingWithdrawals],
+    [compactPurchases, compactTips, data],
   );
+  const filteredFinanceRows = useMemo(() => {
+    const now = Date.now();
+
+    return financeTableRows
+      .filter((row) => {
+        if (financeView === "sales" && row.kind !== "purchase") return false;
+        if (financeView === "tips" && row.kind !== "tip") return false;
+        if (financeView === "withdrawals" && row.kind !== "withdrawal") return false;
+
+        if (financeStatusFilter !== "all") {
+          const normalizedStatus = row.status.toLowerCase();
+          const statusMatches =
+            (financeStatusFilter === "approved" && normalizedStatus.includes("aprob")) ||
+            (financeStatusFilter === "settled" && normalizedStatus.includes("liquid")) ||
+            (financeStatusFilter === "requested" && normalizedStatus.includes("solicit")) ||
+            (financeStatusFilter === "sent" && normalizedStatus.includes("envi")) ||
+            (financeStatusFilter === "rejected" && normalizedStatus.includes("rechaz"));
+          if (!statusMatches) return false;
+        }
+
+        if (financePeriodFilter !== "all") {
+          const ageMs = now - new Date(row.createdAt).getTime();
+          const maxAge =
+            financePeriodFilter === "7d" ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+          if (ageMs > maxAge) return false;
+        }
+
+        if (!financeSearchQuery) return true;
+
+        return [
+          row.user,
+          row.counterparty,
+          row.description,
+          row.provider,
+          row.origin,
+          row.category,
+          row.account,
+          row.detail,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(financeSearchQuery);
+      })
+      .sort((a, b) => {
+        if (financeView === "analysis") {
+          return Math.abs(b.amount) - Math.abs(a.amount);
+        }
+        if (financeView === "classification") {
+          return a.category.localeCompare(b.category, "es");
+        }
+        if (financeGroupBy === "author") {
+          return a.user.localeCompare(b.user, "es");
+        }
+        if (financeGroupBy === "status") {
+          return a.status.localeCompare(b.status, "es");
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [
+    financeGroupBy,
+    financePeriodFilter,
+    financeSearchQuery,
+    financeStatusFilter,
+    financeTableRows,
+    financeView,
+  ]);
   const selectedFinanceRows = useMemo(
-    () => financeTableRows.filter((row) => financeSelectedIds.includes(row.id)),
-    [financeSelectedIds, financeTableRows],
+    () => filteredFinanceRows.filter((row) => financeSelectedIds.includes(row.id)),
+    [filteredFinanceRows, financeSelectedIds],
+  );
+  const filteredFinanceGross = useMemo(
+    () => filteredFinanceRows.reduce((total, row) => total + Math.abs(row.amount), 0),
+    [filteredFinanceRows],
+  );
+  const financeCoverageRatio = useMemo(() => {
+    if (financeTotalVolume <= 0) return 0;
+    return Math.min(filteredFinanceGross / financeTotalVolume, 1);
+  }, [filteredFinanceGross, financeTotalVolume]);
+  const financeHeroStats = useMemo(
+    () => [
+      {
+        label: "Total filtrado",
+        value: formatARS(filteredFinanceGross),
+      },
+      {
+        label: "Creadores",
+        value: formatARS((data?.metrics.creatorsNet ?? 0) * financeCoverageRatio),
+        tone: "emerald" as const,
+      },
+      {
+        label: "Plataforma",
+        value: formatARS((data?.metrics.platformFee ?? 0) * financeCoverageRatio),
+        tone: "blue" as const,
+      },
+    ],
+    [data, filteredFinanceGross, financeCoverageRatio],
   );
   const financeSelectionAmount = useMemo(
     () =>
@@ -871,8 +954,14 @@ export default function AdminPage() {
     [selectedFinanceRows],
   );
   const financeAllSelected =
-    financeTableRows.length > 0 &&
-    financeSelectedIds.length === financeTableRows.length;
+    filteredFinanceRows.length > 0 &&
+    filteredFinanceRows.every((row) => financeSelectedIds.includes(row.id));
+
+  useEffect(() => {
+    setFinanceSelectedIds((prev) =>
+      prev.filter((id) => filteredFinanceRows.some((row) => row.id === id)),
+    );
+  }, [filteredFinanceRows]);
 
   const pendingAuthorApplications = useMemo(
     () =>
@@ -1932,9 +2021,10 @@ export default function AdminPage() {
 
   const toggleFinanceSelectAll = () => {
     setFinanceSelectedIds((prev) =>
-      prev.length === financeTableRows.length
+      filteredFinanceRows.length > 0 &&
+      filteredFinanceRows.every((row) => prev.includes(row.id))
         ? []
-        : financeTableRows.map((row) => row.id),
+        : filteredFinanceRows.map((row) => row.id),
     );
   };
 
@@ -1948,7 +2038,7 @@ export default function AdminPage() {
   };
 
   const exportFinanceRows = () => {
-    const rows = selectedFinanceRows.length > 0 ? selectedFinanceRows : financeTableRows;
+    const rows = selectedFinanceRows.length > 0 ? selectedFinanceRows : filteredFinanceRows;
     const csv = [
       ["Usuario", "Tipo", "Monto", "Estado", "Fecha", "Descripcion", "Cuenta"].join(","),
       ...rows.map((row) =>
@@ -2136,11 +2226,14 @@ export default function AdminPage() {
             financeHeroStats={financeHeroStats}
             financeView={financeView}
             setFinanceView={setFinanceView}
-            financeSelectionAmount={financeSelectionAmount}
-            selectedFinanceRowsCount={selectedFinanceRows.length}
-            financeSelectionKinds={financeSelectionKinds}
-            platformFee={data.metrics.platformFee ?? 0}
-            creatorsNet={data.metrics.creatorsNet ?? 0}
+            financeSearch={financeSearch}
+            setFinanceSearch={setFinanceSearch}
+            financeGroupBy={financeGroupBy}
+            setFinanceGroupBy={setFinanceGroupBy}
+            financePeriodFilter={financePeriodFilter}
+            setFinancePeriodFilter={setFinancePeriodFilter}
+            financeStatusFilter={financeStatusFilter}
+            setFinanceStatusFilter={setFinanceStatusFilter}
             financeFiltersOpen={financeFiltersOpen}
             setFinanceFiltersOpen={setFinanceFiltersOpen}
             financeColumnsOpen={financeColumnsOpen}
@@ -2149,7 +2242,7 @@ export default function AdminPage() {
             toggleFinanceColumn={toggleFinanceColumn}
             financeAllSelected={financeAllSelected}
             toggleFinanceSelectAll={toggleFinanceSelectAll}
-            financeTableRows={financeTableRows}
+            financeTableRows={filteredFinanceRows}
             financeSelectedIds={financeSelectedIds}
             toggleFinanceRowSelection={toggleFinanceRowSelection}
             setSelectedFinanceRow={setSelectedFinanceRow}

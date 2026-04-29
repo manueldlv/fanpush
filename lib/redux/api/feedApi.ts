@@ -9,6 +9,7 @@ import {
 import { inferDisplayKind, PUBLIC_MEDIA_BUCKET } from "@/lib/media";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Post } from "@/lib/store/posts";
+import { formatRelativeTime } from "@/lib/time";
 
 type FeedData = {
   currentUserId: string | null;
@@ -264,7 +265,7 @@ export const feedApi = createApi({
                 mediaPostIds,
                 author: albumUser?.username ?? "usuario",
                 verified: false,
-                time: "Ahora",
+                time: formatRelativeTime(post.created_at ?? ""),
                 suggestion: feedPromotionMap.has(post.user_id)
                   ? "Autor destacado"
                   : "Sugerencia para ti",

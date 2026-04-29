@@ -28,11 +28,14 @@ export default function AdminFinanceView({
   financeHeroStats,
   financeView,
   setFinanceView,
-  financeSelectionAmount,
-  selectedFinanceRowsCount,
-  financeSelectionKinds,
-  platformFee,
-  creatorsNet,
+  financeSearch,
+  setFinanceSearch,
+  financeGroupBy,
+  setFinanceGroupBy,
+  financePeriodFilter,
+  setFinancePeriodFilter,
+  financeStatusFilter,
+  setFinanceStatusFilter,
   financeFiltersOpen,
   setFinanceFiltersOpen,
   financeColumnsOpen,
@@ -51,11 +54,16 @@ export default function AdminFinanceView({
   financeHeroStats: Array<{ label: string; value: string; tone?: "emerald" | "blue" }>;
   financeView: FinanceView;
   setFinanceView: (view: FinanceView) => void;
-  financeSelectionAmount: number;
-  selectedFinanceRowsCount: number;
-  financeSelectionKinds: number;
-  platformFee: number;
-  creatorsNet: number;
+  financeSearch: string;
+  setFinanceSearch: (value: string) => void;
+  financeGroupBy: "flow" | "author" | "status";
+  setFinanceGroupBy: (value: "flow" | "author" | "status") => void;
+  financePeriodFilter: "all" | "7d" | "30d";
+  setFinancePeriodFilter: (value: "all" | "7d" | "30d") => void;
+  financeStatusFilter: "all" | "approved" | "settled" | "requested" | "sent" | "rejected";
+  setFinanceStatusFilter: (
+    value: "all" | "approved" | "settled" | "requested" | "sent" | "rejected",
+  ) => void;
   financeFiltersOpen: boolean;
   setFinanceFiltersOpen: (next: boolean) => void;
   financeColumnsOpen: boolean;
@@ -74,37 +82,31 @@ export default function AdminFinanceView({
   return (
     <>
       <div className="space-y-6">
-        <div className="overflow-hidden rounded-[24px] border border-cyan-950/20 bg-[linear-gradient(112deg,#16343c_0%,#0f182f_43%,#0c1425_68%,#080f22_100%)] px-6 py-6 text-white shadow-[0_24px_80px_rgba(0,0,0,0.24)] md:px-8">
+        <div className="overflow-hidden rounded-[24px] border border-zinc-200 bg-white px-6 py-6 shadow-sm md:px-8">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
             <div className="max-w-[760px]">
-              <div className="flex items-center gap-3 text-emerald-200">
+              <div className="flex items-center gap-3 text-zinc-500">
                 <Layers3 className="h-4 w-4" />
-                <div className="text-[0.78rem] font-semibold uppercase tracking-[0.36em] text-zinc-300">
-                  Intelligence
-                </div>
+                <div className="text-sm font-medium">Resumen operativo</div>
               </div>
-              <h2 className="mt-3 text-[1.9rem] font-semibold tracking-tight text-white md:text-[2.55rem]">
+              <h2 className="mt-3 text-[1.9rem] font-semibold tracking-tight text-zinc-950 md:text-[2.55rem]">
                 Finanzas
               </h2>
-              <p className="mt-3 text-sm leading-7 !text-white/80 md:text-[0.95rem]">
-                Vista operativa para entender cómo se distribuyen ventas, propinas,
-                retiros y netos por autor, estado y flujo financiero.
-              </p>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[900px]">
               {financeHeroStats.map((item) => (
                 <div
                   key={item.label}
-                  className="min-w-[160px] rounded-[18px] border border-white/10 bg-white/6 px-4 py-3 backdrop-blur-sm"
+                  className="min-w-0 rounded-[18px] border border-zinc-200 bg-white px-5 py-4"
                 >
-                  <div className="text-[0.78rem] font-medium uppercase tracking-[0.3em] text-zinc-300">
+                  <div className="text-sm font-medium text-zinc-500">
                     {item.label}
                   </div>
                   <div
                     className={cn(
-                      "mt-2.5 text-[1.65rem] font-semibold tracking-tight text-white",
-                      item.tone === "emerald" && "text-emerald-300",
-                      item.tone === "blue" && "text-sky-300",
+                      "mt-2.5 break-words text-[1.85rem] font-semibold tracking-tight text-zinc-950",
+                      item.tone === "emerald" && "text-emerald-700",
+                      item.tone === "blue" && "text-sky-700",
                     )}
                   >
                     {item.value}
@@ -115,7 +117,7 @@ export default function AdminFinanceView({
           </div>
         </div>
 
-        <div className="rounded-[22px] border border-white/8 bg-[#121212] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.24)]">
+        <div className="rounded-[22px] border border-zinc-200 bg-white p-2 shadow-sm">
           <div className="flex flex-wrap gap-2">
             {(
               [
@@ -136,8 +138,8 @@ export default function AdminFinanceView({
                 className={cn(
                   "inline-flex items-center gap-2 rounded-[14px] border px-4 py-3 text-sm font-semibold transition",
                   financeView === id
-                    ? "border-white/10 bg-[#323232] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-                    : "border-transparent bg-transparent text-zinc-300 hover:border-white/8 hover:bg-white/6 hover:text-white",
+                    ? "border-zinc-200 bg-zinc-950 text-white"
+                    : "border-transparent bg-transparent text-zinc-600 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-950",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -153,67 +155,56 @@ export default function AdminFinanceView({
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               <input
                 type="text"
+                value={financeSearch}
+                onChange={(event) => setFinanceSearch(event.target.value)}
                 placeholder="Buscar por descripción, usuario, payout o concepto..."
                 className="h-[46px] w-full rounded-[14px] border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
               />
             </div>
-            <select className="h-[46px] rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none">
-              <option>Vista por flujo</option>
-              <option>Vista por autor</option>
-              <option>Vista por estado</option>
+            <select
+              value={financeGroupBy}
+              onChange={(event) =>
+                setFinanceGroupBy(event.target.value as "flow" | "author" | "status")
+              }
+              className="h-[46px] rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none"
+            >
+              <option value="flow">Vista por flujo</option>
+              <option value="author">Vista por autor</option>
+              <option value="status">Vista por estado</option>
             </select>
-            <select className="h-[46px] rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none">
-              <option>Todos los períodos</option>
-              <option>Últimos 7 días</option>
-              <option>Últimos 30 días</option>
+            <select
+              value={financePeriodFilter}
+              onChange={(event) => setFinancePeriodFilter(event.target.value as "all" | "7d" | "30d")}
+              className="h-[46px] rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none"
+            >
+              <option value="all">Todos los períodos</option>
+              <option value="7d">Últimos 7 días</option>
+              <option value="30d">Últimos 30 días</option>
             </select>
-            <select className="h-[46px] rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none">
-              <option>Todos los estados</option>
-              <option>Pendiente</option>
-              <option>Enviado</option>
-              <option>Rechazado</option>
+            <select
+              value={financeStatusFilter}
+              onChange={(event) =>
+                setFinanceStatusFilter(
+                  event.target.value as
+                    | "all"
+                    | "approved"
+                    | "settled"
+                    | "requested"
+                    | "sent"
+                    | "rejected",
+                )
+              }
+              className="h-[46px] rounded-[14px] border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 outline-none"
+            >
+              <option value="all">Todos los estados</option>
+              <option value="approved">Aprobado</option>
+              <option value="settled">Liquidada</option>
+              <option value="requested">Solicitado</option>
+              <option value="sent">Enviado</option>
+              <option value="rejected">Rechazado</option>
             </select>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          {[
-            {
-              label: "Monto seleccionado",
-              value: formatARS(financeSelectionAmount),
-              helper: `${selectedFinanceRowsCount} movimientos`,
-            },
-            {
-              label: "Tipos presentes",
-              value: String(financeSelectionKinds),
-              helper: "Compra, propina o retiro",
-            },
-            {
-              label: "Comisión plataforma",
-              value: formatARS(platformFee),
-              helper: "Total global del panel",
-            },
-            {
-              label: "Neto creadores",
-              value: formatARS(creatorsNet),
-              helper: "Monto retenible por autores",
-            },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"
-            >
-              <div className="text-sm font-medium leading-5 text-zinc-500">
-                {item.label}
-              </div>
-              <div className="mt-3 text-[1.1rem] font-semibold leading-snug text-zinc-950 md:text-[1.35rem]">
-                {item.value}
-              </div>
-              <div className="mt-2 text-xs text-zinc-500">{item.helper}</div>
-            </div>
-          ))}
-        </div>
-
         <div className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -226,27 +217,27 @@ export default function AdminFinanceView({
               <button
                 type="button"
                 onClick={() => setFinanceFiltersOpen(!financeFiltersOpen)}
-                className="rounded-[14px] border border-zinc-800 bg-[#121212] px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                className="rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
                 Filtros
               </button>
               <button
                 type="button"
                 onClick={() => setFinanceColumnsOpen(!financeColumnsOpen)}
-                className="rounded-[14px] border border-zinc-800 bg-[#121212] px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                className="rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
                 Columnas
               </button>
               <button
                 type="button"
                 onClick={exportFinanceRows}
-                className="rounded-[14px] border border-zinc-800 bg-[#121212] px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                className="rounded-[14px] border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
                 Exportar
               </button>
               {financeColumnsOpen ? (
-                <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[208px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[18px] border border-white/10 bg-[#1d1d1d] text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-                  <div className="border-b border-white/8 px-4 py-2.5 text-[0.95rem] font-semibold">
+                <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[208px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[18px] border border-zinc-200 bg-white text-zinc-900 shadow-xl">
+                  <div className="border-b border-zinc-200 px-4 py-2.5 text-[0.95rem] font-semibold">
                     Mostrar columnas
                   </div>
                   <div className="max-h-[70vh] overflow-auto px-2.5 py-2.5">
@@ -257,9 +248,9 @@ export default function AdminFinanceView({
                             key={column}
                             type="button"
                             onClick={() => toggleFinanceColumn(column)}
-                            className="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left text-white transition hover:bg-white/6"
+                            className="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left text-zinc-700 transition hover:bg-zinc-50"
                           >
-                            <span className="flex h-5 w-5 items-center justify-center text-white">
+                            <span className="flex h-5 w-5 items-center justify-center text-zinc-900">
                               {visibleFinanceColumns.includes(column) ? (
                                 <Check className="h-4 w-4" />
                               ) : null}
@@ -278,8 +269,8 @@ export default function AdminFinanceView({
           </div>
 
           {financeFiltersOpen ? (
-            <div className="rounded-[18px] border border-zinc-800 bg-[#171717] px-4 py-3 text-sm text-zinc-300">
-              Los filtros reales los conectamos después. La estructura ya quedó preparada.
+            <div className="rounded-[18px] border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+              Los filtros activos se aplican arriba sobre búsqueda, período, estado y tipo de vista.
             </div>
           ) : null}
 
@@ -389,6 +380,18 @@ export default function AdminFinanceView({
                       </tr>
                     );
                   })}
+                  {financeTableRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={FINANCE_COLUMN_ORDER.filter((column) =>
+                          visibleFinanceColumns.includes(column),
+                        ).length + 1}
+                        className="px-4 py-10 text-center text-sm text-zinc-500"
+                      >
+                        No hay movimientos para los filtros seleccionados.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -407,7 +410,7 @@ export default function AdminFinanceView({
           <div className="relative z-10 w-full max-w-[640px] rounded-[26px] border border-zinc-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                <div className="text-sm font-medium text-zinc-500">
                   Movimiento financiero
                 </div>
                 <h3 className="mt-2 text-2xl font-semibold text-zinc-950">
@@ -424,13 +427,13 @@ export default function AdminFinanceView({
             </div>
             <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Usuario
                 </div>
                 <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.user}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Contraparte
                 </div>
                 <div className="mt-1 text-base text-zinc-900">
@@ -438,7 +441,7 @@ export default function AdminFinanceView({
                 </div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Monto
                 </div>
                 <div className="mt-1 text-base font-semibold text-red-500">
@@ -446,26 +449,26 @@ export default function AdminFinanceView({
                 </div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Estado
                 </div>
                 <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.status}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Cuenta
                 </div>
                 <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.account}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="text-xs font-medium text-zinc-500">
                   Periodo
                 </div>
                 <div className="mt-1 text-base text-zinc-900">{selectedFinanceRow.period}</div>
               </div>
             </div>
             <div className="mt-6">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+              <div className="text-xs font-medium text-zinc-500">
                 Detalle extendido
               </div>
               <div className="mt-2 rounded-[18px] bg-zinc-50 p-4 text-sm leading-7 text-zinc-700">

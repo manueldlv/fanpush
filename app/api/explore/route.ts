@@ -20,6 +20,7 @@ type AuthorAlbumPost = {
         media_type: string | null;
         is_locked: boolean | null;
         created_at: string | null;
+        likes_count?: number | null;
       }
     | Array<{
         id?: string | null;
@@ -27,6 +28,7 @@ type AuthorAlbumPost = {
         media_type: string | null;
         is_locked: boolean | null;
         created_at: string | null;
+        likes_count?: number | null;
       }>
     | null;
 };
@@ -48,6 +50,15 @@ type ExplorePromotionRow = {
 const EXPLORE_AUTHOR_LIMIT = 80;
 const EXPLORE_ALBUM_LIMIT = 160;
 const EXPLORE_PURCHASE_LOOKBACK_LIMIT = 1000;
+const TRENDING_DAYS = 7;
+const TOP_MONTH_DAYS = 30;
+
+type ExploreSort =
+  | "featured"
+  | "top-sales"
+  | "trending"
+  | "new"
+  | "top-month";
 
 const normalizeAlbumPost = (
   value: AuthorAlbumPost["post"],
@@ -63,6 +74,16 @@ const pickRandomItem = <T>(items: T[]) => {
 
 export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const requestedSort = searchParams.get("sort");
+    const sort: ExploreSort =
+      requestedSort === "top-sales" ||
+      requestedSort === "trending" ||
+      requestedSort === "new" ||
+      requestedSort === "top-month"
+        ? requestedSort
+        : "featured";
+
     const admin = getAdminSupabase();
     if (!admin) {
       return NextResponse.json(
@@ -135,7 +156,7 @@ export async function GET(request: Request) {
       admin
         .from("albums")
         .select(
-          "id,user_id,description,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at))",
+          "id,user_id,description,created_at,album_posts(post_id,post:posts(id,media_url,media_type,is_locked,created_at,likes_count))",
         )
         .eq("visibility", "published")
         .in("user_id", authorIds)
@@ -173,7 +194,7 @@ export async function GET(request: Request) {
     const { data: purchases, error: purchasesError } = candidatePostIds.length
       ? await admin
           .from("purchases")
-          .select("post_id")
+          .select("post_id,created_at")
           .in("post_id", Array.from(new Set(candidatePostIds)))
           .limit(EXPLORE_PURCHASE_LOOKBACK_LIMIT)
       : { data: [], error: null };
@@ -183,6 +204,11 @@ export async function GET(request: Request) {
     }
 
     const purchaseCountByPostId = new Map<string, number>();
+    const recentWeekPurchaseCountByPostId = new Map<string, number>();
+    const recentMonthPurchaseCountByPostId = new Map<string, number>();
+    const now = Date.now();
+    const weekMs = TRENDING_DAYS * 24 * 60 * 60 * 1000;
+    const monthMs = TOP_MONTH_DAYS * 24 * 60 * 60 * 1000;
     for (const row of purchases ?? []) {
       const postId = typeof row.post_id === "string" ? row.post_id : null;
       if (!postId) continue;
@@ -190,6 +216,24 @@ export async function GET(request: Request) {
         postId,
         (purchaseCountByPostId.get(postId) ?? 0) + 1,
       );
+      const createdAt =
+        typeof row.created_at === "string"
+          ? new Date(row.created_at).getTime()
+          : Number.NaN;
+      if (!Number.isFinite(createdAt)) continue;
+      const ageMs = now - createdAt;
+      if (ageMs <= weekMs) {
+        recentWeekPurchaseCountByPostId.set(
+          postId,
+          (recentWeekPurchaseCountByPostId.get(postId) ?? 0) + 1,
+        );
+      }
+      if (ageMs <= monthMs) {
+        recentMonthPurchaseCountByPostId.set(
+          postId,
+          (recentMonthPurchaseCountByPostId.get(postId) ?? 0) + 1,
+        );
+      }
     }
 
     const items = ((users ?? []) as UserRow[])
@@ -212,6 +256,7 @@ export async function GET(request: Request) {
                 mediaType: post.media_type ?? "image",
                 description: album.description ?? "",
                 createdAt: post.created_at ?? album.created_at ?? "",
+                likesCount: Number(post.likes_count ?? 0),
               };
             })
             .filter(Boolean) as Array<{
@@ -220,6 +265,7 @@ export async function GET(request: Request) {
             mediaType: string;
             description: string;
             createdAt: string;
+            likesCount: number;
           }>,
         );
 
@@ -258,6 +304,21 @@ export async function GET(request: Request) {
           description: coverPost.description,
           createdAt: coverPost.createdAt,
           isFollowing: followedIds.has(userId),
+          metrics: {
+            salesCount: postCandidates.reduce(
+              (sum, post) => sum + (purchaseCountByPostId.get(post.postId) ?? 0),
+              0,
+            ),
+            monthSalesCount: postCandidates.reduce(
+              (sum, post) => sum + (recentMonthPurchaseCountByPostId.get(post.postId) ?? 0),
+              0,
+            ),
+            weekSalesCount: postCandidates.reduce(
+              (sum, post) => sum + (recentWeekPurchaseCountByPostId.get(post.postId) ?? 0),
+              0,
+            ),
+            likesCount: postCandidates.reduce((sum, post) => sum + post.likesCount, 0),
+          },
         };
       })
       .filter(Boolean) as Array<{
@@ -269,18 +330,44 @@ export async function GET(request: Request) {
       description: string;
       createdAt: string;
       isFollowing: boolean;
+      metrics: {
+        salesCount: number;
+        monthSalesCount: number;
+        weekSalesCount: number;
+        likesCount: number;
+      };
     }>;
 
     items.sort((a, b) => {
-      const aRank = explorePromotionMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-      const bRank = explorePromotionMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-      if (aRank !== bRank) return aRank - bRank;
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bTime - aTime;
+      const aRank = explorePromotionMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bRank = explorePromotionMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+
+      if (sort === "top-sales") {
+        const salesDiff = b.metrics.salesCount - a.metrics.salesCount;
+        if (salesDiff !== 0) return salesDiff;
+      } else if (sort === "top-month") {
+        const monthDiff = b.metrics.monthSalesCount - a.metrics.monthSalesCount;
+        if (monthDiff !== 0) return monthDiff;
+      } else if (sort === "trending") {
+        const trendingScoreA = a.metrics.weekSalesCount * 4 + a.metrics.likesCount;
+        const trendingScoreB = b.metrics.weekSalesCount * 4 + b.metrics.likesCount;
+        if (trendingScoreA !== trendingScoreB) return trendingScoreB - trendingScoreA;
+      } else if (sort === "new") {
+        if (aTime !== bTime) return bTime - aTime;
+      } else {
+        if (aRank !== bRank) return aRank - bRank;
+      }
+
+      if (aRank !== bRank) return aRank - bRank;
+      if (aTime !== bTime) return bTime - aTime;
+      return b.metrics.salesCount - a.metrics.salesCount;
     });
 
-    return NextResponse.json({ items });
+    return NextResponse.json({
+      items: items.map(({ metrics: _metrics, ...item }) => item),
+    });
   } catch (error) {
     return NextResponse.json(
       {

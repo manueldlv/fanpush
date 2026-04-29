@@ -48,6 +48,7 @@ import { buildPostSharePath } from "@/lib/postShare";
 import { redirectToSaldo, shouldRedirectToSaldo } from "@/lib/purchaseRedirect";
 import { buildUserProfileHref } from "@/lib/profileRoute";
 import { getSupabaseClient } from "@/lib/supabase";
+import { formatRelativeTime } from "@/lib/time";
 import { useEscapeKey } from "@/lib/useEscapeKey";
 import { formatARS } from "@/lib/utils";
 import type { Post } from "@/lib/store/posts";
@@ -569,7 +570,7 @@ export default function PerfilPage({
           mediaPostIds,
           author: albumUser?.username ?? post.author ?? "usuario",
           verified: false,
-          time: "Ahora",
+          time: formatRelativeTime(album.created_at ?? media[0]?.created_at ?? ""),
           suggestion: "Perfil",
           caption: normalizedCaption,
           likes: media.reduce(

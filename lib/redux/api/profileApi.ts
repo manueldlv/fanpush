@@ -22,6 +22,7 @@ import {
   type ResolvedAccessMedia,
 } from "@/lib/postMediaState";
 import { ensureUserRow, getSupabaseClient } from "@/lib/supabase";
+import { formatRelativeTime } from "@/lib/time";
 import { getUserMetaEntries, USER_META_KEYS } from "@/lib/userMeta";
 import type { Post } from "@/lib/store/posts";
 
@@ -535,7 +536,7 @@ const loadProfileView = async (
             profile.username ??
             "usuario",
           verified: false,
-          time: "Ahora",
+          time: formatRelativeTime(album.created_at ?? media[0]?.created_at ?? ""),
           suggestion: "Perfil",
           caption: normalizedCaption,
           likes: media.reduce(
@@ -560,7 +561,7 @@ const loadProfileView = async (
             mediaPostIds: [post.id],
             author: userRow?.username ?? profile.username ?? "usuario",
             verified: false,
-            time: "Ahora",
+            time: formatRelativeTime(post.created_at ?? ""),
             suggestion: "Perfil",
             caption: "",
             likes: likesByPostId.get(post.id ?? "") ?? 0,

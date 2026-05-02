@@ -43,6 +43,40 @@ export type ChatPickerAlbumPostItem = {
   position: number;
 };
 
+type ChatContentAlbumPost = {
+  position: number | null;
+  post:
+    | {
+        id: string | null;
+        media_url: string | null;
+        media_type: string | null;
+        is_locked?: boolean | null;
+        created_at?: string | null;
+      }
+    | {
+        id: string | null;
+        media_url: string | null;
+        media_type: string | null;
+        is_locked?: boolean | null;
+        created_at?: string | null;
+      }[]
+    | null;
+};
+
+type ChatContentAlbumRow = {
+  id: string;
+  description: string | null;
+  price: number | string | null;
+  visibility: string | null;
+  created_at: string | null;
+  album_posts: ChatContentAlbumPost[] | null;
+};
+
+const normalizeChatAlbumPost = (
+  value: ChatContentAlbumPost["post"],
+): Exclude<ChatContentAlbumPost["post"], unknown[] | null> | null =>
+  Array.isArray(value) ? (value[0] ?? null) : value;
+
 const throwRepositoryError = (
   error: { message: string } | null,
   fallback: string,
@@ -118,7 +152,7 @@ export const createSellableAlbumFromUploads = async ({
   ownerUserId: string;
   description: string;
   price: number;
-  visibility: "published" | "private";
+  visibility: "published" | "private" | "draft";
   items: UploadAlbumItem[];
 }) => {
   if (items.length === 0) throw new Error("Agrega al menos un archivo.");
@@ -343,26 +377,27 @@ export const listChatPickerContent = async ({
   const albums: ChatPickerAlbumItem[] = [];
   const chatAssets: ChatPickerAssetItem[] = [];
 
-  for (const row of albumRows ?? []) {
-    const posts = Array.isArray(row.album_posts)
+  for (const row of (albumRows ?? []) as ChatContentAlbumRow[]) {
+    const sortedAlbumPosts = Array.isArray(row.album_posts)
       ? [...row.album_posts]
           .sort(
             (left, right) =>
               Number(left.position ?? 0) - Number(right.position ?? 0),
           )
-          .map((link) => link.post)
-          .filter(Boolean) as Array<{
-            id: string;
-            media_url: string | null;
-            media_type: string | null;
-          }>
       : [];
-    const albumPosts = Array.isArray(row.album_posts)
-      ? [...row.album_posts].sort(
-          (left, right) =>
-            Number(left.position ?? 0) - Number(right.position ?? 0),
-        )
-      : [];
+    const posts = sortedAlbumPosts
+      .map((link) => normalizeChatAlbumPost(link.post))
+      .filter(
+        (
+          post,
+        ): post is {
+          id: string;
+          media_url: string | null;
+          media_type: string | null;
+          is_locked?: boolean | null;
+          created_at?: string | null;
+        } => post != null && typeof post.id === "string" && post.id.length > 0,
+      );
 
     const coverUrl = resolvePublicUrl(admin, posts[0]?.media_url ?? null);
     albums.push({
@@ -372,9 +407,9 @@ export const listChatPickerContent = async ({
       coverUrl,
       itemCount: posts.length,
       visibility: row.visibility ?? "published",
-      posts: albumPosts
+      posts: sortedAlbumPosts
         .map((link) => {
-          const post = link.post;
+          const post = normalizeChatAlbumPost(link.post);
           if (!post?.id) return null;
           return {
             postId: post.id,

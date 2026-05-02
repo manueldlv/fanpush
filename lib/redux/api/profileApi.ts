@@ -32,6 +32,7 @@ type AlbumMediaPost = {
   media_type: string | null;
   is_locked: boolean | null;
   likes_count: number | null;
+  created_at?: string | null;
   caption?: string | null;
 };
 
@@ -391,7 +392,7 @@ const loadProfileView = async (
     supabase
       .from("albums")
       .select(
-        "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,caption))",
+        "id,user_id,description,price,visibility,created_at,users(username,avatar_url),album_posts(post:posts(id,media_url,media_type,is_locked,likes_count,created_at,caption))",
       )
       .eq("user_id", viewedUserId)
       .eq("visibility", "published")

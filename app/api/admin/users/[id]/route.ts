@@ -5,7 +5,7 @@ import { serializeUserCommissionProfile } from "@/lib/userCommission";
 
 type UpdateBody = {
   creatorShare?: number;
-  durationDays?: number | null;
+  durationDays?: number | string | null;
 };
 
 export async function PATCH(

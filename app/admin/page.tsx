@@ -39,7 +39,10 @@ import {
 } from "@/lib/referrals";
 import { getAllBadgeDefinitions } from "@/lib/badges";
 import { useSignOutMutation } from "@/lib/redux/api/sessionApi";
-import { getSupabaseAdminBrowserClient } from "@/lib/supabase";
+import {
+  getSupabaseAdminBrowserClient,
+  getSupabaseSessionSafely,
+} from "@/lib/supabase";
 import { useEscapeKey } from "@/lib/useEscapeKey";
 import { cn, formatARS } from "@/lib/utils";
 
@@ -566,9 +569,9 @@ export default function AdminPage() {
     try {
       const supabase = getSupabaseAdminBrowserClient();
       if (!supabase) throw new Error("Falta configurar Supabase.");
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const session = await getSupabaseSessionSafely(supabase, {
+        storageKey: "fanpush-admin-auth",
+      });
       if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
 
       const response = await fetch("/api/admin/dashboard", {
@@ -603,9 +606,9 @@ export default function AdminPage() {
     try {
       const supabase = getSupabaseAdminBrowserClient();
       if (!supabase) throw new Error("Falta configurar Supabase.");
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const session = await getSupabaseSessionSafely(supabase, {
+        storageKey: "fanpush-admin-auth",
+      });
       if (!session?.access_token) throw new Error("Necesitas iniciar sesión.");
 
       const response = await fetch("/api/admin/access-management", {

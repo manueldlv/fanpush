@@ -12,7 +12,7 @@ type PromotionBody = {
   promoteInExplore?: boolean;
   exploreRank?: number;
   note?: string;
-  durationDays?: number | null;
+  durationDays?: number | string | null;
 };
 
 const normalizeRank = (value: unknown) => {

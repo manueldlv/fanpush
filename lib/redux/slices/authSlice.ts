@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, getSupabaseSessionSafely } from "@/lib/supabase";
 
 type AuthState = {
   hydrated: boolean;
@@ -29,9 +29,7 @@ export const hydrateAuthState = createAsyncThunk<
     return rejectWithValue("Falta configurar Supabase.");
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const session = await getSupabaseSessionSafely(supabase);
 
   if (!session?.user) {
     return {

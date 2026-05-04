@@ -6,7 +6,7 @@ import { notificationsApi } from "@/lib/redux/api/notificationsApi";
 import { profileApi } from "@/lib/redux/api/profileApi";
 import { sessionApi } from "@/lib/redux/api/sessionApi";
 import { useAppDispatch } from "@/lib/redux/hooks";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, getSupabaseSessionSafely } from "@/lib/supabase";
 
 const APP_REFRESH_EVENTS = [
   "balance-updated",
@@ -25,9 +25,8 @@ export default function AppStateBootstrap() {
     const finalizeReferralIfNeeded = async () => {
       const supabase = getSupabaseClient();
       if (!supabase) return;
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const session = await getSupabaseSessionSafely(supabase);
+
       const userId = session?.user?.id;
       if (!session?.access_token || !userId) return;
       const finalizeKey = `fanpush_referral_finalized:${userId}`;

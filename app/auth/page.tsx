@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, getSupabaseSessionSafely } from "@/lib/supabase";
 import Image from "next/image";
 import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from "lucide-react";
 import {
@@ -542,7 +542,7 @@ export default function AuthPage() {
     const settleRecoverySession = async () => {
       if (!hasRecoveryHash) return;
       // Let Supabase read the recovery hash first, then clean the URL.
-      await supabase.auth.getSession();
+      await getSupabaseSessionSafely(supabase, { useInFlightRequest: false });
       if (typeof window !== "undefined") {
         window.setTimeout(() => {
           window.history.replaceState({}, "", "/auth?reset=1");
@@ -557,8 +557,8 @@ export default function AuthPage() {
       search.includes("checkout=resume")
     ) {
       void (async () => {
-        const { data } = await supabase.auth.getSession();
-        if (data.session?.access_token) {
+        const session = await getSupabaseSessionSafely(supabase);
+        if (session?.access_token) {
           resumePendingCheckout();
         }
       })();

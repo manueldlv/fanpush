@@ -3,6 +3,7 @@ import type { PayoutProfile } from "@/lib/payouts";
 import {
   getSupabaseAdminBrowserClient,
   getSupabaseClient,
+  getSupabaseSessionSafely,
 } from "@/lib/supabase";
 
 type ViewerProfileState = {
@@ -174,9 +175,10 @@ const loadSessionSummary = async (): Promise<SessionSummary> => {
   }
 
   try {
-    const {
-      data: { session },
-    } = await withTimeout(supabase.auth.getSession(), SESSION_TIMEOUT_MS);
+    const session = await withTimeout(
+      getSupabaseSessionSafely(supabase),
+      SESSION_TIMEOUT_MS,
+    );
 
     if (!session?.user) {
       return {
@@ -212,9 +214,7 @@ const loadViewer = async (): Promise<ViewerPayload> => {
     throw new Error("Falta configurar Supabase.");
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const session = await getSupabaseSessionSafely(supabase);
 
   if (!session?.user || !session.access_token) {
     return emptyViewerPayload();
@@ -322,9 +322,7 @@ const loadAdminAccess = async (): Promise<AdminAccessSummary> => {
     throw new Error("Falta configurar Supabase.");
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const session = await getSupabaseSessionSafely(supabase);
 
   if (!session?.access_token) {
     return {

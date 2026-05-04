@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseSessionSafely } from "@/lib/supabase";
 
 type BrowserSupabase = SupabaseClient<any, "public", any>;
 
@@ -56,8 +57,8 @@ export const getSessionAccessTokenWithRetry = async (
   let accessToken: string | null = null;
 
   for (let attempt = 0; attempt < (shouldRetry ? attempts : 1); attempt += 1) {
-    const { data } = await supabase.auth.getSession();
-    accessToken = data.session?.access_token ?? null;
+    const session = await getSupabaseSessionSafely(supabase);
+    accessToken = session?.access_token ?? null;
     if (accessToken) break;
     if (attempt < attempts - 1) {
       await new Promise((resolve) => window.setTimeout(resolve, delayMs));

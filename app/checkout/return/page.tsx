@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useFinalizeMercadoPagoMutation } from "@/lib/redux/api/commerceApi";
 import {
@@ -10,7 +10,7 @@ import {
   savePendingCheckout,
   PURCHASE_REFRESH_FLAG,
 } from "@/lib/auth";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, getSupabaseSessionSafely } from "@/lib/supabase";
 
 function CheckoutReturnContent() {
   const router = useRouter();
@@ -23,16 +23,19 @@ function CheckoutReturnContent() {
     [searchParams],
   );
 
-  const redirectToTarget = (checkoutState: string, extraParams?: Record<string, string>) => {
-    clearPendingCheckout();
-    const url = new URL(target, window.location.origin);
-    url.searchParams.set("checkout", checkoutState);
-    Object.entries(extraParams ?? {}).forEach(([key, value]) => {
-      url.searchParams.set(key, value);
-    });
-    const finalTarget = `${url.pathname}${url.search}${url.hash}`;
-    router.replace(finalTarget);
-  };
+  const redirectToTarget = useCallback(
+    (checkoutState: string, extraParams?: Record<string, string>) => {
+      clearPendingCheckout();
+      const url = new URL(target, window.location.origin);
+      url.searchParams.set("checkout", checkoutState);
+      Object.entries(extraParams ?? {}).forEach(([key, value]) => {
+        url.searchParams.set(key, value);
+      });
+      const finalTarget = `${url.pathname}${url.search}${url.hash}`;
+      router.replace(finalTarget);
+    },
+    [router, target],
+  );
 
   useEffect(() => {
     const run = async () => {
@@ -69,8 +72,7 @@ function CheckoutReturnContent() {
 
       let session = null;
       for (let attempt = 0; attempt < 8; attempt += 1) {
-        const { data } = await supabase.auth.getSession();
-        session = data.session;
+        session = await getSupabaseSessionSafely(supabase);
         if (session?.access_token) break;
         setMessage("Recuperando tu sesión para acreditar el pago...");
         await new Promise((resolve) => window.setTimeout(resolve, 600));
@@ -164,7 +166,7 @@ function CheckoutReturnContent() {
     };
 
     void run();
-  }, [finalizeMercadoPago, router, searchParams, target]);
+  }, [finalizeMercadoPago, redirectToTarget, router, searchParams, target]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 text-zinc-900">

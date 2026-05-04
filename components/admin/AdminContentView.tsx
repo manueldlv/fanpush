@@ -29,6 +29,14 @@ type ContentItem = {
   contentAudience: ContentAudience;
   moderationCategory: ModerationCategory;
   moderationTags: string[];
+  media: Array<{
+    id: string;
+    url: string | null;
+    type: string;
+    caption: string;
+    isLocked: boolean;
+    createdAt: string;
+  }>;
 };
 
 type ArchivedContentItem = {

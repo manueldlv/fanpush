@@ -114,7 +114,6 @@ export const discoveryApi = createApi({
     getExploreFeed: builder.query<ExploreItem[], ExploreSort | void>({
       async queryFn(sort = "featured") {
         try {
-          const resolvedSort: ExploreSort = sort ?? "featured";
           const supabase = getSupabaseClient();
           if (!supabase) {
             throw new Error("Falta configurar Supabase.");
@@ -124,11 +123,11 @@ export const discoveryApi = createApi({
             data: { session },
           } = await supabase.auth.getSession();
           const response = await fetch(
-            `/api/explore?sort=${encodeURIComponent(resolvedSort)}`,
+            `/api/explore?sort=${encodeURIComponent(sort)}`,
             {
-              headers: session?.access_token
-                ? { Authorization: `Bearer ${session.access_token}` }
-                : undefined,
+            headers: session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : undefined,
             },
           );
           const result = (await response.json()) as {

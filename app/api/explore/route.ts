@@ -62,8 +62,10 @@ type ExploreSort =
 
 const normalizeAlbumPost = (
   value: AuthorAlbumPost["post"],
-): Exclude<AuthorAlbumPost["post"], Array<unknown> | null> | null =>
-  Array.isArray(value) ? (value[0] ?? null) : value;
+): NonNullable<AuthorAlbumPost["post"]> extends Array<infer T>
+  ? T | null
+  : never =>
+  (Array.isArray(value) ? (value[0] ?? null) : value) as never;
 
 const pickRandomItem = <T>(items: T[]) => {
   if (items.length === 0) return null;

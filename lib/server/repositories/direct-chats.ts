@@ -70,6 +70,34 @@ type DirectChatAttachmentMeta = {
   publicPath?: string | null;
 };
 
+type DirectChatAlbumPost = {
+  position: number | null;
+  post_id: string | null;
+  post:
+    | {
+        id: string | null;
+        media_url: string | null;
+        media_type: string | null;
+        is_locked: boolean | null;
+      }
+    | {
+        id: string | null;
+        media_url: string | null;
+        media_type: string | null;
+        is_locked: boolean | null;
+      }[]
+    | null;
+};
+
+type DirectChatAlbumRow = {
+  id: string;
+  user_id: string | null;
+  description: string | null;
+  price: number | string | null;
+  visibility: string | null;
+  album_posts: DirectChatAlbumPost[] | null;
+};
+
 type DirectThreadSummary = {
   id: string;
   participantUserId: string;
@@ -166,6 +194,21 @@ const resolvePublicUrl = (
   return admin.storage.from(PUBLIC_MEDIA_BUCKET).getPublicUrl(value).data
     .publicUrl;
 };
+
+const normalizeDirectChatAlbumPost = (
+  value: DirectChatAlbumPost["post"],
+): Exclude<DirectChatAlbumPost["post"], unknown[] | null> | null =>
+  Array.isArray(value) ? (value[0] ?? null) : value;
+
+const sortDirectChatAlbumPosts = (
+  posts: DirectChatAlbumPost[] | null | undefined,
+): DirectChatAlbumPost[] =>
+  Array.isArray(posts)
+    ? [...posts].sort(
+        (left, right) =>
+          Number(left?.position ?? 0) - Number(right?.position ?? 0),
+      )
+    : [];
 
 const formatRelativeMessageTime = (value: string) => {
   const date = new Date(value);
@@ -759,18 +802,11 @@ export const getDirectThread = async ({
     : { data: [], error: null };
 
   throwRepositoryError(albumError, "No se pudo leer el contenido del chat");
-  const albumMap = new Map((albumRows ?? []).map((row) => [row.id as string, row]));
-  const albumPostRows = (albumRows ?? []).flatMap((row) =>
-    Array.isArray(row.album_posts) ? row.album_posts : [],
-  ) as Array<{
-    post_id: string;
-    post: {
-      id: string;
-      media_url: string | null;
-      media_type: string | null;
-      is_locked: boolean | null;
-    } | null;
-  }>;
+  const typedAlbumRows = (albumRows ?? []) as DirectChatAlbumRow[];
+  const albumMap = new Map(typedAlbumRows.map((row) => [row.id, row]));
+  const albumPostRows = typedAlbumRows.flatMap((row) =>
+    sortDirectChatAlbumPosts(row.album_posts),
+  );
   const albumPostIds = Array.from(new Set(albumPostRows.map((row) => row.post_id).filter(Boolean)));
   const { data: albumPurchaseRows, error: albumPurchasesError } = albumPostIds.length
     ? await admin
@@ -788,18 +824,13 @@ export const getDirectThread = async ({
     const albumId = parseAlbumId(message.metadata);
     if (albumId) {
       const album = albumMap.get(albumId);
-      const albumPosts = Array.isArray(album?.album_posts)
-        ? [...album.album_posts].sort(
-            (left: any, right: any) =>
-              Number(left?.position ?? 0) - Number(right?.position ?? 0),
-          )
-        : [];
+      const albumPosts = sortDirectChatAlbumPosts(album?.album_posts);
       const canSeeAlbum =
         message.sender_id === viewerUserId ||
         albumPosts.some((row) => row.post_id && purchasedAlbumPostIds.has(row.post_id));
       if (canSeeAlbum) {
         albumPosts.forEach((row) => {
-          const path = row.post?.media_url ?? null;
+          const path = normalizeDirectChatAlbumPost(row.post)?.media_url ?? null;
           const parsed = parseLockedPreviewPath(path);
           if (parsed && album?.user_id) {
             signedAlbumPremiumPaths.add(
@@ -867,18 +898,13 @@ export const getDirectThread = async ({
 
     if (message.kind === "premium" && albumId) {
       const album = albumMap.get(albumId);
-      const albumPosts = Array.isArray(album?.album_posts)
-        ? [...album.album_posts].sort(
-            (left: any, right: any) =>
-              Number(left?.position ?? 0) - Number(right?.position ?? 0),
-          )
-        : [];
+      const albumPosts = sortDirectChatAlbumPosts(album?.album_posts);
       const canSeeAlbum =
         message.sender_id === viewerUserId ||
         albumPosts.some((row) => row.post_id && purchasedAlbumPostIds.has(row.post_id));
       const resolvedAlbumPreviews = albumPosts
         .map((row) => {
-          const post = row.post;
+          const post = normalizeDirectChatAlbumPost(row.post);
           if (!post) return null;
           const previewUrl = resolvePublicUrl(admin, post.media_url);
           if (!previewUrl) return null;

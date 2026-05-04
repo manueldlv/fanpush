@@ -118,12 +118,13 @@ export const discoveryApi = createApi({
           if (!supabase) {
             throw new Error("Falta configurar Supabase.");
           }
+          const resolvedSort: ExploreSort = sort ?? "featured";
 
           const {
             data: { session },
           } = await supabase.auth.getSession();
           const response = await fetch(
-            `/api/explore?sort=${encodeURIComponent(sort)}`,
+            `/api/explore?sort=${encodeURIComponent(resolvedSort)}`,
             {
             headers: session?.access_token
               ? { Authorization: `Bearer ${session.access_token}` }

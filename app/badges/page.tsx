@@ -17,6 +17,7 @@ import { formatARS } from "@/lib/utils";
 const badgeCategoryTitle: Record<BadgeCategory, string> = {
   founders: "Fundación",
   sales: "Ventas",
+  purchases: "Compras",
   promotion: "Promoción",
   referrals: "Referidos",
   prestige: "Prestigio",
@@ -25,6 +26,7 @@ const badgeCategoryTitle: Record<BadgeCategory, string> = {
 const badgeCategoryDescription: Record<BadgeCategory, string> = {
   founders: "Badges reservadas para launch, founders y etapas tempranas.",
   sales: "Se desbloquean automáticamente según tus ventas acumuladas en ARS.",
+  purchases: "Se desbloquean automáticamente según tus compras acumuladas en ARS.",
   promotion: "Reconocen tu capacidad de mover crecimiento y traer creadores.",
   referrals: "Premian la cantidad total de personas que trajiste al ecosistema.",
   prestige: "Reconocimientos editoriales o manuales asignados por FanPush.",
@@ -33,6 +35,7 @@ const badgeCategoryDescription: Record<BadgeCategory, string> = {
 const categoryOrder: BadgeCategory[] = [
   "founders",
   "sales",
+  "purchases",
   "promotion",
   "referrals",
   "prestige",

@@ -60,12 +60,19 @@ type ExploreSort =
   | "new"
   | "top-month";
 
+type NormalizedAuthorPost = {
+  id?: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  is_locked: boolean | null;
+  created_at: string | null;
+  likes_count?: number | null;
+};
+
 const normalizeAlbumPost = (
   value: AuthorAlbumPost["post"],
-): NonNullable<AuthorAlbumPost["post"]> extends Array<infer T>
-  ? T | null
-  : never =>
-  (Array.isArray(value) ? (value[0] ?? null) : value) as never;
+): NormalizedAuthorPost | null =>
+  Array.isArray(value) ? (value[0] ?? null) : value;
 
 const pickRandomItem = <T>(items: T[]) => {
   if (items.length === 0) return null;

@@ -31,6 +31,7 @@ type AlbumMediaPost = {
   media_url: string | null;
   media_type: string | null;
   is_locked: boolean | null;
+  created_at?: string | null;
   likes_count: number | null;
   caption?: string | null;
 };

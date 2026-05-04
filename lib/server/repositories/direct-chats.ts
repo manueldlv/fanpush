@@ -764,12 +764,20 @@ export const getDirectThread = async ({
     Array.isArray(row.album_posts) ? row.album_posts : [],
   ) as Array<{
     post_id: string;
-    post: {
-      id: string;
-      media_url: string | null;
-      media_type: string | null;
-      is_locked: boolean | null;
-    } | null;
+    post:
+      | {
+          id: string;
+          media_url: string | null;
+          media_type: string | null;
+          is_locked: boolean | null;
+        }
+      | Array<{
+          id: string;
+          media_url: string | null;
+          media_type: string | null;
+          is_locked: boolean | null;
+        }>
+      | null;
   }>;
   const albumPostIds = Array.from(new Set(albumPostRows.map((row) => row.post_id).filter(Boolean)));
   const { data: albumPurchaseRows, error: albumPurchasesError } = albumPostIds.length
@@ -799,7 +807,8 @@ export const getDirectThread = async ({
         albumPosts.some((row) => row.post_id && purchasedAlbumPostIds.has(row.post_id));
       if (canSeeAlbum) {
         albumPosts.forEach((row) => {
-          const path = row.post?.media_url ?? null;
+          const post = Array.isArray(row.post) ? (row.post[0] ?? null) : row.post;
+          const path = post?.media_url ?? null;
           const parsed = parseLockedPreviewPath(path);
           if (parsed && album?.user_id) {
             signedAlbumPremiumPaths.add(
@@ -878,7 +887,7 @@ export const getDirectThread = async ({
         albumPosts.some((row) => row.post_id && purchasedAlbumPostIds.has(row.post_id));
       const resolvedAlbumPreviews = albumPosts
         .map((row) => {
-          const post = row.post;
+          const post = Array.isArray(row.post) ? (row.post[0] ?? null) : row.post;
           if (!post) return null;
           const previewUrl = resolvePublicUrl(admin, post.media_url);
           if (!previewUrl) return null;

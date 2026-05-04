@@ -43,6 +43,14 @@ export type ChatPickerAlbumPostItem = {
   position: number;
 };
 
+type ChatPickerRowPost = {
+  id: string;
+  media_url: string | null;
+  media_type: string | null;
+  is_locked: boolean | null;
+  created_at: string | null;
+};
+
 const throwRepositoryError = (
   error: { message: string } | null,
   fallback: string,
@@ -118,7 +126,7 @@ export const createSellableAlbumFromUploads = async ({
   ownerUserId: string;
   description: string;
   price: number;
-  visibility: "published" | "private";
+  visibility: "published" | "private" | "draft";
   items: UploadAlbumItem[];
 }) => {
   if (items.length === 0) throw new Error("Agrega al menos un archivo.");
@@ -350,12 +358,10 @@ export const listChatPickerContent = async ({
             (left, right) =>
               Number(left.position ?? 0) - Number(right.position ?? 0),
           )
-          .map((link) => link.post)
-          .filter(Boolean) as Array<{
-            id: string;
-            media_url: string | null;
-            media_type: string | null;
-          }>
+          .map((link) =>
+            Array.isArray(link.post) ? (link.post[0] ?? null) : link.post,
+          )
+          .filter((post): post is ChatPickerRowPost => Boolean(post))
       : [];
     const albumPosts = Array.isArray(row.album_posts)
       ? [...row.album_posts].sort(
@@ -374,7 +380,7 @@ export const listChatPickerContent = async ({
       visibility: row.visibility ?? "published",
       posts: albumPosts
         .map((link) => {
-          const post = link.post;
+          const post = Array.isArray(link.post) ? (link.post[0] ?? null) : link.post;
           if (!post?.id) return null;
           return {
             postId: post.id,

@@ -472,8 +472,8 @@ export const resolveBadgeSlugs = ({
 export const resolveBadges = (context: BadgeContext): ResolvedBadge[] =>
   resolveBadgeSlugs(context)
     .map((slug) => getBadgeDefinition(slug))
-    .filter(Boolean)
-    .sort((a, b) => b.displayPriority - a.displayPriority) as ResolvedBadge[];
+    .filter((badge): badge is ResolvedBadge => Boolean(badge))
+    .sort((a, b) => b.displayPriority - a.displayPriority);
 
 export const getPrimaryBadges = (context: BadgeContext, limit = 4): ResolvedBadge[] => {
   const byCategory = new Map<BadgeCategory, ResolvedBadge>();
